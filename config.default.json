@@ -1,0 +1,18 @@
+{
+  "version": 1,
+  "mode": "symbolic",
+  "payout_address": "",
+  "rpc_url": "http://127.0.0.1:8332",
+  "rpc_user": "",
+  "rpc_pass": "",
+  "machine_seed": "",
+  "price_poll_interval_min": 15,
+  "menu_bar_display": "block",
+  "screensaver_view": "matrix_rain",
+  "notifications_enabled": true,
+  "notify_closeness_above_zero": true,
+  "notify_block_won": true,
+  "notify_node_synced": true,
+  "notify_node_out_of_sync": true,
+  "show_wallet_balance": false
+}

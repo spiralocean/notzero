@@ -1,0 +1,18 @@
+# Build artifacts
+**/build/
+**/*.o
+**/*.app
+**/*.saver
+
+# macOS
+.DS_Store
+
+# Local config / runtime state
+config.json
+data/
+*.log
+
+# Python
+__pycache__/
+*.pyc
+.venv/
