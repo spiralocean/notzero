@@ -516,6 +516,7 @@ final class LotteryCanvasView: NSView {
         }
         saveExpandedSections()
         syncDashboardFrameHeight()
+        window?.invalidateCursorRects(for: self)
         needsDisplay = true
     }
 
@@ -773,6 +774,14 @@ final class LotteryCanvasView: NSView {
         let tip = state?.node?.blocks ?? state?.node?.headers ?? 872_000
         syncReplay = SyncReplayCycle(tipBlockHeight: tip)
         needsDisplay = true
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard layoutMode == .app, bounds.width > 0 else { return }
+        for f in layoutDashboardSections(width: bounds.width).frames {
+            addCursorRect(f.headerRect, cursor: .pointingHand)
+        }
     }
 
     override func updateTrackingAreas() {
