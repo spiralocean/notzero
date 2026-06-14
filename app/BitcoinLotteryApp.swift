@@ -172,21 +172,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         dashboard?.showDashboard(scrollToNodeSetup: true)
     }
 
+    // The dashboard now lives in the browser (cross-platform). The menu bar opens it.
+    // Dev: local server. TODO: swap to the GitHub Pages URL when we ship.
+    private static let dashboardURL = "http://localhost:8787/"
+
     @objc private func openLottery() {
-        if lottery == nil {
-            let controller = LotteryWindowController(
-                title: BitcoinBrand.format("Bitcoin Lottery (v\(LotteryVersion.string))")
-            )
-            controller.onWindowWillClose = { [weak self] in
-                self?.lottery = nil
-                if self?.dashboard?.window?.isVisible != true {
-                    NSApp.setActivationPolicy(.accessory)
-                }
-            }
-            lottery = controller
-        }
-        NSApp.setActivationPolicy(.regular)
-        lottery?.showLottery()
+        guard let url = URL(string: Self.dashboardURL) else { return }
+        NSWorkspace.shared.open(url)
     }
 
     @objc private func openPreview() {

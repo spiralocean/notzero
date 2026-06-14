@@ -177,7 +177,7 @@ const QUOTES = [
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180 };
 let headerHits = [];
-let clock = 0, quoteIdx = 0, quoteT = 0;
+let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -249,37 +249,82 @@ function drawCloseness(r) {
   text(`${lead} leading zero hex · ${p.leadingZeroBits} zero bits`, r.x + r.w / 2, rowY + 24, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
 }
 
-// HASH BUILD ceremony — the real 80-byte header fields assembling into your hash.
+// ---- HASH BUILD ceremony: phased, accurate-but-stylized ----
+// Real header fields (to-scale byte widths) assemble one by one, churn through
+// the double SHA-256 as matrix-hex, then resolve into your real block hash.
+const HEADER_FIELDS = [
+  { label: "version", bytes: 4, explain: "which consensus rules this block follows", val: (b) => (b.version >>> 0).toString(16).padStart(8, "0") },
+  { label: "prev block", bytes: 32, explain: "the link back to the previous block — this is the chain", val: (b) => b.previousblockhash.slice(0, 24) + "…" },
+  { label: "merkle root", bytes: 32, explain: "one fingerprint of every transaction in the block", val: (b) => b.merkle_root.slice(0, 24) + "…" },
+  { label: "time", bytes: 4, explain: "when the block was assembled", val: (b) => new Date(b.timestamp * 1000).toISOString().slice(0, 19).replace("T", " ") + " UTC" },
+  { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
+  { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
+];
+const PHASES = [["assemble", 7.8], ["pack", 1.0], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.4]];
+const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
+const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
+const ceremony = { height: null, t: 0, cycle: -1, order: [] };
+function phaseAt(t) { let acc = 0; for (const [name, dur] of PHASES) { if (t < acc + dur) return { name, p: (t - acc) / dur }; acc += dur; } return { name: "hold", p: 1 }; }
+function shuffled(n) { const a = [...Array(n).keys()]; for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
+function churnChar(i) { return CYBER[(frame + i * 7) % CYBER.length]; }
+
 function drawHashBuild(r) {
   if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
-  const b = model.block, t = model.ticket;
+  const b = model.block, tk = model.ticket;
+  if (ceremony.height !== model.tipHeight) { ceremony.height = model.tipHeight; ceremony.t = 0; }
+  ceremony.t += 1 / 60;
+  const t = ceremony.t % CYCLE_LEN, cyc = Math.floor(ceremony.t / CYCLE_LEN);
+  if (cyc !== ceremony.cycle) { ceremony.cycle = cyc; ceremony.order = shuffled(40); }
+  const ph = phaseAt(t);
+  const assembling = ph.name === "assemble";
+  const lockedCount = assembling ? Math.min(6, Math.floor(ph.p * 6)) : 6;
+  const fillFrac = assembling ? ph.p * 6 - lockedCount : 1;
+
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
-  text("BUILDING THE BLOCK HEADER  ·  80 bytes, 6 fields", r.x + 14, r.y + 22, { size: 13, weight: 700, color: "rgba(255,255,255,0.6)" });
+  text(`Building your ticket — block #${model.tipHeight.toLocaleString()}`, r.x + r.w / 2, r.y + 20, { size: 14, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
 
-  const fields = [
-    ["version", (b.version >>> 0).toString(16).padStart(8, "0")],
-    ["prev block", b.previousblockhash.slice(0, 12) + "…"],
-    ["merkle root", b.merkle_root.slice(0, 12) + "…"],
-    ["time", String(b.timestamp)],
-    ["bits", b.bits.toString(16)],
-    ["NONCE — your pick", t.nonce.toLocaleString()],
-  ];
-  const active = Math.floor(clock * 1.2) % (fields.length + 2);
-  const cols = 3, cw = (r.w - 28 - 2 * 10) / cols, chh = 46, gy = r.y + 36;
-  fields.forEach(([label, val], i) => {
-    const x = r.x + 14 + (i % cols) * (cw + 10), y = gy + Math.floor(i / cols) * (chh + 8);
-    const isNonce = i === 5, isActive = i === active;
-    ctx.fillStyle = isNonce ? `rgba(${ACCENT},0.16)` : "rgba(255,255,255,0.05)"; roundRect(x, y, cw, chh, 6); ctx.fill();
-    if (isActive) { ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.4; roundRect(x, y, cw, chh, 6); ctx.stroke(); }
-    text(label, x + 8, y + 16, { size: 11, weight: 600, color: isNonce ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.5)" });
-    text(val, x + 8, y + 36, { size: 14, weight: 600, color: isNonce ? `rgb(${ACCENT})` : "rgba(255,255,255,0.82)", mono: true });
+  // byte-proportional header bar (structure, to scale)
+  const barX = r.x + 18, barW = r.w - 36, barY = r.y + 40, barH = 30, total = 80;
+  let bx = barX;
+  HEADER_FIELDS.forEach((f, i) => {
+    const segW = barW * f.bytes / total;
+    const locked = i < lockedCount, filling = assembling && i === lockedCount;
+    let fill = "rgba(255,255,255,0.05)";
+    if (f.you && (locked || filling)) fill = `rgba(${ACCENT},0.30)`;
+    else if (locked) fill = `rgba(${ACCENT},0.14)`;
+    else if (filling) fill = `rgba(${ACCENT},${0.14 * fillFrac})`;
+    ctx.fillStyle = fill; roundRect(bx + 1, barY, segW - 2, barH, 3); ctx.fill();
+    if (locked || filling) { ctx.strokeStyle = `rgba(${ACCENT},${filling ? 0.9 : 0.4})`; ctx.lineWidth = filling ? 1.4 : 1; roundRect(bx + 1, barY, segW - 2, barH, 3); ctx.stroke(); }
+    if (segW > 58) text(f.label, bx + segW / 2, barY + barH / 2, { size: 11, weight: 600, color: locked || filling ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    bx += segW;
   });
-  const afterGrid = gy + 2 * (chh + 8) + 4;
-  text("↓  double SHA-256", r.x + r.w / 2, afterGrid + 8, { size: 13, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
-  const hex = t.hashHex.slice(0, 40), lead = leadingZeroHexChars(t.hashHex), hy = afterGrid + 36, sp = (r.w - 40) / hex.length;
-  for (let i = 0; i < hex.length; i++) { const isLead = i < lead; text(hex[i], r.x + 20 + sp * (i + 0.5), hy, { size: 15, weight: isLead ? 700 : 400, color: isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
-  text(t.prox.won ? "🎉 JACKPOT" : `no match · ${t.prox.leadingZeroBits} leading zero bits`, r.x + r.w / 2, hy + 26, { size: 13, weight: 600, color: t.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  text("80-byte block header", barX, barY + barH + 13, { size: 11, weight: 600, color: "rgba(255,255,255,0.4)" });
+
+  // caption + the active field's real value
+  let caption = "", value = "";
+  if (assembling) { const f = HEADER_FIELDS[Math.min(5, lockedCount)]; caption = `${f.label} — ${f.explain}`; value = f.val(b, tk); }
+  else if (ph.name === "pack") caption = "header complete — now hash it";
+  else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
+  else if (ph.name === "reveal") caption = "the one and only result emerges…";
+  else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this block's hash · try again next block";
+  text(caption, r.x + r.w / 2, barY + barH + 38, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+  if (value) text(value, r.x + r.w / 2, barY + barH + 60, { size: 14, weight: 600, color: "rgba(255,255,255,0.82)", align: "center", baseline: "middle", mono: true });
+
+  // output row: churn → reveal → hold
+  const hex = tk.hashHex.slice(0, 40), lead = leadingZeroHexChars(tk.hashHex);
+  const rowY = r.y + r.h - 52, sp = (r.w - 40) / hex.length;
+  if (ph.name === "pack" || ph.name === "churn") {
+    for (let i = 0; i < hex.length; i++) text(churnChar(i), r.x + 20 + sp * (i + 0.5), rowY, { size: 15, color: `rgba(${ACCENT},${0.45 + 0.45 * Math.random()})`, align: "center", baseline: "middle", mono: true });
+  } else if (ph.name === "reveal" || ph.name === "hold") {
+    const lockN = ph.name === "hold" ? hex.length : Math.floor(ph.p * hex.length);
+    for (let i = 0; i < hex.length; i++) {
+      const lk = ceremony.order.indexOf(i) < lockN, isLead = i < lead;
+      text(lk ? hex[i] : churnChar(i), r.x + 20 + sp * (i + 0.5), rowY,
+        { size: 15, weight: lk && isLead ? 700 : 400, color: lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
+    }
+    if (ph.name === "hold") text(tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits`, r.x + r.w / 2, rowY + 24, { size: 13, weight: 600, color: tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  }
 }
 
 function sparkline(rect, values, color) {
@@ -343,7 +388,7 @@ function render() {
   }
   text("github.com/…  ·  practice mode", W - PAD, H - 16, { size: 13, color: "rgba(255,255,255,0.3)", align: "right", baseline: "middle" });
 
-  clock += 0.02;
+  clock += 0.02; frame++;
   quoteT += 1 / 60; if (quoteT > 14) { quoteT = 0; quoteIdx = (quoteIdx + 1) % QUOTES.length; }
   requestAnimationFrame(render);
 }
