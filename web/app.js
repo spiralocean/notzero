@@ -134,18 +134,23 @@ function rainPool() {
   if (model.block?.previousblockhash) p.push(model.block.previousblockhash);
   return p.length ? p : ["0123456789abcdef0123456789abcdef0123456789abcdef"];
 }
-const RAIN_SP = 18, RAIN_MAX = 30, RAIN_GROW = 0.32;
+const RAIN_SP = 18, RAIN_MAX = 30;
+function spawnColumn(x, pool, initial = false) {
+  const lower = Math.random() < 0.35; // some streaks begin partway down the screen
+  return {
+    x,
+    y: initial ? Math.random() * H : (lower ? Math.random() * H * 0.55 : -RAIN_SP * (1 + Math.random() * 1.5)),
+    speed: 1.1 + Math.random() * 2.8,
+    growth: 0.12 + Math.random() * 0.34, // chars/frame — randomized so some tails grow faster
+    hash: pool[Math.floor(Math.random() * pool.length)],
+    age: initial ? Math.floor(Math.random() * 180) : 0, // only the first fill is pre-aged
+  };
+}
 function ensureRain() {
   const spacing = 26, count = Math.ceil(W / spacing);
   if (columns.length === count) return;
   const pool = rainPool();
-  columns = Array.from({ length: count }, (_, i) => ({
-    x: i * spacing + spacing / 2,
-    y: -Math.random() * H,
-    speed: 1.2 + Math.random() * 2.6,
-    hash: pool[Math.floor(Math.random() * pool.length)],
-    age: Math.floor(Math.random() * 140),
-  }));
+  columns = Array.from({ length: count }, (_, i) => spawnColumn(i * spacing + spacing / 2, pool, true));
 }
 function drawRain() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
@@ -156,10 +161,10 @@ function drawRain() {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const c of columns) {
     c.age++; c.y += c.speed;
-    // tail length grows from 0 as the streak ages — the tip "generates" the hash,
-    // which expands out behind it as it falls.
-    const tail = Math.min(RAIN_MAX, Math.floor(c.age * RAIN_GROW));
-    if (c.y - tail * RAIN_SP > H + RAIN_SP) { c.y = -RAIN_SP - Math.random() * 80; c.age = 0; c.hash = pool[Math.floor(Math.random() * pool.length)]; continue; }
+    // tail grows from 0 as the streak ages — the tip "generates" the hash,
+    // which expands out behind it as it falls (per-column growth rate varies).
+    const tail = Math.min(RAIN_MAX, Math.floor(c.age * c.growth));
+    if (c.y - tail * RAIN_SP > H + RAIN_SP) { Object.assign(c, spawnColumn(c.x, pool)); continue; }
     for (let i = 0; i <= tail; i++) {
       const yy = c.y - i * RAIN_SP;
       if (yy < -RAIN_SP || yy > H + RAIN_SP) continue;
