@@ -136,10 +136,10 @@ function rainPool() {
 }
 const RAIN_SP = 18, RAIN_MAX = 30;
 function spawnColumn(x, pool, initial = false) {
-  const lower = Math.random() < 0.35; // some streaks begin partway down the screen
+  const lower = Math.random() < 0.45; // some streaks begin ~3/4 up the screen so you see the reveal from the start
   return {
     x,
-    y: initial ? Math.random() * H : (lower ? Math.random() * H * 0.55 : -RAIN_SP * (1 + Math.random() * 1.5)),
+    y: initial ? Math.random() * H : (lower ? H * 0.12 + Math.random() * H * 0.25 : -RAIN_SP * (1 + Math.random() * 1.5)),
     speed: 1.1 + Math.random() * 2.8,
     growth: 0.12 + Math.random() * 0.34, // chars/frame — randomized so some tails grow faster
     hash: pool[Math.floor(Math.random() * pool.length)],
@@ -174,8 +174,9 @@ function drawRain() {
         ch = CYBER[(frame + Math.floor(c.x)) % CYBER.length];
         ctx.font = "700 19px ui-monospace, monospace"; ctx.fillStyle = "rgba(255, 190, 70, 0.95)";
       } else {
-        // the generated hash, expanded out behind the tip
-        ch = c.hash[(i - 1) % c.hash.length];
+        // the generated hash: newest char sits next to the tip, hash[0] at the
+        // far tail end — so the sequence advances as the tip generates.
+        ch = c.hash[(tail - i) % c.hash.length];
         ctx.font = "17px ui-monospace, monospace";
         ctx.fillStyle = `rgba(60, 175, 130, ${Math.max(0.04, 0.62 * (1 - i / RAIN_MAX))})`;
       }
@@ -203,7 +204,9 @@ const QUOTES = [
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180 };
 let headerHits = [];
+let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
+const VERSION = "web v0.3.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -215,7 +218,7 @@ function layoutSections() {
     y += GAP;
     frames.push({ section: s, header, content });
   }
-  return frames;
+  return { frames, total: y };
 }
 
 function summary(s) {
@@ -453,8 +456,14 @@ function drawNetwork(r) {
 
 // ---- render loop ----
 function render() {
-  drawRain();
-  // header
+  drawRain(); // fixed background
+
+  const { frames, total } = layoutSections();
+  maxScroll = Math.max(0, total + 24 - H);
+  if (scrollY > maxScroll) scrollY = maxScroll;
+
+  ctx.save();
+  ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 40, { size: 28, weight: 800, align: "center", baseline: "middle" });
   text(QUOTES[quoteIdx], W / 2, 80, { size: 16, weight: 500, color: `rgba(255,255,255,${0.45 + 0.12 * Math.sin(clock * 1.5)})`, align: "center", baseline: "middle" });
 
@@ -462,14 +471,22 @@ function render() {
   if (model.error) {
     text(model.error, W / 2, TOP + 40, { size: 16, color: "rgba(255,120,90,0.9)", align: "center", baseline: "middle" });
   } else {
-    for (const f of layoutSections()) {
+    for (const f of frames) {
       const hov = hoverSection === f.section;
       drawHeader(f.section, f.header, !!f.content, hov);
       headerHits.push(f);
       if (f.content) drawContent(f.section, f.content);
     }
   }
-  text("github.com/…  ·  practice mode", W - PAD, H - 16, { size: 13, color: "rgba(255,255,255,0.3)", align: "right", baseline: "middle" });
+  ctx.restore();
+
+  // scrollbar indicator (fixed)
+  if (maxScroll > 0) {
+    const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + 24)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
+    ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
+  }
+  // fixed footer with version (so it's always visible to confirm the build)
+  text(`practice mode · ${VERSION}`, W - PAD, H - 14, { size: 12, color: "rgba(255,255,255,0.32)", align: "right", baseline: "middle" });
 
   clock += 0.02; frame++;
   quoteT += 1 / 60; if (quoteT > 14) { quoteT = 0; quoteIdx = (quoteIdx + 1) % QUOTES.length; }
@@ -483,13 +500,18 @@ function sectionAt(px, py) {
   return null;
 }
 canvas.addEventListener("click", (e) => {
-  const s = sectionAt(e.offsetX, e.offsetY);
+  const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
 canvas.addEventListener("mousemove", (e) => {
-  hoverSection = sectionAt(e.offsetX, e.offsetY);
+  hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
   canvas.classList.toggle("clickable", !!hoverSection);
 });
+canvas.addEventListener("wheel", (e) => {
+  if (maxScroll <= 0) return;
+  e.preventDefault();
+  scrollY = Math.max(0, Math.min(scrollY + e.deltaY, maxScroll));
+}, { passive: false });
 
 // ---- boot ----
 resize();
