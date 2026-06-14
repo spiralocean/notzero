@@ -17,8 +17,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "closeness", "network"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", closeness: "YOUR CLOSENESS", network: "NETWORK" };
+const SECTIONS = ["nextBlock", "closeness", "hashBuild", "network"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -71,7 +71,18 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, price: null, hashrateEh: null, difficulty: null, ticket: null, error: null };
+const model = { tipHeight: null, block: null, price: null, hashrateEh: null, difficulty: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [] };
+
+async function loadHistory() {
+  try {
+    const hr = await (await fetch(`${API}/v1/mining/hashrate/1m`)).json();
+    if (hr?.hashrates) model.hashrateHistory = hr.hashrates.map((p) => p.avgHashrate / 1e18);
+  } catch {}
+  try {
+    const pr = await (await fetch(`${API}/v1/historical-price?currency=USD`)).json();
+    if (pr?.prices) model.priceHistory = pr.prices.slice().sort((a, b) => a.time - b.time).map((p) => p.USD).slice(-168);
+  } catch {}
+}
 
 async function refresh() {
   try {
@@ -164,7 +175,7 @@ const QUOTES = [
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, network: 150 };
+const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180 };
 let headerHits = [];
 let clock = 0, quoteIdx = 0, quoteT = 0;
 
@@ -184,6 +195,7 @@ function layoutSections() {
 function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
+  if (s === "hashBuild") { return model.ticket ? "0x" + model.ticket.hashHex.slice(0, 10) + "…" : "—"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";
 }
@@ -200,6 +212,7 @@ function drawHeader(s, r, isExpanded, hovered) {
 function drawContent(s, r) {
   if (s === "nextBlock") return drawNextBlock(r);
   if (s === "closeness") return drawCloseness(r);
+  if (s === "hashBuild") return drawHashBuild(r);
   if (s === "network") return drawNetwork(r);
 }
 
@@ -236,20 +249,77 @@ function drawCloseness(r) {
   text(`${lead} leading zero hex · ${p.leadingZeroBits} zero bits`, r.x + r.w / 2, rowY + 24, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
 }
 
+// HASH BUILD ceremony — the real 80-byte header fields assembling into your hash.
+function drawHashBuild(r) {
+  if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
+  const b = model.block, t = model.ticket;
+  ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
+  ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
+  text("BUILDING THE BLOCK HEADER  ·  80 bytes, 6 fields", r.x + 14, r.y + 22, { size: 13, weight: 700, color: "rgba(255,255,255,0.6)" });
+
+  const fields = [
+    ["version", (b.version >>> 0).toString(16).padStart(8, "0")],
+    ["prev block", b.previousblockhash.slice(0, 12) + "…"],
+    ["merkle root", b.merkle_root.slice(0, 12) + "…"],
+    ["time", String(b.timestamp)],
+    ["bits", b.bits.toString(16)],
+    ["NONCE — your pick", t.nonce.toLocaleString()],
+  ];
+  const active = Math.floor(clock * 1.2) % (fields.length + 2);
+  const cols = 3, cw = (r.w - 28 - 2 * 10) / cols, chh = 46, gy = r.y + 36;
+  fields.forEach(([label, val], i) => {
+    const x = r.x + 14 + (i % cols) * (cw + 10), y = gy + Math.floor(i / cols) * (chh + 8);
+    const isNonce = i === 5, isActive = i === active;
+    ctx.fillStyle = isNonce ? `rgba(${ACCENT},0.16)` : "rgba(255,255,255,0.05)"; roundRect(x, y, cw, chh, 6); ctx.fill();
+    if (isActive) { ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.4; roundRect(x, y, cw, chh, 6); ctx.stroke(); }
+    text(label, x + 8, y + 16, { size: 11, weight: 600, color: isNonce ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.5)" });
+    text(val, x + 8, y + 36, { size: 14, weight: 600, color: isNonce ? `rgb(${ACCENT})` : "rgba(255,255,255,0.82)", mono: true });
+  });
+  const afterGrid = gy + 2 * (chh + 8) + 4;
+  text("↓  double SHA-256", r.x + r.w / 2, afterGrid + 8, { size: 13, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
+  const hex = t.hashHex.slice(0, 40), lead = leadingZeroHexChars(t.hashHex), hy = afterGrid + 36, sp = (r.w - 40) / hex.length;
+  for (let i = 0; i < hex.length; i++) { const isLead = i < lead; text(hex[i], r.x + 20 + sp * (i + 0.5), hy, { size: 15, weight: isLead ? 700 : 400, color: isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
+  text(t.prox.won ? "🎉 JACKPOT" : `no match · ${t.prox.leadingZeroBits} leading zero bits`, r.x + r.w / 2, hy + 26, { size: 13, weight: 600, color: t.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+}
+
+function sparkline(rect, values, color) {
+  if (!values || values.length < 2) { text("collecting…", rect.x + rect.w / 2, rect.y + rect.h / 2, { size: 13, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" }); return; }
+  const min = Math.min(...values), max = Math.max(...values), range = max - min || 1, padY = 8, ph = rect.h - padY * 2, step = rect.w / (values.length - 1);
+  const pts = values.map((v, i) => ({ x: rect.x + i * step, y: rect.y + rect.h - padY - ((v - min) / range) * ph }));
+  ctx.beginPath(); ctx.moveTo(pts[0].x, rect.y + rect.h - padY); pts.forEach((p) => ctx.lineTo(p.x, p.y)); ctx.lineTo(pts[pts.length - 1].x, rect.y + rect.h - padY); ctx.closePath();
+  ctx.fillStyle = color.replace("rgb(", "rgba(").replace(")", ",0.18)"); ctx.fill();
+  ctx.beginPath(); pts.forEach((p, i) => (i === 0 ? ctx.moveTo(p.x, p.y) : ctx.lineTo(p.x, p.y))); ctx.strokeStyle = color; ctx.lineWidth = 1.5; ctx.stroke();
+}
+
+function drawHalvingCard(b) {
+  if (!model.tipHeight) { text("…", b.x + b.w / 2, b.y + b.h / 2, { size: 13, color: "#666", align: "center", baseline: "middle" }); return; }
+  const h = model.tipHeight, era = Math.floor(h / 210000), subsidy = 50 / 2 ** era, next = (era + 1) * 210000, until = next - h, prog = (h - era * 210000) / 210000;
+  text(`${subsidy.toFixed(3)} BTC reward`, b.x, b.y + 12, { size: 13, weight: 600, color: `rgb(${ACCENT})` });
+  text(`${until.toLocaleString()} blocks left`, b.x, b.y + 30, { size: 12, color: "rgba(255,255,255,0.55)" });
+  const barY = b.y + b.h - 12;
+  ctx.fillStyle = "rgba(255,255,255,0.12)"; roundRect(b.x, barY, b.w, 8, 4); ctx.fill();
+  ctx.fillStyle = `rgb(${ACCENT})`; roundRect(b.x, barY, b.w * Math.min(1, prog), 8, 4); ctx.fill();
+}
+
 function drawNetwork(r) {
   let y = r.y + 16;
   if (model.difficulty) {
     const odds = model.difficulty * 4294967296;
     text(`Difficulty ${model.difficulty.toExponential(2)}  ·  ~1 in ${odds.toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 14, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
-    y += 28;
+    y += 26;
   }
-  const cards = [["BTC price", model.price ? "$" + Math.round(model.price).toLocaleString() : "…", "rgb(70,220,130)"], ["Network hashrate", model.hashrateEh ? `${model.hashrateEh.toFixed(0)} EH/s` : "…", `rgb(${ACCENT})`], ["Block height", model.tipHeight ? "#" + model.tipHeight.toLocaleString() : "…", "rgb(220,220,220)"]];
-  const gap = 24, cw = (r.w - gap * 2) / 3, ch = r.y + r.h - y;
-  cards.forEach(([label, val, col], i) => {
+  const gap = 24, cw = (r.w - gap * 2) / 3, ch = r.y + r.h - y - 6;
+  const cards = [
+    { title: model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", spark: model.priceHistory, color: "rgb(70,220,130)" },
+    { title: model.hashrateEh ? `${model.hashrateEh.toFixed(0)} EH/s` : "Hashrate", spark: model.hashrateHistory, color: `rgb(${ACCENT})` },
+    { title: "Next halving", halving: true },
+  ];
+  cards.forEach((c, i) => {
     const cx = r.x + i * (cw + gap);
     ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, cw, ch, 8); ctx.fill();
-    text(label, cx + 12, y + 22, { size: 13, color: "rgba(255,255,255,0.5)" });
-    text(val, cx + 12, y + ch / 2 + 12, { size: 24, weight: 700, color: col });
+    text(c.title, cx + 10, y + 18, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+    const body = { x: cx + 10, y: y + 28, w: cw - 20, h: ch - 38 };
+    if (c.halving) drawHalvingCard(body); else sparkline(body, c.spark, c.color);
   });
 }
 
@@ -296,5 +366,7 @@ canvas.addEventListener("mousemove", (e) => {
 // ---- boot ----
 resize();
 refresh();
+loadHistory();
 setInterval(refresh, REFRESH_MS);
+setInterval(loadHistory, 300_000);
 render();
