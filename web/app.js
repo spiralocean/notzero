@@ -147,6 +147,7 @@ function spawnColumn(x, pool, initial = false) {
     hash: pool[Math.floor(Math.random() * pool.length)],
     age: initial ? Math.floor(Math.random() * 180) : 0,
     delay: initial ? 0 : Math.floor(Math.random() * 55), // random pause before the next glyph appears
+    genAt: Math.floor(Math.random() * 130), // frames the bare tip falls before it starts generating the hash
   };
 }
 function ensureRain() {
@@ -165,9 +166,10 @@ function drawRain() {
   for (const c of columns) {
     if (c.delay > 0) { c.delay--; continue; } // random pause, then a fresh glyph appears
     c.age++; c.y += c.speed;
-    // tail grows from 0 as the streak ages — the tip "generates" the hash,
-    // which expands out behind it as it falls (per-column growth rate varies).
-    const tail = Math.min(RAIN_MAX, Math.floor(c.age * c.growth));
+    // The bare encoder tip falls alone until `genAt`, then the hash starts
+    // generating and the tail expands from it (random start time per streak).
+    const genAge = c.age - c.genAt;
+    const tail = genAge <= 0 ? 0 : Math.min(RAIN_MAX, Math.floor(genAge * c.growth));
     if (c.y - tail * RAIN_SP > H + RAIN_SP) { Object.assign(c, spawnColumn(c.x, pool)); continue; }
     for (let i = 0; i <= tail; i++) {
       const yy = c.y - i * RAIN_SP;
@@ -210,7 +212,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.4.2";
+const VERSION = "web v0.4.3";
 
 function layoutSections() {
   let y = TOP; const frames = [];
