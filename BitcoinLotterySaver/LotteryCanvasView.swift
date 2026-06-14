@@ -477,7 +477,7 @@ final class LotteryCanvasView: NSView {
         case .nextBlock: return 150
         case .closeness: return 124
         case .hashBuild: return 580   // full vertical ceremony; Merkle panel takes the slack
-        case .network: return 132
+        case .network: return 168
         case .sync: return 210
         }
     }
@@ -613,8 +613,12 @@ final class LotteryCanvasView: NSView {
             if let a = state?.lastAttempt { return "0x\(String(a.hashHex.prefix(10)))…" }
             return "—"
         case .network:
-            if let p = state?.price { return "BTC \(VizPainter.formatUSD(p.usd))" }
-            return "—"
+            var parts: [String] = []
+            if let p = state?.price { parts.append("BTC \(VizPainter.formatUSD(p.usd))") }
+            if let eh = state?.display?.networkHashrateEh ?? state?.display?.networkHashrateHistory?.last?.eh {
+                parts.append(String(format: "%.0f EH/s", eh))
+            }
+            return parts.isEmpty ? "—" : parts.joined(separator: " · ")
         case .sync:
             if let n = state?.node { return String(format: "Syncing %.1f%%", (n.verificationprogress ?? 0) * 100) }
             return "—"
@@ -690,11 +694,21 @@ final class LotteryCanvasView: NSView {
                          size: 15, weight: .regular, color: NSColor(white: 0.6, alpha: 1))
             }
         case .network:
+            // Headline: difficulty + the per-hash odds it implies (the lottery's true long shot).
+            var chartsTop = rect.minY
+            if let d = state?.display?.difficulty, d > 0 {
+                let oddsPerHash = d * 4_294_967_296.0   // difficulty × 2^32 expected hashes/block
+                let line = "Difficulty \(String(format: "%.2e", d))  ·  ~1 in \(String(format: "%.2e", oddsPerHash)) per hash"
+                drawText(line, at: CGPoint(x: rect.midX, y: rect.minY + 2), anchor: .topCenter,
+                         size: fontMicro, weight: .medium, color: NSColor(calibratedRed: 1, green: 0.72, blue: 0.3, alpha: 0.9))
+                chartsTop += 30
+            }
             let gap: CGFloat = 24
             let cw = (rect.width - gap * 2) / 3
-            let price = CGRect(x: rect.minX, y: rect.minY, width: cw, height: rect.height)
-            let hashrate = CGRect(x: price.maxX + gap, y: rect.minY, width: cw, height: rect.height)
-            let halving = CGRect(x: hashrate.maxX + gap, y: rect.minY, width: cw, height: rect.height)
+            let chartH = rect.maxY - chartsTop
+            let price = CGRect(x: rect.minX, y: chartsTop, width: cw, height: chartH)
+            let hashrate = CGRect(x: price.maxX + gap, y: chartsTop, width: cw, height: chartH)
+            let halving = CGRect(x: hashrate.maxX + gap, y: chartsTop, width: cw, height: chartH)
             if let p = state?.price {
                 chartsViz.drawPrice(in: price, price: p, painter: painter)
             } else {
