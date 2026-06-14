@@ -71,7 +71,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, price: null, hashrateEh: null, difficulty: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [] };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [] };
 
 async function loadHistory() {
   try {
@@ -90,6 +90,7 @@ async function refresh() {
     const blk = await (await fetch(`${API}/block/${tipHash}`)).json();
     model.tipHeight = blk.height;
     model.block = blk;
+    model.txCount = blk.tx_count;
     model.difficulty = blk.difficulty;
 
     const nonce = await pickNonce(machineSeed(), blk.height);
@@ -125,16 +126,24 @@ function text(s, x, y, { size = 16, weight = 400, color = "#fff", align = "left"
 function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
 
 // ---- matrix rain background ----
-const HEX = "0123456789abcdef";
 let columns = [];
+function rainPool() {
+  const p = [];
+  if (model.ticket?.hashHex) p.push(model.ticket.hashHex);
+  if (model.block?.merkle_root) p.push(model.block.merkle_root);
+  if (model.block?.previousblockhash) p.push(model.block.previousblockhash);
+  return p.length ? p : ["0123456789abcdef0123456789abcdef0123456789abcdef"];
+}
 function ensureRain() {
   const spacing = 30, count = Math.ceil(W / spacing);
   if (columns.length === count) return;
+  const pool = rainPool();
   columns = Array.from({ length: count }, (_, i) => ({
     x: i * spacing + spacing / 2,
     y: Math.random() * H,
-    speed: 1.5 + Math.random() * 3.5,
-    len: 8 + (Math.floor(Math.random() * 16)),
+    speed: 1.3 + Math.random() * 3,
+    len: 12 + Math.floor(Math.random() * 18),
+    hash: pool[Math.floor(Math.random() * pool.length)],
   }));
 }
 function drawRain() {
@@ -142,20 +151,23 @@ function drawRain() {
   g.addColorStop(0, "#06040c"); g.addColorStop(1, "#0a0603");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
   ensureRain();
+  const pool = rainPool();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const c of columns) {
-    c.y += c.speed; if (c.y - c.len * 20 > H) c.y = -Math.random() * 200;
+    c.y += c.speed;
+    if (c.y - c.len * 32 > H) { c.y = -Math.random() * 140; c.hash = pool[Math.floor(Math.random() * pool.length)]; }
+    // The bright tip is the "generator"; the tail expands out the hash below it
+    // (gaps widen, chars shrink and fade as the stream unfurls downward).
+    let yy = c.y;
     for (let i = 0; i < c.len; i++) {
-      const yy = c.y - i * 20;
-      if (yy < -20 || yy > H + 20) continue;
-      const ch = HEX[(Math.floor(c.x + yy + i) % 16 + 16) % 16];
-      ctx.font = "20px ui-monospace, monospace";
-      if (i === 0) ctx.fillStyle = `rgba(255, 183, 51, 0.85)`;
-      else { const a = Math.max(0.04, 0.4 * (1 - i / c.len)); ctx.fillStyle = `rgba(40, 150, 120, ${a})`; }
+      if (i > 0) yy -= 12 + i * 1.4;
+      if (yy < -24 || yy > H + 24) continue;
+      const ch = c.hash[i % c.hash.length];
+      if (i === 0) { ctx.font = "700 20px ui-monospace, monospace"; ctx.fillStyle = "rgba(255, 190, 70, 0.95)"; }
+      else { const a = Math.max(0.03, 0.5 * (1 - i / c.len)); ctx.font = `${Math.max(9, 20 - i * 0.5)}px ui-monospace, monospace`; ctx.fillStyle = `rgba(40, 150, 120, ${a})`; }
       ctx.fillText(ch, c.x, yy);
     }
   }
-  // center scrim so panels read
   const s = ctx.createLinearGradient(0, H * 0.18, 0, H * 0.82);
   s.addColorStop(0, "rgba(5,4,10,0)"); s.addColorStop(0.5, "rgba(5,4,10,0.5)"); s.addColorStop(1, "rgba(5,4,10,0)");
   ctx.fillStyle = s; ctx.fillRect(0, 0, W, H);
@@ -301,15 +313,18 @@ function drawHashBuild(r) {
   });
   text("80-byte block header", barX, barY + barH + 13, { size: 11, weight: 600, color: "rgba(255,255,255,0.4)" });
 
-  // caption + the active field's real value
-  let caption = "", value = "";
-  if (assembling) { const f = HEADER_FIELDS[Math.min(5, lockedCount)]; caption = `${f.label} — ${f.explain}`; value = f.val(b, tk); }
+  // caption (phase-aware) + per-field detail animation while assembling
+  let caption = "";
+  if (assembling) { const f = HEADER_FIELDS[Math.min(5, lockedCount)]; caption = `${f.label} — ${f.explain}`; }
   else if (ph.name === "pack") caption = "header complete — now hash it";
   else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
   else if (ph.name === "reveal") caption = "the one and only result emerges…";
   else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this block's hash · try again next block";
-  text(caption, r.x + r.w / 2, barY + barH + 38, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
-  if (value) text(value, r.x + r.w / 2, barY + barH + 60, { size: 14, weight: 600, color: "rgba(255,255,255,0.82)", align: "center", baseline: "middle", mono: true });
+  text(caption, r.x + r.w / 2, barY + barH + 36, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+  if (assembling) {
+    const dr = { x: r.x + 24, y: barY + barH + 50, w: r.w - 48, h: (r.y + r.h - 70) - (barY + barH + 50) };
+    drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
+  }
 
   // output row: churn → reveal → hold
   const hex = tk.hashHex.slice(0, 40), lead = leadingZeroHexChars(tk.hashHex);
@@ -324,6 +339,60 @@ function drawHashBuild(r) {
         { size: 15, weight: lk && isLead ? 700 : 400, color: lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
     }
     if (ph.name === "hold") text(tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits`, r.x + r.w / 2, rowY + 24, { size: 13, weight: 600, color: tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  }
+}
+
+// a row of monospace chars that scramble then lock in left-to-right as p rises
+function fieldValueRow(strV, p, cx, cy, size, lead = 0) {
+  const chars = strV.split("");
+  const lock = Math.min(chars.length, Math.floor(p * chars.length * 1.25));
+  ctx.font = `${size}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const cw = ctx.measureText("0").width || size * 0.6;
+  let x = cx - (cw * chars.length) / 2 + cw / 2;
+  for (let i = 0; i < chars.length; i++) {
+    const lk = i < lock, isLead = lk && i < lead;
+    ctx.fillStyle = lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.85)") : "rgba(120,165,150,0.6)";
+    ctx.fillText(lk ? chars[i] : churnChar(i), x, cy); x += cw;
+  }
+}
+
+function drawMerkleMini(p, dr) {
+  const n = Math.min(8, Math.max(2, model.txCount || 4));
+  const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
+  const rows = levels.length, lv = Math.floor(p * rows);
+  text(`${(model.txCount || n).toLocaleString()} transactions → 1 merkle root`, dr.x + dr.w / 2, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  for (let row = 0; row < rows; row++) {
+    const cnt = levels[row], built = row <= lv, yy = dr.y + dr.h - 10 - row * (dr.h - 26) / Math.max(1, rows - 1);
+    for (let k = 0; k < cnt; k++) {
+      const xx = dr.x + dr.w * (k + 0.5) / cnt;
+      ctx.beginPath(); ctx.arc(xx, yy, 5, 0, 7);
+      ctx.fillStyle = built ? (row === rows - 1 ? `rgb(${ACCENT})` : `rgba(${ACCENT},0.55)`) : "rgba(255,255,255,0.14)"; ctx.fill();
+    }
+  }
+}
+
+function drawFieldDetail(idx, p, dr, b, tk) {
+  const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2;
+  if (idx === 0) {
+    text("4 bytes · the block format", cx, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+    fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY + 4, 22);
+  } else if (idx === 1) {
+    text(`⛓ links back to block #${(model.tipHeight - 1).toLocaleString()}`, cx, dr.y + 8, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    fieldValueRow(b.previousblockhash.slice(0, 32), p, cx, midY + 6, 14);
+  } else if (idx === 2) {
+    drawMerkleMini(p, dr);
+  } else if (idx === 3) {
+    text(new Date(b.timestamp * 1000).toUTCString().replace("GMT", "UTC"), cx, dr.y + 12, { size: 13, weight: 600, color: "rgba(255,255,255,0.8)", align: "center", baseline: "middle" });
+    fieldValueRow(String(b.timestamp), p, cx, midY + 14, 16);
+  } else if (idx === 4) {
+    text("your hash must land BELOW this target:", cx, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    const tgt = bitsToTarget(b.bits).toString(16).padStart(64, "0").slice(0, 40), tlead = leadingZeroHexChars(tgt);
+    fieldValueRow(tgt, 1, cx, midY + 6, 13, tlead);
+    text(`${tlead} leading zeros required`, cx, dr.y + dr.h - 6, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  } else {
+    text(`"${machineSeed()}:${model.tipHeight}"`, cx, dr.y + 10, { size: 12, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
+    text("↓  SHA-256  ↓", cx, midY, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+    fieldValueRow("#" + tk.nonce.toLocaleString(), Math.max(p, 0.4), cx, dr.y + dr.h - 12, 20);
   }
 }
 
