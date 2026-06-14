@@ -100,6 +100,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBarItem = NSMenuItem(title: "Menu bar shows", action: nil, keyEquivalent: "")
         menuBarItem.submenu = menuBarSubmenu
         statusMenu.addItem(menuBarItem)
+
+        let browserSubmenu = NSMenu()
+        let currentBrowser = UserDefaults.standard.string(forKey: Self.browserDefaultsKey) ?? "default"
+        for choice in Self.browserChoices() {
+            let item = browserSubmenu.addItem(withTitle: choice.name, action: #selector(setDashboardBrowser(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = choice.id
+            item.state = choice.id == currentBrowser ? .on : .off
+        }
+        let browserItem = NSMenuItem(title: "Open dashboard in", action: nil, keyEquivalent: "")
+        browserItem.submenu = browserSubmenu
+        statusMenu.addItem(browserItem)
         statusMenu.addItem(.separator())
 
         if let state, let attempt = state.lastAttempt {
@@ -175,10 +187,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     // The dashboard now lives in the browser (cross-platform). The menu bar opens it.
     // Dev: local server. TODO: swap to the GitHub Pages URL when we ship.
     private static let dashboardURL = "http://localhost:8787/"
+    private static let browserDefaultsKey = "BitcoinLottery.dashboardBrowser"
+
+    /// "Default browser" plus whichever known browsers are actually installed.
+    private static func browserChoices() -> [(name: String, id: String)] {
+        var list: [(String, String)] = [("Default browser", "default")]
+        let known = [
+            ("Safari", "com.apple.Safari"),
+            ("Google Chrome", "com.google.Chrome"),
+            ("Brave", "com.brave.Browser"),
+            ("Firefox", "org.mozilla.firefox"),
+            ("Arc", "company.thebrowser.Browser"),
+        ]
+        for (name, bid) in known where NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) != nil {
+            list.append((name, bid))
+        }
+        return list
+    }
+
+    @objc private func setDashboardBrowser(_ sender: NSMenuItem) {
+        guard let bid = sender.representedObject as? String else { return }
+        UserDefaults.standard.set(bid, forKey: Self.browserDefaultsKey)
+        updateMenu()
+    }
 
     @objc private func openLottery() {
         guard let url = URL(string: Self.dashboardURL) else { return }
-        NSWorkspace.shared.open(url)
+        let bid = UserDefaults.standard.string(forKey: Self.browserDefaultsKey) ?? "default"
+        if bid != "default", let appURL = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bid) {
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: NSWorkspace.OpenConfiguration(), completionHandler: nil)
+        } else {
+            NSWorkspace.shared.open(url)
+        }
     }
 
     @objc private func openPreview() {
