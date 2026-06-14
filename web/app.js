@@ -139,8 +139,9 @@ function spawnColumn(x, pool, initial = false) {
   return {
     x,
     // every streak begins on-screen as a bare glyph tip (age 0) at a random
-    // height — some near the top, some lower — then expands its hash as it falls.
-    y: initial ? Math.random() * H : Math.random() * H * 0.6,
+    // height across most of the screen — some near the top, plenty lower down —
+    // then expands its hash as it falls.
+    y: initial ? Math.random() * H : Math.random() * H * 0.82,
     speed: 1.1 + Math.random() * 2.8,
     growth: 0.12 + Math.random() * 0.34, // chars/frame — randomized so some tails grow faster
     hash: pool[Math.floor(Math.random() * pool.length)],
@@ -209,7 +210,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.4.0";
+const VERSION = "web v0.4.1";
 
 function layoutSections() {
   let y = TOP; const frames = [];
