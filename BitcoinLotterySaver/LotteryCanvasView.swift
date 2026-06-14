@@ -476,7 +476,7 @@ final class LotteryCanvasView: NSView {
         switch section {
         case .nextBlock: return 150
         case .closeness: return 124
-        case .hashBuild: return 470   // full vertical ceremony needs the room
+        case .hashBuild: return 580   // full vertical ceremony; Merkle panel takes the slack
         case .network: return 132
         case .sync: return 210
         }
