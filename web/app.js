@@ -134,16 +134,17 @@ function rainPool() {
   if (model.block?.previousblockhash) p.push(model.block.previousblockhash);
   return p.length ? p : ["0123456789abcdef0123456789abcdef0123456789abcdef"];
 }
+const RAIN_SP = 18, RAIN_MAX = 30, RAIN_GROW = 0.32;
 function ensureRain() {
-  const spacing = 30, count = Math.ceil(W / spacing);
+  const spacing = 26, count = Math.ceil(W / spacing);
   if (columns.length === count) return;
   const pool = rainPool();
   columns = Array.from({ length: count }, (_, i) => ({
     x: i * spacing + spacing / 2,
-    y: Math.random() * H,
-    speed: 1.3 + Math.random() * 3,
-    len: 12 + Math.floor(Math.random() * 18),
+    y: -Math.random() * H,
+    speed: 1.2 + Math.random() * 2.6,
     hash: pool[Math.floor(Math.random() * pool.length)],
+    age: Math.floor(Math.random() * 140),
   }));
 }
 function drawRain() {
@@ -154,17 +155,25 @@ function drawRain() {
   const pool = rainPool();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const c of columns) {
-    c.y += c.speed;
-    if (c.y - c.len * 32 > H) { c.y = -Math.random() * 140; c.hash = pool[Math.floor(Math.random() * pool.length)]; }
-    // The bright tip is the "generator"; the tail expands out the hash below it
-    // (gaps widen, chars shrink and fade as the stream unfurls downward).
-    let yy = c.y;
-    for (let i = 0; i < c.len; i++) {
-      if (i > 0) yy -= 12 + i * 1.4;
-      if (yy < -24 || yy > H + 24) continue;
-      const ch = c.hash[i % c.hash.length];
-      if (i === 0) { ctx.font = "700 20px ui-monospace, monospace"; ctx.fillStyle = "rgba(255, 190, 70, 0.95)"; }
-      else { const a = Math.max(0.03, 0.5 * (1 - i / c.len)); ctx.font = `${Math.max(9, 20 - i * 0.5)}px ui-monospace, monospace`; ctx.fillStyle = `rgba(40, 150, 120, ${a})`; }
+    c.age++; c.y += c.speed;
+    // tail length grows from 0 as the streak ages — the tip "generates" the hash,
+    // which expands out behind it as it falls.
+    const tail = Math.min(RAIN_MAX, Math.floor(c.age * RAIN_GROW));
+    if (c.y - tail * RAIN_SP > H + RAIN_SP) { c.y = -RAIN_SP - Math.random() * 80; c.age = 0; c.hash = pool[Math.floor(Math.random() * pool.length)]; continue; }
+    for (let i = 0; i <= tail; i++) {
+      const yy = c.y - i * RAIN_SP;
+      if (yy < -RAIN_SP || yy > H + RAIN_SP) continue;
+      let ch;
+      if (i === 0) {
+        // encoding tip: scrambling matrix glyphs (the generator)
+        ch = CYBER[(frame + Math.floor(c.x)) % CYBER.length];
+        ctx.font = "700 19px ui-monospace, monospace"; ctx.fillStyle = "rgba(255, 190, 70, 0.95)";
+      } else {
+        // the generated hash, expanded out behind the tip
+        ch = c.hash[(i - 1) % c.hash.length];
+        ctx.font = "17px ui-monospace, monospace";
+        ctx.fillStyle = `rgba(60, 175, 130, ${Math.max(0.04, 0.62 * (1 - i / RAIN_MAX))})`;
+      }
       ctx.fillText(ch, c.x, yy);
     }
   }
