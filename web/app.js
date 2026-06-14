@@ -136,14 +136,16 @@ function rainPool() {
 }
 const RAIN_SP = 18, RAIN_MAX = 30;
 function spawnColumn(x, pool, initial = false) {
-  const lower = Math.random() < 0.45; // some streaks begin ~3/4 up the screen so you see the reveal from the start
   return {
     x,
-    y: initial ? Math.random() * H : (lower ? H * 0.12 + Math.random() * H * 0.25 : -RAIN_SP * (1 + Math.random() * 1.5)),
+    // every streak begins on-screen as a bare glyph tip (age 0) at a random
+    // height — some near the top, some lower — then expands its hash as it falls.
+    y: initial ? Math.random() * H : Math.random() * H * 0.6,
     speed: 1.1 + Math.random() * 2.8,
     growth: 0.12 + Math.random() * 0.34, // chars/frame — randomized so some tails grow faster
     hash: pool[Math.floor(Math.random() * pool.length)],
-    age: initial ? Math.floor(Math.random() * 180) : 0, // only the first fill is pre-aged
+    age: initial ? Math.floor(Math.random() * 180) : 0,
+    delay: initial ? 0 : Math.floor(Math.random() * 55), // random pause before the next glyph appears
   };
 }
 function ensureRain() {
@@ -160,6 +162,7 @@ function drawRain() {
   const pool = rainPool();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (const c of columns) {
+    if (c.delay > 0) { c.delay--; continue; } // random pause, then a fresh glyph appears
     c.age++; c.y += c.speed;
     // tail grows from 0 as the streak ages — the tip "generates" the hash,
     // which expands out behind it as it falls (per-column growth rate varies).
@@ -206,7 +209,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.3.0";
+const VERSION = "web v0.4.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -485,8 +488,8 @@ function render() {
     const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + 24)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
-  // fixed footer with version (so it's always visible to confirm the build)
-  text(`practice mode · ${VERSION}`, W - PAD, H - 14, { size: 12, color: "rgba(255,255,255,0.32)", align: "right", baseline: "middle" });
+  // fixed footer — accent-tinted so the version is easy to read but still understated
+  text(`practice mode · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
 
   clock += 0.02; frame++;
   quoteT += 1 / 60; if (quoteT > 14) { quoteT = 0; quoteIdx = (quoteIdx + 1) % QUOTES.length; }
