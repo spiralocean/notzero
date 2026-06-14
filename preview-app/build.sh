@@ -16,6 +16,7 @@ swiftc -parse-as-library -o "$APP/Contents/MacOS/Bitcoin Lottery Preview" -frame
   "$ROOT/../shared/BitcoinBrand.swift" \
   "$ROOT/../shared/NonceTicket.swift" \
   "$ROOT/../shared/ScreensaverView.swift" \
+  "$ROOT/../shared/Viz/"*.swift \
   "$ROOT/../shared/LotteryWindowController.swift" \
   "$SAVER/LotteryModels.swift" \
   "$SAVER/LotteryCanvasView.swift" \

@@ -17,6 +17,7 @@ mkdir -p "$OBJDIR"
     "$ROOT/../shared/BitcoinBrand.swift" \
     "$ROOT/../shared/NonceTicket.swift" \
     "$ROOT/../shared/ScreensaverView.swift" \
+    "$ROOT/../shared/Viz/"*.swift \
     "$ROOT/LotteryModels.swift" \
     "$ROOT/LotteryCanvasView.swift" \
     "$ROOT/BitcoinLotterySaverView.swift"
