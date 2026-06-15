@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.12.2";
+const VERSION = "web v0.13.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -496,21 +496,24 @@ function drawSync(r) {
   if (syncState.shown == null) syncState.shown = head - 3;
   if (head - syncState.shown > 8) syncState.shown = head - 8;
   if (syncState.shown < head) {
-    if (syncState.phase === "fill") { syncState.fp += (1 / 60) / 0.5; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
-    else { syncState.sp += (1 / 60) / 0.24; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; syncState.sp = 0; } }
-  } else { syncState.phase = "fill"; syncState.fp = 1; }
+    if (syncState.phase === "fill") { syncState.fp += (1 / 60) / 0.85; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
+    else { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; syncState.sp = 0; } }
+  } else { syncState.phase = "fill"; syncState.fp = 0; }
   const sp = syncState.sp;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
   const downloading = syncState.shown < head;
-  const newestFill = downloading ? (syncState.phase === "fill" ? syncState.fp : 1) : 1;
+  // when waiting for the next data dump, the block under the node rests empty
+  const newestFill = downloading ? (syncState.phase === "fill" ? syncState.fp : 1) : 0;
 
-  // progress vs tip
+  // current synced block vs the block the network is mining right now (tip + 1)
+  const mining = tip + 1;
   const prog = node && node.verificationprogress != null ? node.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
   const behind = Math.max(0, tip - Math.floor(head));
-  text(`synced #${Math.floor(head).toLocaleString()} / tip #${tip.toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
-  text(`${(prog * 100).toFixed(2)}%${behind > 0 ? "  ·  " + behind.toLocaleString() + " behind" : "  ·  caught up"}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
+  text(`synced #${Math.floor(head).toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
+  text(`mining #${mining.toLocaleString()}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
 
   const cx = r.x + r.w / 2;
   const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
@@ -561,12 +564,12 @@ function drawSync(r) {
   // ---- conveyor: blocks born at center, step left, prune at far left ----
   // persistent empty slot directly under the node — the block currently being filled
   { const fy = cy - bh / 2; ctx.setLineDash([4, 3]); ctx.strokeStyle = `rgba(${ACCENT},0.4)`; ctx.lineWidth = 1; roundRect(birthX, fy, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); }
-  const span = Math.ceil((birthX - leftExit) / spacing) + 4, contact = prX + 16;
+  const span = Math.ceil((birthX - leftExit) / spacing) + 4, contact = prX + bw * 0.7;
   for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
     const x = blockX(k);
     if (x > cx + bw || x < r.x + m - bw) continue;
     const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
-    const fade = x >= contact ? 0 : Math.min(1, (contact - x) / (bw * 0.7));
+    const fade = x >= contact ? 0 : Math.min(1, (contact - x) / (bw * 1.5));
     const info = syncRecentInfo(Math.round(head) - k);
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
     if (fill >= 1 && x < birthX - 2) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
@@ -574,6 +577,30 @@ function drawSync(r) {
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("filling ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+
+  // ---- upcoming empty slots to the right, then the live block being mined (far right) ----
+  const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
+  let fx = birthX + spacing, fh = Math.floor(head) + 1;
+  ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
+  while (fx + bw <= mineX - spacing * 0.5) {
+    ctx.strokeStyle = "rgba(255,255,255,0.18)"; roundRect(fx, my, bw, bh, 4); ctx.stroke();
+    text("#" + (fh % 100000), fx + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
+    fx += spacing; fh += 1;
+  }
+  ctx.setLineDash([]);
+  text("upcoming →", birthX + spacing + 2, my - 8, { size: 9, color: "rgba(255,255,255,0.35)", baseline: "middle" });
+
+  // the block the network is mining right now (next height after the tip)
+  const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));
+  ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(mineX, my, bw, bh, 4); ctx.fill();
+  ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let row = 0; row < 3; row++) for (let col = 0; col < 6; col++) {
+    ctx.fillStyle = `rgba(255,180,80,${0.25 + 0.45 * Math.abs(Math.sin(frame * 0.2 + row * 6 + col))})`;
+    ctx.fillText(CYBER[(frame + row * 7 + col * 3) % CYBER.length], mineX + 9 + col * ((bw - 18) / 5), my + 15 + row * 12);
+  }
+  ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; roundRect(mineX, my, bw, bh, 4); ctx.stroke();
+  text("⛏ mining", mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
+  text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
   // ---- disk (concise) ----
   let used;
