@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.10.0";
+const VERSION = "web v0.11.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -483,9 +483,18 @@ function drawSync(r) {
   const tip = (node && node.headers) || model.tipHeight || 0;
   const head = node && node.blocks ? node.blocks : (model.tipHeight || 0);
   if (!head) { text("connecting to the network…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "#888", align: "center", baseline: "middle" }); return; }
-  if (syncState.headSmooth == null) syncState.headSmooth = head - 3; // small intro catch-up at load
-  syncState.headSmooth += (head - syncState.headSmooth) * 0.05;      // eases toward real height; static when head is static
-  const hs = syncState.headSmooth, downloading = head - hs > 0.03;   // only "downloading" while actually catching up
+  // factory-style stepped advance: hold, then index one block-slot forward (with a
+  // slight mechanical overshoot), dwell, repeat — only as the real height climbs.
+  if (syncState.shown == null) { syncState.shown = head - 3; syncState.stepP = 1; syncState.dwell = 0; }
+  if (head - syncState.shown > 8) syncState.shown = head - 8; // don't lag far behind during fast IBD
+  if (syncState.shown < head) {
+    if (syncState.stepP >= 1) { syncState.dwell -= 1 / 60; if (syncState.dwell <= 0) syncState.stepP = 0; } // dwell, then start a step
+    else { syncState.stepP = Math.min(1, syncState.stepP + (1 / 60) / 0.22); if (syncState.stepP >= 1) { syncState.shown += 1; syncState.dwell = 0.2; } } // ~0.22s snap, then dwell
+  }
+  const sp = syncState.stepP;
+  const eb = sp >= 1 ? 1 : 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2); // easeOutBack snap
+  const hs = syncState.shown + (sp >= 1 ? 0 : eb);
+  const downloading = syncState.shown < head || syncState.stepP < 1;
 
   // sync progress vs tip
   const prog = node && node.verificationprogress != null ? node.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
