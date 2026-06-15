@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.13.0";
+const VERSION = "web v0.13.1";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -431,14 +431,15 @@ function drawFieldDetail(idx, p, dr, b, tk) {
 const syncState = { t: 0, shown: null, phase: "fill", fp: 0, sp: 0, disk: 12 };
 const mbFmt = (s) => (s / 1e6).toFixed(2) + " MB";
 
-function dataComet(x0, y0, x1, y1, prog, seed) {
+function dataComet(x0, y0, x1, y1, prog, seed, alpha = 1) {
+  if (alpha <= 0.01) return;
   const hx = x0 + (x1 - x0) * prog, hy = y0 + (y1 - y0) * prog;
   const len = Math.hypot(x1 - x0, y1 - y0) || 1, nx = (x1 - x0) / len, ny = (y1 - y0) / len;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let tdx = 3; tdx >= 0; tdx--) {
     const bx = hx - nx * tdx * 9, by = hy - ny * tdx * 9;
-    if (tdx === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = "rgba(255,200,90,0.95)"; ctx.fillText(CYBER[(frame + seed) % CYBER.length], bx, by); }
-    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,185,140,${Math.max(0.06, 0.6 * (1 - tdx / 4))})`; ctx.fillText("0123456789abcdef"[(seed + tdx * 3 + Math.floor(prog * 40)) % 16], bx, by); }
+    if (tdx === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,200,90,${0.95 * alpha})`; ctx.fillText(CYBER[(frame + seed) % CYBER.length], bx, by); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,185,140,${Math.max(0.06, 0.6 * (1 - tdx / 4)) * alpha})`; ctx.fillText("0123456789abcdef"[(seed + tdx * 3 + Math.floor(prog * 40)) % 16], bx, by); }
   }
 }
 
@@ -457,6 +458,8 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
   const y = cy - bh / 2, verified = fill >= 1;
   ctx.globalAlpha = a;
   ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(x, y, bw, bh, 4); ctx.fill();
+  // visible "filling" level rising as the block downloads
+  if (fill > 0.02 && !verified) { const lh = (bh - 6) * fill; ctx.fillStyle = `rgba(${ACCENT},0.22)`; roundRect(x + 2, y + bh - 3 - lh, bw - 4, lh, 3); ctx.fill(); }
   const target = info && info.tx ? Math.min(18, Math.max(4, Math.round(info.tx / 250))) : (info && info.size ? Math.min(18, Math.max(4, Math.round(info.size / 95000))) : 8);
   const shown = Math.max(0, Math.floor(target * fill));
   for (let d = 0; d < shown; d++) {
@@ -532,17 +535,20 @@ function drawSync(r) {
     text(`${peers.length} peers`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     const shown = Math.min(peers.length, 12);
     const maxRate = Math.max(1, ...peers.map((p) => p.rate || 0)); // busiest peer sets the scale
+    syncState.peerSmooth = syncState.peerSmooth || {};
+    const sm = syncState.peerSmooth;
     for (let i = 0; i < shown; i++) {
       const f = shown > 1 ? i / (shown - 1) : 0.5, th = Math.PI * (1 - f);
       const px = cx + Rx * Math.cos(th), py = archBaseY - Ry * Math.sin(th);
-      const intensity = Math.min(1, (peers[i].rate || 0) / maxRate); // this peer's share of the flow
+      const addr = peers[i].addr || ("p" + i), tgt = Math.min(1, (peers[i].rate || 0) / maxRate);
+      sm[addr] = sm[addr] == null ? tgt : sm[addr] + (tgt - sm[addr]) * 0.06; // taper between 4s polls → fluid
+      const intensity = Math.max(0, Math.min(1, sm[addr]));
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      if (peers[i].downloading || intensity > 0.03) {
-        const nC = 1 + Math.round(intensity * 3); // more comets + faster from higher-rate peers
-        for (let c = 0; c < nC; c++) dataComet(px, py, cx, nodeY, (syncState.t * (0.4 + intensity * 0.9) + c / nC + i * 0.13) % 1, i * 7 + c + 1);
-      }
+      // continuous comet stream: brightness + speed scale with the smoothed rate (no count jumps)
+      const flowA = Math.max(peers[i].downloading ? 0.18 : 0, intensity), speed = 0.35 + intensity * 0.9;
+      for (let c = 0; c < 3; c++) dataComet(px, py, cx, nodeY, (syncState.t * speed + c / 3 + i * 0.13) % 1, i * 7 + c + 1, flowA);
     }
   }
 
@@ -578,17 +584,21 @@ function drawSync(r) {
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("filling ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
 
-  // ---- upcoming empty slots to the right, then the live block being mined (far right) ----
+  // ---- upcoming empty slots → (hidden blocks) → the live block being mined (far right) ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
-  let fx = birthX + spacing, fh = Math.floor(head) + 1;
-  ctx.setLineDash([3, 3]); ctx.lineWidth = 1;
-  while (fx + bw <= mineX - spacing * 0.5) {
-    ctx.strokeStyle = "rgba(255,255,255,0.18)"; roundRect(fx, my, bw, bh, 4); ctx.stroke();
+  let fx = birthX + spacing, fh = Math.floor(head) + 1, lastRight = birthX + bw;
+  while (fx + bw <= mineX - spacing * 0.8) {
+    ctx.strokeStyle = `rgba(${ACCENT},0.3)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // chain link in
+    ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
     text("#" + (fh % 100000), fx + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
-    fx += spacing; fh += 1;
+    lastRight = fx + bw; fx += spacing; fh += 1;
   }
-  ctx.setLineDash([]);
   text("upcoming →", birthX + spacing + 2, my - 8, { size: 9, color: "rgba(255,255,255,0.35)", baseline: "middle" });
+
+  // many more blocks (not shown) connect the chain through to the block being mined
+  const hidden = Math.max(0, tip - (fh - 1));
+  ctx.strokeStyle = `rgba(${ACCENT},0.28)`; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(mineX, cy); ctx.stroke(); ctx.setLineDash([]);
+  if (hidden > 0) text(`⋯ +${hidden.toLocaleString()} blocks ⋯`, (lastRight + mineX) / 2, cy - 11, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
 
   // the block the network is mining right now (next height after the tip)
   const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));

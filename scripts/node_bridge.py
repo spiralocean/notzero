@@ -55,6 +55,7 @@ def build(url, user, pw):
             "rate": round(rate),
             "subver": p.get("subver", ""),
         })
+    peers.sort(key=lambda x: x["addr"])  # stable order so the web doesn't shuffle peer positions
     return {
         "ts": int(time.time()),
         "reachable": True,
