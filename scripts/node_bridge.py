@@ -46,11 +46,13 @@ def build(url, user, pw):
         recv = p.get("bytesrecv", 0)
         prev = _prev_recv.get(addr, recv)
         _prev_recv[addr] = recv
-        downloading = bool(p.get("inflight")) or (recv - prev > 50_000)  # blocks in flight, or a real byte burst
+        rate = max(0, (recv - prev) / POLL_SEC)  # bytes/sec received from this peer
+        downloading = bool(p.get("inflight")) or rate > 8_000
         peers.append({
             "addr": addr,
             "inbound": bool(p.get("inbound", False)),
             "downloading": downloading,
+            "rate": round(rate),
             "subver": p.get("subver", ""),
         })
     return {

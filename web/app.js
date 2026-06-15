@@ -214,11 +214,11 @@ const QUOTES = [
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 430 };
+const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 470 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.11.0";
+const VERSION = "web v0.12.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -427,11 +427,8 @@ function drawFieldDetail(idx, p, dr, b, tk) {
   }
 }
 
-// ---- BLOCKCHAIN SYNC: real-rate conveyor (advances only as blocks actually sync) ----
-// Driven by real synced height: when caught up, a new block only slides in when
-// the chain tip advances (~10 min); during IBD it tracks node.blocks; if sync is
-// paused, nothing progresses. Peers/disk come from the local node when available.
-const syncState = { t: 0, headSmooth: null, disk: 12 };
+// ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
+const syncState = { t: 0, shown: null, phase: "fill", fp: 0, sp: 0, disk: 12 };
 const mbFmt = (s) => (s / 1e6).toFixed(2) + " MB";
 
 function dataComet(x0, y0, x1, y1, prog, seed) {
@@ -460,11 +457,11 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
   const y = cy - bh / 2, verified = fill >= 1;
   ctx.globalAlpha = a;
   ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(x, y, bw, bh, 4); ctx.fill();
-  const target = info && info.size ? Math.min(18, Math.max(4, Math.round(info.size / 95000))) : 8;
+  const target = info && info.tx ? Math.min(18, Math.max(4, Math.round(info.tx / 250))) : (info && info.size ? Math.min(18, Math.max(4, Math.round(info.size / 95000))) : 8);
   const shown = Math.max(0, Math.floor(target * fill));
   for (let d = 0; d < shown; d++) {
     const col = d % 6, row = Math.floor(d / 6), dx = x + 9 + col * ((bw - 18) / 5), dy = y + 15 + row * 10;
-    ctx.beginPath(); ctx.arc(dx, dy, 1.5, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.8)"; ctx.fill();
+    ctx.beginPath(); ctx.arc(dx, dy, 1.5, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.85)"; ctx.fill();
   }
   ctx.strokeStyle = verified ? `rgba(${ACCENT},0.85)` : "rgba(255,255,255,0.3)"; ctx.lineWidth = verified ? 1.5 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
   if (height) text("#" + (height % 100000), x + bw / 2, y + 8, { size: 9, weight: 700, color: "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
@@ -477,82 +474,99 @@ function drawSync(r) {
   syncState.t += 1 / 60;
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
-  text("SYNCING THE CHAIN — fill · link · prune", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  text("SYNCING THE CHAIN — peers → node → block", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
 
   const node = model.node;
   const tip = (node && node.headers) || model.tipHeight || 0;
   const head = node && node.blocks ? node.blocks : (model.tipHeight || 0);
   if (!head) { text("connecting to the network…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "#888", align: "center", baseline: "middle" }); return; }
-  // factory-style stepped advance: hold, then index one block-slot forward (with a
-  // slight mechanical overshoot), dwell, repeat — only as the real height climbs.
-  if (syncState.shown == null) { syncState.shown = head - 3; syncState.stepP = 1; syncState.dwell = 0; }
-  if (head - syncState.shown > 8) syncState.shown = head - 8; // don't lag far behind during fast IBD
-  if (syncState.shown < head) {
-    if (syncState.stepP >= 1) { syncState.dwell -= 1 / 60; if (syncState.dwell <= 0) syncState.stepP = 0; } // dwell, then start a step
-    else { syncState.stepP = Math.min(1, syncState.stepP + (1 / 60) / 0.22); if (syncState.stepP >= 1) { syncState.shown += 1; syncState.dwell = 0.2; } } // ~0.22s snap, then dwell
-  }
-  const sp = syncState.stepP;
-  const eb = sp >= 1 ? 1 : 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2); // easeOutBack snap
-  const hs = syncState.shown + (sp >= 1 ? 0 : eb);
-  const downloading = syncState.shown < head || syncState.stepP < 1;
 
-  // sync progress vs tip
+  // fill-then-step advance: a block fills at center, then steps left; one block at a time
+  if (syncState.shown == null) syncState.shown = head - 3;
+  if (head - syncState.shown > 8) syncState.shown = head - 8;
+  if (syncState.shown < head) {
+    if (syncState.phase === "fill") { syncState.fp += (1 / 60) / 0.5; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
+    else { syncState.sp += (1 / 60) / 0.24; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; syncState.sp = 0; } }
+  } else { syncState.phase = "fill"; syncState.fp = 1; }
+  const sp = syncState.sp;
+  const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
+  const hs = syncState.shown + stepEase;
+  const downloading = syncState.shown < head;
+  const newestFill = downloading ? (syncState.phase === "fill" ? syncState.fp : 1) : 1;
+
+  // progress vs tip
   const prog = node && node.verificationprogress != null ? node.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
   const behind = Math.max(0, tip - Math.floor(head));
   text(`synced #${Math.floor(head).toLocaleString()} / tip #${tip.toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
   text(`${(prog * 100).toFixed(2)}%${behind > 0 ? "  ·  " + behind.toLocaleString() + " behind" : "  ·  caught up"}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
-  if (!downloading) text(behind > 0 ? "sync paused — waiting for blocks" : "at chain tip — next block in ~10 min", r.x + r.w / 2, r.y + 56, { size: 9, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 
-  // ---- peers (real, from your node — none shown if not connected) ----
-  const cx = r.x + r.w / 2, youY = r.y + 136;
+  const cx = r.x + r.w / 2;
+  const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
+  const cy = r.y + r.h - 96, nodeY = r.y + 182, birthX = cx - bw / 2, leftExit = r.x + m;
+  const blockX = (k) => birthX - (hs - k) * spacing;
+
+  // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
-  ctx.font = "700 15px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(255,255,255,0.92)"; ctx.fillText(CYBER[frame % CYBER.length], cx, youY);
-  ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, youY, 11, 0, 7); ctx.stroke();
-  text("your node", cx, youY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  const archBaseY = r.y + 152, Rx = Math.min(r.w / 2 - 48, 340), Ry = 58;
+  ctx.strokeStyle = `rgba(${ACCENT},0.12)`; ctx.lineWidth = 1; ctx.beginPath();
+  for (let s = 0; s <= 48; s++) { const th = Math.PI * (s / 48), ax = cx + Rx * Math.cos(th), ay = archBaseY - Ry * Math.sin(th); s === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay); }
+  ctx.stroke();
   if (peers.length === 0) {
-    text("no peers connected — start your node (bitcoind) to see them here", cx, r.y + 86, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
+    text("no peers connected — start your node (bitcoind) to see them here", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   } else {
-    text(`${peers.length} peers connected`, cx, r.y + 52, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    text(`${peers.length} peers`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     const shown = Math.min(peers.length, 12);
+    const maxRate = Math.max(1, ...peers.map((p) => p.rate || 0)); // busiest peer sets the scale
     for (let i = 0; i < shown; i++) {
-      const peer = peers[i], px = r.x + r.w * (0.1 + 0.8 * (shown > 1 ? i / (shown - 1) : 0.5)), py = r.y + 70 + (i % 2) * 12;
-      ctx.strokeStyle = `rgba(${ACCENT},0.15)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, youY); ctx.stroke();
-      ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      if (peer.downloading) dataComet(px, py, cx, youY, (syncState.t * 0.6 + i * 0.31) % 1, i * 5 + 1); // only if this peer is actively sending
+      const f = shown > 1 ? i / (shown - 1) : 0.5, th = Math.PI * (1 - f);
+      const px = cx + Rx * Math.cos(th), py = archBaseY - Ry * Math.sin(th);
+      const intensity = Math.min(1, (peers[i].rate || 0) / maxRate); // this peer's share of the flow
+      ctx.strokeStyle = `rgba(${ACCENT},${0.07 + 0.2 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
+      const gsz = 11 + Math.round(5 * intensity); // bigger, brighter glyph for busier peers
+      ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.4 + 0.55 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
+      if (peers[i].downloading || intensity > 0.03) {
+        const nC = 1 + Math.round(intensity * 3); // more comets + faster from higher-rate peers
+        for (let c = 0; c < nC; c++) dataComet(px, py, cx, nodeY, (syncState.t * (0.4 + intensity * 0.9) + c / nC + i * 0.13) % 1, i * 7 + c + 1);
+      }
     }
   }
 
-  // ---- conveyor (advances with real synced height) ----
-  const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
-  const cy = r.y + r.h - 116, rightAnchor = r.x + r.w - m - bw, leftExit = r.x + m;
-  const k0 = Math.floor(hs), newestX = rightAnchor - (hs - k0) * spacing;
-  if (downloading) for (let pk = 0; pk < 2; pk++) dataComet(cx, youY, newestX + bw / 2, cy - bh / 2, (syncState.t * 0.6 + pk * 0.5) % 1, pk * 11 + 3);
+  // ---- your node (centered, above the new block) ----
+  ctx.font = "700 16px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fillText(CYBER[frame % CYBER.length], cx, nodeY);
+  ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
+  text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // pruner cluster at the left edge
+  // node → new block: data drops straight down while the block is filling
+  if (downloading && syncState.phase === "fill") {
+    for (let pk = 0; pk < 2; pk++) dataComet(cx, nodeY + 12, cx, cy - bh / 2, (syncState.t * 0.7 + pk * 0.5) % 1, pk * 11 + 3);
+  }
+
+  // ---- pruner at the far left ----
   const prX = leftExit - 2;
   for (let g = 0; g < 4; g++) { const a = 0.35 + 0.5 * Math.abs(Math.sin(frame * 0.12 + g * 0.9)); ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(255,150,60,${a})`; ctx.fillText(CYBER[(frame + g * 7) % CYBER.length], prX, cy - 20 + g * 13); }
   text("prune ♻", prX, cy + 40, { size: 9, color: "rgba(255,150,60,0.75)", align: "center", baseline: "middle" });
 
-  const span = Math.ceil((rightAnchor - leftExit) / spacing) + 3, contact = prX + 16;
-  for (let k = k0; k > k0 - span; k--) {
-    const ageSlots = hs - k, x = rightAnchor - ageSlots * spacing;
-    if (x > r.x + r.w || x < r.x + m - bw) continue;
-    const fill = Math.min(1, ageSlots / 0.8);
-    const fade = x >= contact ? 0 : Math.min(1, (contact - x) / (bw * 0.7)); // block only dissolves once it touches the pruner
+  // ---- conveyor: blocks born at center, step left, prune at far left ----
+  const span = Math.ceil((birthX - leftExit) / spacing) + 4, contact = prX + 16;
+  for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
+    const x = blockX(k);
+    if (x > cx + bw || x < r.x + m - bw) continue;
+    const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
+    const fade = x >= contact ? 0 : Math.min(1, (contact - x) / (bw * 0.7));
     const info = syncRecentInfo(Math.round(head) - k);
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
-    if (fill >= 1) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - gap, cy); ctx.lineTo(x, cy); ctx.stroke(); ctx.globalAlpha = 1; }
+    if (fill >= 1 && x < birthX - 2) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
     drawConveyorBlock(x, cy, bw, bh, k, info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  text(downloading ? "syncing ▸" : "at tip", r.x + r.w - m, cy + bh / 2 + 16, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "right", baseline: "middle" });
+  text("new ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
 
-  // ---- disk (concise; real if the node reports it, else tracks activity) ----
+  // ---- disk (concise) ----
   let used;
   if (node && node.size_on_disk != null) used = node.size_on_disk / 1e9;
   else { syncState.disk += downloading ? 0.02 : -0.012; syncState.disk = Math.max(9, Math.min(16, syncState.disk)); used = syncState.disk; }
-  const dbX = r.x + 16, dbW = r.w - 32, dbY = r.y + r.h - 26, dbH = 10, sMin = node ? 0 : 7, sMax = node ? Math.max(20, used * 1.25) : 17;
+  const dbX = r.x + 16, dbW = r.w - 32, dbY = r.y + r.h - 24, dbH = 9, sMin = node ? 0 : 7, sMax = node ? Math.max(20, used * 1.25) : 17;
   ctx.fillStyle = "rgba(255,255,255,0.08)"; roundRect(dbX, dbY, dbW, dbH, 5); ctx.fill();
   ctx.fillStyle = "rgba(70,205,125,0.9)"; roundRect(dbX, dbY, Math.max(6, dbW * ((used - sMin) / (sMax - sMin))), dbH, 5); ctx.fill();
   text(`disk ~${used.toFixed(1)} GB`, dbX, dbY - 7, { size: 10, weight: 600, color: "rgba(70,210,130,0.95)", baseline: "middle" });
