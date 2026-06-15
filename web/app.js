@@ -211,11 +211,11 @@ const QUOTES = [
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 344 };
+const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 430 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.6.0";
+const VERSION = "web v0.7.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -434,7 +434,7 @@ const SYNC_CAPTION = {
   download: "Downloading full blocks — transactions & witnesses",
   verify: "Verifying proof-of-work and validating each block",
   link: "Linking blocks by previous-hash — forming the chain",
-  prune: "Pruning old block data — keeping headers + the UTXO set",
+  prune: "Old block bodies discarded as you sync — disk stays ~15 GB (UTXO + headers kept)",
   synced: "Synced — your node is ready",
 };
 const syncState = { t: 0 };
@@ -483,31 +483,52 @@ function drawSync(r) {
   else detail = model.tipHeight ? `fully synced to tip #${model.tipHeight.toLocaleString()}` : "fully synced";
   text(detail, r.x + r.w / 2, r.y + 64, { size: 12, weight: 600, color: "rgba(255,255,255,0.82)", align: "center", baseline: "middle", mono: true });
 
-  // peers feeding the node
-  if (ph.name === "connect" || ph.name === "headers") {
-    const youX = r.x + r.w / 2, youY = r.y + 124;
-    for (let pidx = 0; pidx < 4; pidx++) {
-      const px = r.x + r.w * (0.24 + 0.17 * pidx), py = r.y + 92;
-      const on = ph.name === "headers" || ph.p > pidx * 0.22;
-      ctx.strokeStyle = `rgba(${ACCENT},${on ? 0.5 : 0.12})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(youX, youY); ctx.stroke();
-      ctx.beginPath(); ctx.arc(px, py, 4, 0, 7); ctx.fillStyle = on ? `rgb(${ACCENT})` : "rgba(255,255,255,0.2)"; ctx.fill();
-    }
+  // chain geometry — left-aligned, occupying ~70% so the kept blocks have room
+  // to slide right when the old ones are pruned away.
+  const m = 24, gap = 12, cy = r.y + r.h - 130, bh = 52;
+  const chainW = (r.w - 2 * m) * 0.7, bw = (chainW - (N - 1) * gap) / N;
+  const buildX = (i) => r.x + m + i * (bw + gap);
+  const keptW = keep * bw + (keep - 1) * gap;
+  const slideMax = (r.x + r.w - m - keptW) - buildX(N - keep);
+  const ease = pruneProg < 0.5 ? 2 * pruneProg * pruneProg : 1 - Math.pow(-2 * pruneProg + 2, 2) / 2;
+  const slideX = slideMax * ease;
+  const peerY = r.y + 106;
+
+  // peers — a node keeps ~8 connections, shown persistently
+  const peerN = 8, peersOn = ph.name === "connect" ? Math.min(peerN, 1 + Math.floor(ph.p * peerN)) : peerN;
+  text(`peers connected: ${peersOn} / ${peerN}`, r.x + r.w / 2, r.y + 86, { size: 11, weight: 600, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  for (let pidx = 0; pidx < peerN; pidx++) {
+    const px = r.x + r.w / 2 + (pidx - (peerN - 1) / 2) * 20;
+    ctx.beginPath(); ctx.arc(px, peerY, 4, 0, 7); ctx.fillStyle = pidx < peersOn ? `rgba(${ACCENT},0.85)` : "rgba(255,255,255,0.16)"; ctx.fill();
   }
 
-  // the chain — each block fills to its REAL size
-  const m = 26, gap = 12, cy = r.y + r.h - 96, bw = (r.w - 2 * m - (N - 1) * gap) / N, bh = 56;
   for (let i = 0; i < N; i++) {
-    const x = r.x + m + i * (bw + gap), y = cy - bh / 2, lvl = level(i), info = syncBlockInfo(i, N);
+    const lvl = level(i), info = syncBlockInfo(i, N);
+    const isPruned = i < N - keep;
     const fade = Math.max(0, Math.min(1, prunedFront - i)), a = 1 - fade;
-    if (a <= 0.04) {
-      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; roundRect(x, y, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
-      text("pruned", x + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
-      continue;
+    // pruned blocks slide LEFT out and dissolve; kept blocks slide RIGHT into the freed space
+    let x = isPruned ? buildX(i) - ease * (bw + gap) * 1.4 : buildX(i) + slideX;
+    let yOff = 0;
+    if (ph.name === "download" && i === active && lvl >= 2) {
+      const sub = Math.min(1, Math.max(0, ph.p * N - i)); // 0→1 as this block downloads
+      yOff = (1 - sub) * (peerY - cy); // drops in from the peers
+    }
+    const y = cy - bh / 2 + yOff;
+
+    if (isPruned && a <= 0.05) { // gone — leave a couple of debris specks, no block-shaped gap
+      for (let d = 0; d < 3; d++) { ctx.globalAlpha = Math.max(0, 0.3 - pruneProg * 0.3); ctx.beginPath(); ctx.arc(x + 6 + d * 8, cy + (d - 1) * 5, 1.3, 0, 7); ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.fill(); }
+      ctx.globalAlpha = 1; continue;
     }
     ctx.globalAlpha = a;
-    if (i > 0 && lvl >= 4 && level(i - 1) >= 4 && (1 - Math.max(0, Math.min(1, prunedFront - (i - 1)))) > 0.04) {
-      ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - gap, cy); ctx.lineTo(x, cy); ctx.stroke();
+
+    // chain link to previous (only when both present and linked)
+    if (i > 0 && lvl >= 4 && level(i - 1) >= 4 && !isPruned && i - 1 >= N - keep) {
+      const px = buildX(i - 1) + slideX + bw;
+      ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(px, cy); ctx.lineTo(x, cy); ctx.stroke();
     }
+    // dropping-in connector from peers
+    if (yOff < -2) { ctx.strokeStyle = `rgba(${ACCENT},0.35)`; ctx.setLineDash([2, 3]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x + bw / 2, peerY); ctx.lineTo(x + bw / 2, y); ctx.stroke(); ctx.setLineDash([]); }
+
     if (lvl === 0) {
       ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(x, y, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
     } else if (lvl === 1) {
@@ -515,38 +536,29 @@ function drawSync(r) {
       ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; roundRect(x, y + bh / 2 - 5, bw, 10, 3); ctx.stroke();
     } else {
       const verified = lvl >= 3, linked = lvl >= 4, isActive = i === active && ph.name === "download";
-      // body fills to the block's real size (downloading fills it up)
-      const fillFrac = info.size ? Math.max(0.12, Math.min(1, info.size / 1.7e6)) : 0.5;
-      const grow = isActive ? (ph.p * N - front) : 1; // active block fills in
-      const innerH = (bh - 16) * fillFrac * Math.max(0.1, Math.min(1, grow));
+      const fillFrac = info.size ? Math.max(0.14, Math.min(1, info.size / 1.7e6)) : 0.5;
+      const grow = isActive ? Math.min(1, Math.max(0.1, ph.p * N - i)) : 1;
+      const innerH = (bh - 16) * fillFrac * grow;
       ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(x, y, bw, bh, 4); ctx.fill();
-      ctx.fillStyle = verified ? "rgba(50,150,90,0.4)" : `rgba(${ACCENT},0.28)`;
+      ctx.fillStyle = verified ? "rgba(50,150,90,0.4)" : `rgba(${ACCENT},0.3)`;
       roundRect(x + 3, y + bh - 5 - innerH, bw - 6, innerH, 3); ctx.fill();
       ctx.strokeStyle = linked ? `rgba(${ACCENT},0.85)` : (verified ? "rgba(70,200,120,0.7)" : "rgba(255,255,255,0.3)"); ctx.lineWidth = linked ? 1.6 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
-      if (info.height) text("#" + (info.height % 100000), x + bw / 2, y + 9, { size: 9, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
+      if (info.height) text("#" + (info.height % 100000), x + bw / 2, y + 9, { size: 9, weight: 700, color: "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
       if (info.size) text(mb(info.size), x + bw / 2, y + bh - 8, { size: 8, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
       if (verified) text("✓", x + bw - 8, y + 9, { size: 11, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
     }
     ctx.globalAlpha = 1;
   }
-  text("older", r.x + m, cy + bh / 2 + 12, { size: 10, color: "rgba(255,255,255,0.35)", baseline: "middle" });
+  if (pruneProg > 0.5) text("← old blocks pruned · disk freed", r.x + m, cy + bh / 2 + 12, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("tip ▸", r.x + r.w - m, cy + bh / 2 + 12, { size: 10, color: "rgba(255,255,255,0.35)", align: "right", baseline: "middle" });
 
-  // disk meter: fills as blocks download, then prune frees most of it
-  const full = 600, kept = 15;
-  let used = kept;
-  if (ph.name === "connect" || ph.name === "headers") used = full * 0.02;
-  else if (ph.name === "download") used = full * (0.05 + 0.9 * ph.p);
-  else if (ph.name === "verify" || ph.name === "link") used = full * 0.96;
-  else if (ph.name === "prune") used = full - (full - kept) * ph.p;
-  const dmX = r.x + 16, dmW = r.w - 32, dmY = r.y + r.h - 30;
-  ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(dmX, dmY, dmW, 8, 4); ctx.fill();
-  ctx.fillStyle = used > kept * 2 ? "rgba(255,120,80,0.7)" : "rgba(70,200,120,0.8)"; roundRect(dmX, dmY, dmW * (used / full), 8, 4); ctx.fill();
-  // marker for the pruned target (~15 GB)
-  const keptX = dmX + dmW * (kept / full);
-  ctx.strokeStyle = "rgba(70,220,130,0.8)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(keptX, dmY - 2); ctx.lineTo(keptX, dmY + 10); ctx.stroke();
-  text(`disk ~${used < 1 ? "0" : used.toFixed(0)} GB`, dmX, dmY - 8, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  text("pruned keeps ~15 GB, not ~600 GB", r.x + r.w - 16, dmY - 8, { size: 10, color: "rgba(255,255,255,0.45)", align: "right", baseline: "middle" });
+  // Disk (persistent): a PRUNED node deletes old block bodies as it goes, so its
+  // disk stays small (~15 GB) and never reaches the full archival size (~640 GB).
+  const fullGB = 640, prunedGB = 15, dmX = r.x + 16, dmW = r.w - 32, dmY = r.y + r.h - 24;
+  ctx.fillStyle = "rgba(255,255,255,0.08)"; roundRect(dmX, dmY, dmW, 9, 4); ctx.fill();       // full-chain track (reference)
+  ctx.fillStyle = "rgba(70,200,120,0.9)"; roundRect(dmX, dmY, Math.max(6, dmW * (prunedGB / fullGB)), 9, 4); ctx.fill(); // pruned node's tiny steady usage
+  text(`your pruned node: ~${prunedGB} GB on disk — kept steady`, dmX, dmY - 8, { size: 10, weight: 600, color: "rgba(70,210,130,0.95)", baseline: "middle" });
+  text(`a full archival node would store ~${fullGB} GB →`, r.x + r.w - 16, dmY - 8, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
 }
 
 function sparkline(rect, values, color) {
