@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.12.1";
+const VERSION = "web v0.12.2";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -559,6 +559,8 @@ function drawSync(r) {
   text("prune ♻", prX, cy + 40, { size: 9, color: "rgba(255,150,60,0.75)", align: "center", baseline: "middle" });
 
   // ---- conveyor: blocks born at center, step left, prune at far left ----
+  // persistent empty slot directly under the node — the block currently being filled
+  { const fy = cy - bh / 2; ctx.setLineDash([4, 3]); ctx.strokeStyle = `rgba(${ACCENT},0.4)`; ctx.lineWidth = 1; roundRect(birthX, fy, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); }
   const span = Math.ceil((birthX - leftExit) / spacing) + 4, contact = prX + 16;
   for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
     const x = blockX(k);
@@ -571,7 +573,7 @@ function drawSync(r) {
     drawConveyorBlock(x, cy, bw, bh, k, info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  text("new ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  text("filling ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
 
   // ---- disk (concise) ----
   let used;
