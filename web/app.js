@@ -17,8 +17,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "closeness", "hashBuild", "network"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK" };
+const SECTIONS = ["nextBlock", "closeness", "hashBuild", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -208,11 +208,11 @@ const QUOTES = [
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180 };
+const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 300 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.4.3";
+const VERSION = "web v0.5.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -231,6 +231,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "hashBuild") { return model.ticket ? "0x" + model.ticket.hashHex.slice(0, 10) + "…" : "—"; }
+  if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";
 }
@@ -249,6 +250,7 @@ function drawContent(s, r) {
   if (s === "closeness") return drawCloseness(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "network") return drawNetwork(r);
+  if (s === "sync") return drawSync(r);
 }
 
 function drawNextBlock(r) {
@@ -417,6 +419,90 @@ function drawFieldDetail(idx, p, dr, b, tk) {
     text("↓  SHA-256  ↓", cx, midY, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
     fieldValueRow("#" + tk.nonce.toLocaleString(), Math.max(p, 0.4), cx, dr.y + dr.h - 12, 20);
   }
+}
+
+// ---- BLOCKCHAIN SYNC: how a (pruned) node builds the chain ----
+const SYNC_PHASES = [["connect", 2.4], ["headers", 3.0], ["download", 4.0], ["verify", 3.0], ["link", 2.2], ["prune", 3.4], ["synced", 2.8]];
+const SYNC_CYCLE = SYNC_PHASES.reduce((s, p) => s + p[1], 0);
+const SYNC_ORDER = ["connect", "headers", "download", "verify", "link", "prune", "synced"];
+const SYNC_CAPTION = {
+  connect: "Connecting to peers across the network",
+  headers: "Downloading the chain skeleton — every block's 80-byte header",
+  download: "Downloading full blocks — transactions & witnesses",
+  verify: "Verifying proof-of-work and validating each block",
+  link: "Linking blocks by previous-hash — forming the chain",
+  prune: "Pruning old block data — keeping headers + the UTXO set",
+  synced: "Synced — your node is ready",
+};
+const syncState = { t: 0 };
+function syncPhaseAt(t) { let acc = 0; for (const [n, d] of SYNC_PHASES) { if (t < acc + d) return { name: n, p: (t - acc) / d }; acc += d; } return { name: "synced", p: 1 }; }
+
+function drawSync(r) {
+  syncState.t += 1 / 60;
+  const t = syncState.t % SYNC_CYCLE, ph = syncPhaseAt(t), oi = SYNC_ORDER.indexOf(ph.name);
+  ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
+  ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
+  text("HOW A NODE SYNCS THE BLOCKCHAIN", r.x + r.w / 2, r.y + 20, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", align: "center", baseline: "middle" });
+  text(SYNC_CAPTION[ph.name], r.x + r.w / 2, r.y + 44, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+
+  const N = 8, keep = 4, front = Math.floor(ph.p * N + 1e-6);
+  // each block's build level: 0 empty · 1 header · 2 downloaded · 3 verified · 4 linked
+  const level = (i) => {
+    let lvl = 0;
+    if (oi > 1) lvl = 1; if (oi > 2) lvl = 2; if (oi > 3) lvl = 3; if (oi > 4) lvl = 4;
+    if (ph.name === "headers" && i < front) lvl = Math.max(lvl, 1);
+    if (ph.name === "download" && i < front) lvl = Math.max(lvl, 2);
+    if (ph.name === "verify" && i < front) lvl = Math.max(lvl, 3);
+    if (ph.name === "link" && i < front) lvl = Math.max(lvl, 4);
+    return lvl;
+  };
+  const pruneProg = ph.name === "prune" ? ph.p : (ph.name === "synced" ? 1 : 0);
+  const prunedFront = pruneProg * (N - keep);
+
+  // peers feeding the node (connect / headers)
+  if (ph.name === "connect" || ph.name === "headers") {
+    const youX = r.x + r.w / 2, youY = r.y + 86;
+    for (let pidx = 0; pidx < 4; pidx++) {
+      const px = r.x + r.w * (0.22 + 0.19 * pidx), py = r.y + 64;
+      const on = ph.name === "headers" || ph.p > pidx * 0.22;
+      ctx.strokeStyle = `rgba(${ACCENT},${on ? 0.5 : 0.12})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(youX, youY); ctx.stroke();
+      ctx.beginPath(); ctx.arc(px, py, 4, 0, 7); ctx.fillStyle = on ? `rgb(${ACCENT})` : "rgba(255,255,255,0.2)"; ctx.fill();
+    }
+    text("peers", r.x + r.w * 0.5, r.y + 60, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  }
+
+  // the chain
+  const m = 30, gap = 14, cy = r.y + r.h - 86, bw = (r.w - 2 * m - (N - 1) * gap) / N, bh = 46;
+  for (let i = 0; i < N; i++) {
+    const x = r.x + m + i * (bw + gap), y = cy - bh / 2, lvl = level(i);
+    const fade = Math.max(0, Math.min(1, prunedFront - i)), a = 1 - fade;
+    if (a <= 0.04) {
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; roundRect(x, y, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
+      continue;
+    }
+    ctx.globalAlpha = a;
+    if (i > 0 && lvl >= 4 && level(i - 1) >= 4 && (1 - Math.max(0, Math.min(1, prunedFront - (i - 1)))) > 0.04) {
+      ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x - gap, cy); ctx.lineTo(x, cy); ctx.stroke();
+    }
+    if (lvl === 0) {
+      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(x, y, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
+    } else if (lvl === 1) {
+      ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(x, y + bh / 2 - 5, bw, 10, 3); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; roundRect(x, y + bh / 2 - 5, bw, 10, 3); ctx.stroke();
+    } else {
+      const verified = lvl >= 3, linked = lvl >= 4;
+      ctx.fillStyle = verified ? "rgba(40,120,70,0.32)" : "rgba(255,255,255,0.08)"; roundRect(x, y, bw, bh, 4); ctx.fill();
+      ctx.strokeStyle = linked ? `rgba(${ACCENT},0.85)` : (verified ? "rgba(70,200,120,0.7)" : "rgba(255,255,255,0.25)"); ctx.lineWidth = linked ? 1.6 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
+      for (let d = 0; d < 6; d++) { const dx = x + 7 + (d % 3) * ((bw - 14) / 2.2), dy = y + 12 + Math.floor(d / 3) * 13; ctx.beginPath(); ctx.arc(dx, dy, 1.6, 0, 7); ctx.fillStyle = "rgba(255,255,255,0.42)"; ctx.fill(); }
+      if (verified) text("✓", x + bw - 9, y + 11, { size: 12, weight: 700, color: "rgb(80,220,130)", align: "center", baseline: "middle" });
+    }
+    ctx.globalAlpha = 1;
+  }
+  text("older blocks", r.x + m, cy + bh / 2 + 14, { size: 10, color: "rgba(255,255,255,0.35)", baseline: "middle" });
+  text("tip ▸", r.x + r.w - m, cy + bh / 2 + 14, { size: 10, color: "rgba(255,255,255,0.35)", align: "right", baseline: "middle" });
+
+  const pct = ph.name === "synced" ? 100 : Math.round((oi / (SYNC_ORDER.length - 1)) * 100);
+  text(`${pct}% · a pruned node keeps ~15 GB on disk, not the full ~600 GB`, r.x + r.w / 2, r.y + r.h - 16, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 }
 
 function sparkline(rect, values, color) {
