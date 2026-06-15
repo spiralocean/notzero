@@ -215,7 +215,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.8.0";
+const VERSION = "web v0.9.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -458,22 +458,43 @@ function drawConveyorBlock(k, kMax, x, cy, bw, bh, fill, fade) {
   ctx.globalAlpha = 1;
 }
 
+// a moving data packet rendered as a bright matrix glyph with a short hash trail
+function dataComet(x0, y0, x1, y1, prog, seed) {
+  const hx = x0 + (x1 - x0) * prog, hy = y0 + (y1 - y0) * prog;
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1, nx = (x1 - x0) / len, ny = (y1 - y0) / len;
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let tdx = 3; tdx >= 0; tdx--) {
+    const bx = hx - nx * tdx * 9, by = hy - ny * tdx * 9;
+    if (tdx === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = "rgba(255,200,90,0.95)"; ctx.fillText(CYBER[(frame + seed) % CYBER.length], bx, by); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,185,140,${Math.max(0.06, 0.6 * (1 - tdx / 4))})`; ctx.fillText("0123456789abcdef"[(seed + tdx * 3 + Math.floor(prog * 40)) % 16], bx, by); }
+  }
+}
+
 function drawSync(r) {
   syncState.t += 1 / 60;
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
-  text("SYNCING THE CHAIN — fill · link · prune  (real recent blocks)", r.x + 16, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  if (model.tipHeight) text(`tip #${model.tipHeight.toLocaleString()}`, r.x + r.w - 16, r.y + 18, { size: 12, weight: 700, color: `rgba(${ACCENT},0.8)`, align: "right", baseline: "middle" });
+  text("SYNCING THE CHAIN — fill · link · prune", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+
+  // sync progress: where we are vs the chain tip (illustrative climb to 100%)
+  const tip = model.tipHeight || 0;
+  const syncProg = Math.min(1, (syncState.t % 44) / 40); // ~40s to sync, brief hold, then loop
+  const syncedH = Math.floor(tip * syncProg), behind = tip - syncedH;
+  text(`synced #${syncedH.toLocaleString()} / tip #${tip.toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
+  text(`${(syncProg * 100).toFixed(1)}%${behind > 0 ? "  ·  " + behind.toLocaleString() + " behind" : "  ·  caught up to tip"}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
+  const spX = r.x + 16, spW = r.w - 32, spY = r.y + 44;
+  ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, spY, spW, 6, 3); ctx.fill();
+  ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, spY, Math.max(4, spW * syncProg), 6, 3); ctx.fill();
 
   // ---- peer tree (always visible) ----
-  const cx = r.x + r.w / 2, youY = r.y + 118, peerN = 7;
+  const cx = r.x + r.w / 2, youY = r.y + 136, peerN = 7;
   for (let i = 0; i < peerN; i++) {
-    const px = r.x + r.w * (0.13 + 0.74 * (i / (peerN - 1))), py = r.y + 46 + (i % 2) * 12;
-    ctx.strokeStyle = `rgba(${ACCENT},0.22)`; ctx.lineWidth = 1; ctx.setLineDash([3, 5]); ctx.lineDashOffset = -(frame * 0.7 + i * 5);
-    ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, youY); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
+    const px = r.x + r.w * (0.13 + 0.74 * (i / (peerN - 1))), py = r.y + 66 + (i % 2) * 12;
+    ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, youY); ctx.stroke();
     ctx.beginPath(); ctx.arc(px, py, 4, 0, 7); ctx.fillStyle = `rgba(${ACCENT},0.8)`; ctx.fill();
+    dataComet(px, py, cx, youY, (syncState.t * 0.5 + i * 0.37) % 1, i * 5 + 1); // data flowing in from each peer
   }
-  text("peers", r.x + r.w * 0.13, r.y + 32, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  text("peers", r.x + r.w * 0.13, r.y + 56, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   ctx.beginPath(); ctx.arc(cx, youY, 7, 0, 7); ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, youY, 10, 0, 7); ctx.stroke();
   text("your node", cx, youY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
@@ -485,12 +506,19 @@ function drawSync(r) {
   const scroll = syncState.t * 17, kMax = Math.floor(scroll / spacing);
   const newestX = rightAnchor - (scroll - kMax * spacing);
 
-  // data packets flowing from your node into the newest (filling) block
+  // data comets shooting from your node into the newest (filling) block
   for (let pk = 0; pk < 2; pk++) {
-    const prog = (syncState.t * 0.6 + pk * 0.5) % 1;
-    const dx = cx + (newestX + bw / 2 - cx) * prog, dy = youY + (cy - bh / 2 - youY) * prog;
-    ctx.beginPath(); ctx.arc(dx, dy, 2.5, 0, 7); ctx.fillStyle = `rgba(${ACCENT},${0.85 * (1 - prog) + 0.15})`; ctx.fill();
+    dataComet(cx, youY, newestX + bw / 2, cy - bh / 2, (syncState.t * 0.6 + pk * 0.5) % 1, pk * 11 + 3);
   }
+
+  // pruner: a little cluster of glyphs at the left edge digesting old blocks
+  const prX = leftExit - 2;
+  for (let g = 0; g < 4; g++) {
+    const a = 0.35 + 0.5 * Math.abs(Math.sin(frame * 0.12 + g * 0.9));
+    ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    ctx.fillStyle = `rgba(255,150,60,${a})`; ctx.fillText(CYBER[(frame + g * 7) % CYBER.length], prX, cy - 20 + g * 13);
+  }
+  text("prune ♻", prX, cy + 40, { size: 9, color: "rgba(255,150,60,0.75)", align: "center", baseline: "middle" });
 
   const span = Math.ceil((rightAnchor - leftExit) / spacing) + 2;
   for (let k = kMax + 1; k >= kMax - span; k--) {
@@ -500,6 +528,12 @@ function drawSync(r) {
     if (ageSlots < 0) continue; // not born yet (just off the right edge)
     const fill = Math.min(1, ageSlots / 1.3);
     const fade = x < leftExit ? 1 : (x < leftExit + spacing ? (leftExit + spacing - x) / spacing : 0);
+    if (fade > 0.12) { // being pruned — particles consumed into the pruner
+      for (let p = 0; p < 2; p++) {
+        const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12;
+        ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill();
+      }
+    }
     if (fill >= 1) { // chain link to the previous (left) block
       ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2;
       ctx.beginPath(); ctx.moveTo(x - gap, cy); ctx.lineTo(x, cy); ctx.stroke(); ctx.globalAlpha = 1;
@@ -509,21 +543,14 @@ function drawSync(r) {
   text("← old blocks pruned (bodies freed)", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("filling from peers →", r.x + r.w - m, cy + bh / 2 + 16, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "right", baseline: "middle" });
 
-  // ---- disk usage (zoomed, dynamic): blocks downloading raise it, pruning drops it ----
-  const cyc = (syncState.t * 0.55) % 1;          // slow sawtooth
-  const used = 9 + 6 * cyc;                        // GB — climbs as blocks download, then prune frees it
-  syncState.disk = syncState.disk || [];
-  syncState.disk.push(used); if (syncState.disk.length > 180) syncState.disk.shift();
-  const dpX = r.x + 16, dpW = r.w - 32, dpY = r.y + r.h - 48, dpH = 34;
-  ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(dpX, dpY, dpW, dpH, 5); ctx.fill();
-  ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1; roundRect(dpX, dpY, dpW, dpH, 5); ctx.stroke();
-  const dmin = 6, dmax = 17, dyOf = (v) => dpY + dpH - 5 - ((v - dmin) / (dmax - dmin)) * (dpH - 14);
-  const hist = syncState.disk, step = dpW / Math.max(1, hist.length - 1);
-  ctx.beginPath(); hist.forEach((v, i) => { const xx = dpX + i * step, yy = dyOf(v); i === 0 ? ctx.moveTo(xx, yy) : ctx.lineTo(xx, yy); });
-  ctx.strokeStyle = "rgba(70,205,125,0.95)"; ctx.lineWidth = 1.6; ctx.stroke();
-  text(`disk usage (zoomed) ~${used.toFixed(1)} GB`, dpX + 8, dpY + 12, { size: 10, weight: 600, color: "rgba(70,210,130,0.95)", baseline: "middle" });
-  text(cyc > 0.92 ? "pruning ▼ freeing disk" : "downloading blocks ▲", dpX + 8, dpY + 25, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-  text("pruned node stays small · a full archival node ~640 GB (off-scale)", dpX + dpW - 8, dpY + 17, { size: 9, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  // ---- disk usage (single bar, zoomed): grows as blocks download, shrinks when pruning ----
+  const dmin = 6, dmax = 17, cyc = (syncState.t * 0.5) % 1;
+  const used = dmin + (dmax - dmin) * (cyc < 0.82 ? cyc / 0.82 : 1 - (cyc - 0.82) / 0.18);
+  const dbX = r.x + 16, dbW = r.w - 32, dbY = r.y + r.h - 28, dbH = 12;
+  ctx.fillStyle = "rgba(255,255,255,0.08)"; roundRect(dbX, dbY, dbW, dbH, 6); ctx.fill();
+  ctx.fillStyle = "rgba(70,205,125,0.9)"; roundRect(dbX, dbY, Math.max(8, dbW * (used - dmin) / (dmax - dmin)), dbH, 6); ctx.fill();
+  text(`disk ~${used.toFixed(1)} GB (zoom ${dmin}–${dmax} GB) · ${cyc >= 0.82 ? "pruning ▼" : "downloading ▲"}`, dbX, dbY - 7, { size: 10, weight: 600, color: "rgba(70,210,130,0.95)", baseline: "middle" });
+  text("full archival ~640 GB (off-scale)", r.x + r.w - 16, dbY - 7, { size: 9, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
 }
 
 function sparkline(rect, values, color) {
@@ -585,6 +612,11 @@ function render() {
     text(model.error, W / 2, TOP + 40, { size: 16, color: "rgba(255,120,90,0.9)", align: "center", baseline: "middle" });
   } else {
     for (const f of frames) {
+      // dim the matrix rain behind each section so its content reads clearly
+      const top = f.header.y - 3;
+      const bot = f.content ? f.content.y + f.content.h + 5 : f.header.y + f.header.h + 3;
+      ctx.fillStyle = "rgba(6,5,12,0.62)";
+      roundRect(f.header.x - 6, top, f.header.w + 12, bot - top, 9); ctx.fill();
       const hov = hoverSection === f.section;
       drawHeader(f.section, f.header, !!f.content, hov);
       headerHits.push(f);
