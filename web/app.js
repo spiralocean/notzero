@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.12.0";
+const VERSION = "web v0.12.1";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -467,6 +467,17 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
   if (height) text("#" + (height % 100000), x + bw / 2, y + 8, { size: 9, weight: 700, color: "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
   if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 7, { size: 8, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (verified) text("✓", x + bw - 9, y + 8, { size: 11, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
+  // pruning: cover the block with churning matrix glyphs — digesting/dissolving it as it fades
+  if (fade > 0.02) {
+    const cols = Math.max(1, Math.floor((bw - 6) / 11)), rows = Math.max(1, Math.floor((bh - 8) / 13)), total = cols * rows;
+    const cover = Math.ceil(total * Math.min(1, fade * 1.15));
+    ctx.globalAlpha = 1; ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let c = 0; c < cover; c++) {
+      const col = c % cols, row = Math.floor(c / cols);
+      ctx.fillStyle = `rgba(255,150,60,${0.5 + 0.45 * Math.abs(Math.sin(frame * 0.2 + c))})`;
+      ctx.fillText(CYBER[(frame + c * 5) % CYBER.length], x + 8 + col * 11, y + 11 + row * 13);
+    }
+  }
   ctx.globalAlpha = 1;
 }
 
@@ -522,9 +533,9 @@ function drawSync(r) {
       const f = shown > 1 ? i / (shown - 1) : 0.5, th = Math.PI * (1 - f);
       const px = cx + Rx * Math.cos(th), py = archBaseY - Ry * Math.sin(th);
       const intensity = Math.min(1, (peers[i].rate || 0) / maxRate); // this peer's share of the flow
-      ctx.strokeStyle = `rgba(${ACCENT},${0.07 + 0.2 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
-      const gsz = 11 + Math.round(5 * intensity); // bigger, brighter glyph for busier peers
-      ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.4 + 0.55 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
+      ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
+      const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
+      ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
       if (peers[i].downloading || intensity > 0.03) {
         const nC = 1 + Math.round(intensity * 3); // more comets + faster from higher-rate peers
         for (let c = 0; c < nC; c++) dataComet(px, py, cx, nodeY, (syncState.t * (0.4 + intensity * 0.9) + c / nC + i * 0.13) % 1, i * 7 + c + 1);
