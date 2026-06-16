@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.18.1";
+const VERSION = "web v0.18.2";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -451,28 +451,31 @@ function dataComet(x0, y0, x1, y1, prog, seed, alpha = 1) {
   }
 }
 
-// A continuous glyph stream flowing source → destination, like a faucet: the tap "openness" eases
-// toward a target (the data rate), and both the flow SPEED and brightness scale with it — open it and
-// the stream speeds up and brightens, close it and it slows and fades out. Glyphs fade in at the source
-// and out at the destination, so the whole flow reads from beginning to end (no prominent single head).
-function tickStream(store, key, target, baseSpeed) {
-  let st = store[key]; if (!st) st = store[key] = { phase: 0, open: 0 };
-  st.open += (Math.max(0, Math.min(1, target)) - st.open) * 0.12;
-  st.phase = (st.phase + (baseSpeed * (0.18 + 0.82 * st.open)) / 60) % 1;
+// A glyph stream that behaves like water in a pipe. Turn the tap ON: the leading edge (head) travels
+// from source to destination — you watch the front of the stream arrive. Turn it OFF: the source stops
+// but the water already in the pipe keeps going, so the trailing edge (tail) follows down and drains out
+// the bottom. Brightness is uniform along the column (no prominent head); only the two moving edges are
+// soft. The in-pipe glyph SPEED scales with the data rate, so the flow visibly speeds up and slows.
+function tickStream(store, key, active, scrollSpeed) {
+  let st = store[key]; if (!st) st = store[key] = { head: 0, tail: 0, phase: 0 };
+  const edge = 1.9 / 60; // leading/trailing edge crosses the whole path in ~0.5s
+  st.phase = (st.phase + scrollSpeed / 60) % 1;
+  if (active) { st.tail = 0; st.head = Math.min(1, st.head + edge); }
+  else if (st.head > 0) { st.tail = Math.min(1, st.tail + edge); if (st.tail >= 1) { st.head = 0; st.tail = 0; } }
   return st;
 }
-function drawStream(x0, y0, x1, y1, st, maxAlpha) {
-  if (st.open <= 0.02) return;
+function drawStream(x0, y0, x1, y1, st, alpha) {
+  if (alpha <= 0.02 || st.head <= st.tail) return;
   const len = Math.hypot(x1 - x0, y1 - y0) || 1, n = Math.max(3, Math.round(len / 13));
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let g = 0; g < n; g++) {
     const f = (g / n + st.phase) % 1;
-    const ends = Math.min(1, f / 0.08, (1 - f) / 0.08); // fade in at the source, out at the destination
-    const a = maxAlpha * st.open * ends;
+    if (f < st.tail || f > st.head) continue;           // only the water currently in the pipe
+    const a = alpha * Math.min(1, (f - st.tail) / 0.05, (st.head - f) / 0.05); // crisp but anti-aliased moving edges
     if (a <= 0.02) continue;
     const gx = x0 + (x1 - x0) * f, gy = y0 + (y1 - y0) * f;
     if (g % 3 === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[(frame + g * 3) % CYBER.length], gx, gy); }
-    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a * 0.8})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a * 0.85})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
   }
 }
 
@@ -612,11 +615,11 @@ function drawSync(r) {
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      // data stream peer → node: a faucet whose flow speeds/brightens with this peer's rate and
-      // eases off to nothing when it goes idle — continuous flow, not a blinking line.
-      const target = (peers[i].downloading || (peers[i].rate || 0) > 20_000) ? Math.max(0.18, intensity) : 0;
-      const st = tickStream(syncState.streams, "peer:" + addr, target, 1.1 + intensity * 2.2);
-      drawStream(px, py, cx, nodeY, st, 0.9);
+      // data stream peer → node: tap opens when this peer sends (leading edge travels to the node) and
+      // closes when it idles (trailing edge follows down and drains). Flow speed scales with its rate.
+      const active = peers[i].downloading || (peers[i].rate || 0) > 20_000;
+      const st = tickStream(syncState.streams, "peer:" + addr, active, 0.8 + intensity * 2.2);
+      drawStream(px, py, cx, nodeY, st, 0.55 + 0.4 * intensity);
     }
   }
 
@@ -630,10 +633,10 @@ function drawSync(r) {
   // glyph are both visible as it starts and ends.
   {
     const dropTop = nodeY + 14, surfaceY = cy + bh / 2 - 3 - (bh - 6) * newestFill;
-    const target = streaming ? Math.max(0.4, Math.min(1, syncState.flow / 2_000_000)) : 0; // faucet opens with throughput
-    const st = tickStream(syncState.streams, "__node", target, 1.7);
+    const flowRate = Math.min(1, syncState.flow / 2_000_000); // glyph speed scales with throughput
+    const st = tickStream(syncState.streams, "__node", streaming, 0.9 + flowRate * 2.0);
     drawStream(cx, dropTop, cx, surfaceY, st, 0.95);
-    if (st.open > 0.5) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2 * st.open, 0, 7); ctx.fillStyle = `rgba(255,215,140,${0.9 * st.open})`; ctx.fill(); } // splash where it lands
+    if (st.head >= 0.98 && st.tail === 0) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash once the front has arrived and is flowing
   }
 
   // ---- pruner at the far left ----
