@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.20.1";
+const VERSION = "web v0.20.2";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -541,7 +541,7 @@ function drawSync(r) {
   const peersAll = (node && Array.isArray(node.peers)) ? node.peers : [];
   const sumRate = peersAll.reduce((s, p) => s + (p.rate || 0), 0);
   syncState.flow = syncState.flow == null ? sumRate : syncState.flow + (sumRate - syncState.flow) * 0.08; // smooth across 4s polls
-  const flowing = syncState.flow > 25_000; // >25 KB/s aggregate = data is actually arriving
+  const flowing = peersAll.some((p) => (p.rate || 0) > 15_000); // node is fed iff ≥1 peer is actually sending (same threshold as the peer streams)
   const fillPerSec = flowing ? Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)) : 0; // rate-driven; 0 → the block holds its partial level
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
@@ -580,11 +580,17 @@ function drawSync(r) {
   const FP_CUT = 0.7;                                                      // level delivered while the tap is open; the rest tops off as the tail lands
   if (downloading) {
     if (syncState.phase === "arrive") {
-      syncState.nt = 0; if (flowing) syncState.nh = Math.min(1, syncState.nh + edgeStep);
-      if (syncState.nh >= 1) syncState.phase = "fill";
+      if (flowing) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
+      else if (syncState.nh > 0) { syncState.nt = Math.min(1, syncState.nt + edgeStep); if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; } } // no peer data: drain the partial pipe and wait
     } else if (syncState.phase === "fill") {
-      syncState.fp += fillPerSec / 60;
-      if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
+      if (flowing) {
+        syncState.nh = 1; syncState.nt = 0;
+        syncState.fp += fillPerSec / 60;
+        if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
+      } else { // peers stopped mid-fill: hold the level, drain the pipe, fall back to arrive to refill when data returns
+        syncState.nt = Math.min(1, syncState.nt + edgeStep);
+        if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; syncState.phase = "arrive"; }
+      }
     } else if (syncState.phase === "topoff") {
       syncState.nt = Math.min(1, syncState.nt + edgeStep);
       syncState.fp = syncState.fpCut + (1 - syncState.fpCut) * syncState.nt;
@@ -599,7 +605,7 @@ function drawSync(r) {
   const sp = syncState.sp || 0;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
-  const arriving = downloading && syncState.phase === "arrive";
+  const arriving = downloading && flowing && syncState.phase === "arrive";
   const filling = downloading && flowing && (syncState.phase === "fill" || syncState.phase === "topoff");
   const newestFill = !downloading ? 0 : syncState.fp; // 0 until the leading edge lands, then rises with the water
   const blockX = (k) => birthX - (hs - k) * spacing;
