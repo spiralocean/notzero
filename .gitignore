@@ -16,3 +16,6 @@ data/
 __pycache__/
 *.pyc
 .venv/web/node.json
+
+# dev tooling
+node_modules/

@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.16.2";
+const VERSION = "web v0.16.3";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -661,6 +661,16 @@ function drawSync(r) {
   ctx.fillStyle = "rgba(255,255,255,0.08)"; roundRect(dbX, dbY, dbW, dbH, 5); ctx.fill();
   ctx.fillStyle = "rgba(70,205,125,0.9)"; roundRect(dbX, dbY, Math.max(6, dbW * ((used - sMin) / (sMax - sMin))), dbH, 5); ctx.fill();
   text(`disk ~${used.toFixed(1)} GB`, dbX, dbY - 7, { size: 10, weight: 600, color: "rgba(70,210,130,0.95)", baseline: "middle" });
+
+  // live state for the headless probe (scripts/probe.mjs) — cheap object, no canvas effect
+  window.__sync = {
+    version: VERSION, hasNode: !!node, tip, head: Math.floor(head), behind,
+    phase: syncState.phase, fp: +(syncState.fp || 0).toFixed(3), fillPct: Math.round(newestFill * 100),
+    flowKBs: Math.round(syncState.flow / 1000), fillPerSec: +fillPerSec.toFixed(3),
+    downloading, streaming, flowing, shown: Math.floor(syncState.shown), prunedBelow: syncState.prunedBelow,
+    pruneT: +(syncState.pruneT || 0).toFixed(2), peers: peersAll.length, sumRateKBs: Math.round(sumRate / 1000),
+    block: { x: Math.round(birthX), y: Math.round(cy - bh / 2), w: bw, h: bh }, nodeY: Math.round(nodeY),
+  };
 }
 
 function sparkline(rect, values, color) {

@@ -1,0 +1,13 @@
+{
+  "name": "bitcoin-lottery-tools",
+  "private": true,
+  "type": "module",
+  "description": "Dev tooling for the Bitcoin Lottery dashboard (headless probe). The web app itself is dependency-free vanilla JS.",
+  "scripts": {
+    "probe": "node scripts/probe.mjs",
+    "probe:watch": "node scripts/probe.mjs --watch"
+  },
+  "devDependencies": {
+    "playwright": "^1.49.0"
+  }
+}
