@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.17.2";
+const VERSION = "web v0.18.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -451,6 +451,31 @@ function dataComet(x0, y0, x1, y1, prog, seed, alpha = 1) {
   }
 }
 
+// A flowing glyph stream that fills DOWN from its source when active and drains DOWN (empties from
+// the top) when it stops — so you see the leading drop arrive and the last glyph fall, never a whole
+// line blinking on/off. State per stream: { head, tail, phase } in a caller-owned store.
+function tickStream(store, key, active, edgeSpeed, scrollSpeed) {
+  let st = store[key]; if (!st) st = store[key] = { head: 0, tail: 0, phase: 0 };
+  st.phase = (st.phase + scrollSpeed / 60) % 1;
+  if (active) { st.tail = 0; st.head = Math.min(1, st.head + edgeSpeed / 60); }
+  else if (st.head > 0) { st.tail = Math.min(1, st.tail + edgeSpeed / 60); if (st.tail >= 1) { st.head = 0; st.tail = 0; } }
+  return st;
+}
+function drawStream(x0, y0, x1, y1, st, alpha) {
+  if (alpha <= 0.01 || st.head <= st.tail) return;
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1, n = Math.max(3, Math.round(len / 12));
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let g = 0; g < n; g++) {
+    const f = (g / n + st.phase) % 1;
+    if (f < st.tail || f > st.head) continue;
+    const gx = x0 + (x1 - x0) * f, gy = y0 + (y1 - y0) * f;
+    const lead = 1 - Math.min(1, (st.head - f) / 0.3); // 1 at the leading (front) glyph, fading behind it
+    const a = alpha * (0.22 + 0.78 * lead);
+    if (lead > 0.6) { ctx.font = "700 13px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[(frame + g * 3) % CYBER.length], gx, gy); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
+  }
+}
+
 function syncRecentInfo(off) {
   const rb = model.recentBlocks;
   if (rb && off >= 0 && off < rb.length) return rb[rb.length - 1 - off];
@@ -529,12 +554,24 @@ function drawSync(r) {
   // head each frame, so labels stay truthful while the in-progress fill is never reset by a head jump.
   const behind = Math.max(0, tip - Math.floor(head));
   const downloading = behind > 0;
+  // gently scale the cadence toward the node's real sync rate (blocks/sec from head movement), so faster
+  // peers visibly sync faster. Clamped, and only the prune/step dead-time scales — the fill stays purely
+  // throughput-driven (its varied speeds) — and the prune floor keeps it watchable.
+  syncState.rateHist = syncState.rateHist || [];
+  const rh = syncState.rateHist;
+  if (!rh.length || head !== rh[rh.length - 1].h) rh.push({ t: syncState.t, h: head });
+  while (rh.length > 2 && syncState.t - rh[0].t > 12) rh.shift();
+  const rr = rh.length >= 2 ? (rh[rh.length - 1].h - rh[0].h) / Math.max(0.5, rh[rh.length - 1].t - rh[0].t) : 0;
+  syncState.rateSmooth = syncState.rateSmooth == null ? rr : syncState.rateSmooth + (rr - syncState.rateSmooth) * 0.04;
+  const paceMul = Math.max(0.6, Math.min(2.0, syncState.rateSmooth / 4)); // ~4 blk/s → 1×
+  const pruneDur = Math.max(1.0, PRUNE_SEC / paceMul), stepDur = Math.max(0.28, 0.42 / paceMul);
   if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "fill"; syncState.fp = 0; syncState.pruneT = 0; }
   if (downloading) {
     if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "prune"; syncState.pruneT = 0; } }
-    else if (syncState.phase === "prune") { syncState.pruneT += (1 / 60) / PRUNE_SEC; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; } }
-    else { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; } }
+    else if (syncState.phase === "prune") { syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; } }
+    else { syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; } }
   } else { syncState.phase = "fill"; syncState.fp = 0; }
+  syncState.streams = syncState.streams || {};
   const sp = syncState.sp || 0;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
@@ -565,8 +602,7 @@ function drawSync(r) {
     const shown = Math.min(peers.length, 12);
     const maxRate = Math.max(1, ...peers.map((p) => p.rate || 0)); // busiest peer sets the scale
     syncState.peerSmooth = syncState.peerSmooth || {};
-    syncState.peerPhase = syncState.peerPhase || {};
-    const sm = syncState.peerSmooth, ph = syncState.peerPhase;
+    const sm = syncState.peerSmooth;
     for (let i = 0; i < shown; i++) {
       const f = shown > 1 ? i / (shown - 1) : 0.5, th = Math.PI * (1 - f);
       const px = cx + Rx * Math.cos(th), py = archBaseY - Ry * Math.sin(th);
@@ -576,11 +612,11 @@ function drawSync(r) {
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      // continuous comet stream: brightness + speed scale with the smoothed rate (no count jumps).
-      // Phase is ACCUMULATED (not t·speed) so a slowing peer never makes the stream run backward.
-      const flowA = Math.max(peers[i].downloading ? 0.18 : 0, intensity), speed = 0.35 + intensity * 0.9;
-      ph[addr] = (ph[addr] || 0) + speed / 60;
-      for (let c = 0; c < 3; c++) dataComet(px, py, cx, nodeY, (ph[addr] + c / 3 + i * 0.13) % 1, i * 7 + c + 1, flowA);
+      // data stream peer → node: fills in when the peer is sending and drains (empties from the top)
+      // when it goes idle, so you see each stream begin and end instead of a whole line blinking.
+      const active = (peers[i].downloading || (peers[i].rate || 0) > 20_000) && intensity > 0.02;
+      const st = tickStream(syncState.streams, "peer:" + addr, active, 1.9, 0.9 + intensity * 1.3);
+      drawStream(px, py, cx, nodeY, st, 0.35 + 0.55 * intensity);
     }
   }
 
@@ -589,12 +625,14 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: data pours straight down onto the rising fill surface while streaming
-  if (streaming) {
+  // node → new block: glyphs pour down onto the rising fill surface. The stream fills in when streaming
+  // and drains from the top when it stops — no solid line popping on/off; the leading drop and the last
+  // glyph are both visible as it starts and ends.
+  {
     const dropTop = nodeY + 14, surfaceY = cy + bh / 2 - 3 - (bh - 6) * newestFill;
-    ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, surfaceY); ctx.stroke(); // guide
-    for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, surfaceY, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
-    const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); // splash where it lands
+    const st = tickStream(syncState.streams, "__node", streaming, 2.2, 1.4);
+    drawStream(cx, dropTop, cx, surfaceY, st, 0.95);
+    if (streaming && st.head > 0.9) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash where it lands
   }
 
   // ---- pruner at the far left ----
@@ -614,8 +652,8 @@ function drawSync(r) {
     const fade = k <= syncState.prunedBelow ? 1 : (k === pruneTarget && syncState.phase === "prune" ? syncState.pruneT : 0);
     const info = syncRecentInfo(syncState.shown - k); // offset from center (0 = newest), independent of head jumps
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
-    // chain link points only INTO the synced chain (left), never off the center/stepping block toward the empty next slot
-    if (k < syncState.shown) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
+    // chain link only BETWEEN two confirmed blocks — never touches the current (unfilled) block, so no orange flashes beside it
+    if (k < syncState.shown - 1) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
     drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
