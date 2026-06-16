@@ -84,6 +84,16 @@ async function loadHistory() {
   } catch {}
 }
 
+// Same-origin feed from your local node (written by the bridge from bitcoind:
+// getpeerinfo / getblockchaininfo). No external query; 404/error → no node data.
+// Polled on its own fast cadence so head + per-peer rates stay fresh and the fill flows.
+async function pollNode() {
+  try {
+    const r = await fetch("./node.json", { cache: "no-store" });
+    model.node = r.ok ? await r.json() : null;
+  } catch { model.node = null; }
+}
+
 async function refresh() {
   try {
     const tipHash = await (await fetch(`${API}/blocks/tip/hash`)).text();
@@ -103,9 +113,6 @@ async function refresh() {
     }).catch(() => {});
     fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
     fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
-    // Optional same-origin feed from your local node (written by the native app from
-    // bitcoind: getpeerinfo / getblockchaininfo). No external query; 404 → no node data.
-    fetch("./node.json", { cache: "no-store" }).then((r) => (r.ok ? r.json() : null)).then((n) => { model.node = n; }).catch(() => { model.node = null; });
     model.error = null;
   } catch (e) {
     model.error = "Couldn't reach mempool.space — retrying…";
@@ -218,7 +225,8 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.16.0";
+const VERSION = "web v0.16.2";
+const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -517,9 +525,10 @@ function drawSync(r) {
 
   // fill → prune → step cycle: a block fills at center; when full, the leftmost block visibly
   // digests in place for a couple seconds and disappears; THEN the chain steps left.
-  const reseat = () => { syncState.prunedBelow = syncState.shown - L - 1; syncState.phase = "fill"; syncState.fp = 0; };
-  if (syncState.shown == null) { syncState.shown = head - 3; reseat(); }
-  if (head - syncState.shown > 8) { syncState.shown = head - 8; reseat(); }
+  const reseat = () => { syncState.shown = Math.max(0, head - 8); syncState.prunedBelow = syncState.shown - L - 1; syncState.phase = "fill"; syncState.fp = 0; };
+  // (re)seat the conveyor whenever shown is unset, drifted ABOVE head (e.g. node.json loaded
+  // after the mempool tip and lowered head), or fell too far behind a fresh poll
+  if (syncState.shown == null || syncState.shown > head || head - syncState.shown > 8) reseat();
   if (syncState.shown < head) {
     if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "prune"; syncState.pruneT = 0; } }
     else if (syncState.phase === "prune") { syncState.pruneT += (1 / 60) / PRUNE_SEC; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; } }
@@ -607,6 +616,7 @@ function drawSync(r) {
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   if (downloading) text(streaming ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} flow=${Math.round(syncState.flow/1000)}KB/s perSec=${fillPerSec.toFixed(2)} dl=${downloading} stream=${streaming} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)} blockX=${Math.round(blockX(syncState.shown))} cy=${Math.round(cy)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
 
   // ---- right side: my upcoming slots → gap → last mined block → the block being mined ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
@@ -760,8 +770,10 @@ canvas.addEventListener("wheel", (e) => {
 
 // ---- boot ----
 resize();
+pollNode();
 refresh();
 loadHistory();
+setInterval(pollNode, 3_000);
 setInterval(refresh, REFRESH_MS);
 setInterval(loadHistory, 300_000);
 render();
