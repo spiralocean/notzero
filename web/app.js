@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.13.1";
+const VERSION = "web v0.13.2";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -557,9 +557,11 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: data drops straight down while the block is filling
-  if (downloading && syncState.phase === "fill") {
-    for (let pk = 0; pk < 2; pk++) dataComet(cx, nodeY + 12, cx, cy - bh / 2, (syncState.t * 0.7 + pk * 0.5) % 1, pk * 11 + 3);
+  // node → new block: data drops straight down into the filling block
+  if (downloading) {
+    const dropTop = nodeY + 14, dropBot = cy - bh / 2 - 2;
+    ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, dropBot); ctx.stroke(); // guide
+    for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, dropBot, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
   }
 
   // ---- pruner at the far left ----
