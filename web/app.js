@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.20.2";
+const VERSION = "web v0.21.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -479,11 +479,6 @@ function drawStream(x0, y0, x1, y1, st, alpha) {
   }
 }
 
-function syncRecentInfo(off) {
-  const rb = model.recentBlocks;
-  if (rb && off >= 0 && off < rb.length) return rb[rb.length - 1 - off];
-  return null;
-}
 
 function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
   const a = 1 - fade;
@@ -681,7 +676,8 @@ function drawSync(r) {
     const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
     // timed prune: only the leftmost block digests, and only during the prune phase; below it, already gone
     const fade = k <= syncState.prunedBelow ? 1 : (k === pruneTarget && syncState.phase === "prune" ? syncState.pruneT : 0);
-    const info = syncRecentInfo(syncState.shown - k); // offset from center (0 = newest), independent of head jumps
+    // size/tx keyed to the block's own identity (k), so its dots + MB stay constant as it moves left
+    const rbAll = model.recentBlocks; const info = (rbAll && rbAll.length) ? rbAll[((k % rbAll.length) + rbAll.length) % rbAll.length] : null;
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
     // chain link only BETWEEN two confirmed blocks — never touches the current (unfilled) block, so no orange flashes beside it
     if (k < syncState.shown - 1) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
@@ -701,14 +697,14 @@ function drawSync(r) {
     const lastX = mineX - spacing, lastCx = lastX + bw / 2; // latest already-mined block (#tip), beside the one being mined
     let fx = birthX + spacing, fh = Math.floor(head) + 2, lastRight = birthX + bw;
     while (fx + bw <= lastX - spacing * 0.8) {
-      ctx.strokeStyle = `rgba(${ACCENT},0.3)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // neutral: future blocks aren't confirmed
       ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
       text("#" + (fh % 100000), fx + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
       lastRight = fx + bw; fx += spacing; fh += 1;
     }
     text("upcoming →", birthX + spacing + 2, my - 8, { size: 9, color: "rgba(255,255,255,0.35)", baseline: "middle" });
     // dashed gap: the blocks between my synced block and the tip (what's left to download)
-    ctx.strokeStyle = `rgba(${ACCENT},0.28)`; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(lastX, cy); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(lastX, cy); ctx.stroke(); ctx.setLineDash([]); // neutral gap, not confirmed-orange
     text(`⋯ ${behind.toLocaleString()} blocks to the tip ⋯`, (lastRight + lastX) / 2, cy - 11, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
     // the latest already-mined block (the current tip)
     const lastInfo = (model.recentBlocks && model.recentBlocks.length) ? model.recentBlocks[model.recentBlocks.length - 1] : null;
