@@ -88,6 +88,7 @@ async function loadHistory() {
 // getpeerinfo / getblockchaininfo). No external query; 404/error → no node data.
 // Polled on its own fast cadence so head + per-peer rates stay fresh and the fill flows.
 async function pollNode() {
+  if (typeof syncDemo !== "undefined" && syncDemo) return; // demo mode supplies model.node itself
   try {
     const r = await fetch("./node.json", { cache: "no-store" });
     model.node = r.ok ? await r.json() : null;
@@ -227,6 +228,20 @@ const QUOTES = [
   "The dice are 256 bits wide.",
   "Every block, the whole world plays. One wins.",
   "Trust the math. Play the dream.",
+  // movie quotes (applicable to chance, odds, hope)
+  "Never tell me the odds.",                                       // Star Wars
+  "May the odds be ever in your favor.",                           // The Hunger Games
+  "Hope is a good thing, maybe the best of things.",               // The Shawshank Redemption
+  "If you build it, it will come.",                                // Field of Dreams
+  "Life is like a box of chocolates.",                             // Forrest Gump
+  "Carpe diem. Seize the block.",                                  // Dead Poets Society (twist)
+  // Willy Wonka — the bright ones
+  "We are the music makers, and we are the dreamers of dreams.",
+  "If you want to view paradise, simply look around and view it.",
+  "A little nonsense now and then is relished by the wisest men.",
+  "So shines a good deed in a weary world.",
+  "The suspense is terrible — I hope it'll last.",
+  "Come with me, and you'll be in a world of pure imagination.",
 ];
 
 // ---- layout + sections ----
@@ -259,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.22.1";
+const VERSION = "web v0.23.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -332,6 +347,7 @@ function drawCloseness(r) {
     text(hex[i], r.x + 20 + sp * (i + 0.5), rowY, { size: 16, weight: isLead ? 700 : 400, color: isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true });
   }
   text(`${lead} leading zero hex · ${p.leadingZeroBits} zero bits`, r.x + r.w / 2, rowY + 24, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  text("one practice hash per block — real mining searches trillions, and submits to the network", r.x + r.w / 2, r.y + r.h - 6, { size: 10, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
 }
 
 // ---- HASH BUILD ceremony: phased, accurate-but-stylized ----
@@ -850,8 +866,33 @@ function drawNetwork(r) {
   });
 }
 
+// ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----
+let syncDemo = new URLSearchParams(location.search).has("syncdemo");
+if (syncDemo) expanded.add("sync"); // ?syncdemo=1 → open the sync panel for the preview
+let demoHead = null;
+function demoNode() {
+  const tip = model.tipHeight || 900000;
+  if (demoHead == null || demoHead > tip || tip - demoHead > 60000) demoHead = tip - 48000; // (re)seed, incl. when the real tip loads after the fallback
+  demoHead += 0.5; // ~30 blocks/s so "behind" believably counts down
+  if (demoHead >= tip - 2) demoHead = tip - 48000; // loop to keep previewing IBD
+  const peers = [];
+  for (let i = 0; i < 8; i++) {
+    const lively = (i * 3) % 7 < 4, osc = 0.5 + 0.5 * Math.sin(clock * (0.6 + i * 0.13) + i * 1.7);
+    const rate = lively ? Math.round(30000 + 360000 * osc * osc) : (i === 7 ? 0 : Math.round(7000 * osc)); // some peers busy, some idle
+    peers.push({ addr: "demo-peer-" + i, inbound: i % 2 === 0, downloading: rate > 8000, rate, subver: "/demo:0.1/" });
+  }
+  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: demoHead / tip, initialblockdownload: true, size_on_disk: 15.2e9, pruned: true, peers };
+}
+window.addEventListener("keydown", (e) => {
+  if (e.key === "d" || e.key === "D") {
+    syncDemo = !syncDemo;
+    if (syncDemo) { expanded.add("sync"); saveExpanded(); } else { demoHead = null; pollNode(); } // exit → restore the real node
+  }
+});
+
 // ---- render loop ----
 function render() {
+  if (syncDemo) model.node = demoNode(); // override with the simulated IBD node for preview
   drawRain(); // fixed background
 
   const { frames, total } = layoutSections();
@@ -889,7 +930,8 @@ function render() {
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
   // fixed footer — accent-tinted so the version is easy to read but still understated
-  text(`practice mode · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
+  text(`practice — 1 hash/block, not submitted to the network · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
+  if (syncDemo) text("◉ SYNC DEMO — simulated IBD · press D to exit", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
 
   clock += 0.02; frame++;
   quoteT += 1 / 60;
