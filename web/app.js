@@ -224,8 +224,32 @@ const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
-let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.21.1";
+let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold";
+const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
+// shuffle-bag: random order, but every quote is shown once before any repeats
+let quoteBag = [];
+function nextQuoteIdx(curr) {
+  if (!quoteBag.length) {
+    quoteBag = QUOTES.map((_, i) => i).filter((i) => i !== curr); // refill (skip the current so it doesn't repeat back-to-back)
+    for (let i = quoteBag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [quoteBag[i], quoteBag[j]] = [quoteBag[j], quoteBag[i]]; }
+  }
+  return quoteBag.pop();
+}
+// render a quote mid-transition: the target resolves left-to-right out of scrambling matrix glyphs
+function drawDecodeQuote(to, p, alpha) {
+  ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const total = to.length, charW = ctx.measureText("0").width, startX = W / 2 - (total * charW) / 2 + charW / 2;
+  const reveal = p * (total + 5); // resolve front sweeps across (and a little past the end)
+  for (let i = 0; i < total; i++) {
+    if (to[i] === " ") continue;
+    const x = startX + i * charW;
+    if (i < reveal - 1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 80); }                                   // resolved
+    else if (i < reveal + 1) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 80); } // decoding front
+    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
+  }
+}
+const VERSION = "web v0.22.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -474,13 +498,17 @@ function drawStream(x0, y0, x1, y1, st, alpha) {
     const a = alpha * Math.min(1, (f - st.tail) / 0.05, (st.head - f) / 0.05); // crisp but anti-aliased moving edges
     if (a <= 0.02) continue;
     const gx = x0 + (x1 - x0) * f, gy = y0 + (y1 - y0) * f;
-    if (g % 3 === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[(frame + g * 3) % CYBER.length], gx, gy); }
-    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a * 0.85})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
+    // colour + glyph are a STABLE per-slot hash (no regular bright lattice, no linear char gradient, no
+    // per-frame change) so the only motion is the dense field translating down — kills the wagon-wheel /
+    // reverse-motion illusion the evenly-spaced bright glyphs created.
+    const h = (g * 2654435761) >>> 8;
+    if (h % 100 < 38) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[h % CYBER.length], gx, gy); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a * 0.85})`; ctx.fillText("0123456789abcdef"[(h >> 3) % 16], gx, gy); }
   }
 }
 
 
-function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
+function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
   const a = 1 - fade;
   if (a <= 0.05) {
     for (let d = 0; d < 3; d++) { ctx.globalAlpha = Math.max(0, 0.35 * (a / 0.05)); ctx.beginPath(); ctx.arc(x + 10 + d * 10, cy + (d - 1) * 6, 1.3, 0, 7); ctx.fillStyle = "rgba(255,255,255,0.4)"; ctx.fill(); }
@@ -503,7 +531,10 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
     const col = d % dcols, row = Math.floor(d / dcols), dx = x + 11 + col * ((bw - 22) / (dcols - 1)), dy = y + 22 + row * 12;
     ctx.beginPath(); ctx.arc(dx, dy, 1.8, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.85)"; ctx.fill();
   }
-  ctx.strokeStyle = verified ? `rgba(${ACCENT},0.85)` : "rgba(255,255,255,0.3)"; ctx.lineWidth = verified ? 1.5 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
+  // border: orange highlight ONLY for the validated block under the node; blocks that have moved on show
+  // green (validated, part of the chain); a block still filling is neutral white.
+  ctx.strokeStyle = (verified && highlight) ? `rgba(${ACCENT},0.9)` : verified ? "rgba(90,205,130,0.5)" : "rgba(255,255,255,0.3)";
+  ctx.lineWidth = (verified && highlight) ? 1.8 : verified ? 1.2 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
   if (height) text("#" + (height % 100000), x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
   if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (verified) text("✓", x + bw - 11, y + 11, { size: 13, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
@@ -688,7 +719,7 @@ function drawSync(r) {
     // moment a block validates (a calm beat), never pops in at the step, and never reaches the empty next block
     const isFull = (j) => j < syncState.shown || (j === syncState.shown && newestFill >= 0.999);
     if (isFull(k) && isFull(k + 1)) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
-    drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade);
+    drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade, k === syncState.shown && syncState.phase !== "step"); // highlight only the validated block settled under the node
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   if (downloading) text(arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
@@ -815,7 +846,9 @@ function render() {
   ctx.save();
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 40, { size: 28, weight: 800, align: "center", baseline: "middle" });
-  text(QUOTES[quoteIdx], W / 2, 80, { size: 16, weight: 500, color: `rgba(255,255,255,${0.45 + 0.12 * Math.sin(clock * 1.5)})`, align: "center", baseline: "middle" });
+  const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
+  if (quotePhase === "hold") text(QUOTES[quoteIdx], W / 2, 80, { size: 16, weight: 500, color: `rgba(255,255,255,${quoteAlpha})`, align: "center", baseline: "middle" });
+  else drawDecodeQuote(QUOTES[quoteNext], quoteT / Q_DECODE, quoteAlpha);
 
   headerHits = [];
   if (model.error) {
@@ -844,7 +877,10 @@ function render() {
   text(`practice mode · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
 
   clock += 0.02; frame++;
-  quoteT += 1 / 60; if (quoteT > 14) { quoteT = 0; quoteIdx = (quoteIdx + 1) % QUOTES.length; }
+  quoteT += 1 / 60;
+  if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
+  else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
+  window.__q = { phase: quotePhase, idx: quoteIdx, next: quoteNext, bag: quoteBag.length };
   requestAnimationFrame(render);
 }
 
