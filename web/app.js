@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.21.0";
+const VERSION = "web v0.21.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -536,7 +536,11 @@ function drawSync(r) {
   const peersAll = (node && Array.isArray(node.peers)) ? node.peers : [];
   const sumRate = peersAll.reduce((s, p) => s + (p.rate || 0), 0);
   syncState.flow = syncState.flow == null ? sumRate : syncState.flow + (sumRate - syncState.flow) * 0.08; // smooth across 4s polls
-  const flowing = peersAll.some((p) => (p.rate || 0) > 15_000); // node is fed iff ≥1 peer is actually sending (same threshold as the peer streams)
+  const flowing = peersAll.some((p) => (p.rate || 0) > 15_000); // ≥1 peer is actually sending
+  syncState.streams = syncState.streams || {};
+  // two-stage flow: a peer's water reaches the NODE only when its stream's leading edge is at the node (head≈1).
+  // The node doesn't start feeding the block until it's been fed — peers → node, then node → block.
+  const nodeFed = peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
   const fillPerSec = flowing ? Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)) : 0; // rate-driven; 0 → the block holds its partial level
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
@@ -575,10 +579,11 @@ function drawSync(r) {
   const FP_CUT = 0.7;                                                      // level delivered while the tap is open; the rest tops off as the tail lands
   if (downloading) {
     if (syncState.phase === "arrive") {
-      if (flowing) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
-      else if (syncState.nh > 0) { syncState.nt = Math.min(1, syncState.nt + edgeStep); if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; } } // no peer data: drain the partial pipe and wait
+      // node → block only starts once the node has actually been fed (peer water reached it)
+      if (nodeFed) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
+      else if (syncState.nh > 0) { syncState.nt = Math.min(1, syncState.nt + edgeStep); if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; } } // not fed: drain the partial pipe and wait
     } else if (syncState.phase === "fill") {
-      if (flowing) {
+      if (nodeFed) {
         syncState.nh = 1; syncState.nt = 0;
         syncState.fp += fillPerSec / 60;
         if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
@@ -679,8 +684,10 @@ function drawSync(r) {
     // size/tx keyed to the block's own identity (k), so its dots + MB stay constant as it moves left
     const rbAll = model.recentBlocks; const info = (rbAll && rbAll.length) ? rbAll[((k % rbAll.length) + rbAll.length) % rbAll.length] : null;
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
-    // chain link only BETWEEN two confirmed blocks — never touches the current (unfilled) block, so no orange flashes beside it
-    if (k < syncState.shown - 1) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
+    // chain link drawn only when BOTH this block and its right neighbour are full — so a link appears the
+    // moment a block validates (a calm beat), never pops in at the step, and never reaches the empty next block
+    const isFull = (j) => j < syncState.shown || (j === syncState.shown && newestFill >= 0.999);
+    if (isFull(k) && isFull(k + 1)) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
     drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
