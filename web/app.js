@@ -217,6 +217,16 @@ const QUOTES = [
   "Every hash is a roll of the cosmic dice.",
   "Statistically improbable ≠ impossible.",
   "The hash doesn't know it's supposed to be impossible.",
+  "Ten minutes to the next block. Ten minutes to glory.",
+  "Your nonce might be the one.",
+  "Difficulty is just the house edge.",
+  "Somewhere, a winning hash is waiting.",
+  "No jackpot was ever won by sitting out.",
+  "Proof of work. Proof of hope.",
+  "It only takes one valid hash.",
+  "The dice are 256 bits wide.",
+  "Every block, the whole world plays. One wins.",
+  "Trust the math. Play the dream.",
 ];
 
 // ---- layout + sections ----
@@ -249,7 +259,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.22.0";
+const VERSION = "web v0.22.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -722,7 +732,11 @@ function drawSync(r) {
     drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade, k === syncState.shown && syncState.phase !== "step"); // highlight only the validated block settled under the node
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  if (downloading) text(arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  if (downloading) {
+    const validated = syncState.phase === "prune" || syncState.phase === "step";
+    const lbl = arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : validated ? "✓ validated" : "⏸ waiting for data — block held partial";
+    text(lbl, cx, cy - bh / 2 - 8, { size: 9, weight: validated ? 700 : 400, color: validated ? "rgba(90,210,140,0.9)" : `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  }
   if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
 
   // ---- right side: distance from my sync frontier to the block being mined scales with `behind` ----
@@ -768,7 +782,8 @@ function drawSync(r) {
       ctx.fillStyle = `rgba(255,180,80,${0.3 + 0.5 * Math.abs(Math.sin(frame * 0.2 + row * 6 + col))})`;
       ctx.fillText(CYBER[(frame + row * 7 + col * 3) % CYBER.length], mineX + 11 + col * ((bw - 22) / (mcols - 1)), my + 16 + row * 12);
     }
-    ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; roundRect(mineX, my, bw, bh, 4); ctx.stroke();
+    // dashed pulsing border — "being mined by the network", distinct from the solid-orange validated-under-node highlight
+    ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -frame * 0.4; roundRect(mineX, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
     text(`⛏ mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
     text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   }
@@ -847,8 +862,8 @@ function render() {
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 40, { size: 28, weight: 800, align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
-  if (quotePhase === "hold") text(QUOTES[quoteIdx], W / 2, 80, { size: 16, weight: 500, color: `rgba(255,255,255,${quoteAlpha})`, align: "center", baseline: "middle" });
-  else drawDecodeQuote(QUOTES[quoteNext], quoteT / Q_DECODE, quoteAlpha);
+  // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
+  drawDecodeQuote(quotePhase === "hold" ? QUOTES[quoteIdx] : QUOTES[quoteNext], quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
 
   headerHits = [];
   if (model.error) {
