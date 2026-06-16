@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.14.1";
+const VERSION = "web v0.15.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -601,10 +601,11 @@ function drawSync(r) {
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   if (downloading) text(streaming ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
 
-  // ---- upcoming empty slots → (hidden blocks) → the live block being mined (far right) ----
+  // ---- right side: my upcoming slots → gap → last mined block → the block being mined ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
+  const lastX = mineX - spacing, lastCx = lastX + bw / 2; // the latest already-mined block (#tip), next to the one being mined
   let fx = birthX + spacing, fh = Math.floor(head) + 1, lastRight = birthX + bw;
-  while (fx + bw <= mineX - spacing * 0.8) {
+  while (fx + bw <= lastX - spacing * 0.8) {
     ctx.strokeStyle = `rgba(${ACCENT},0.3)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // chain link in
     ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
     text("#" + (fh % 100000), fx + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
@@ -612,10 +613,16 @@ function drawSync(r) {
   }
   text("upcoming →", birthX + spacing + 2, my - 8, { size: 9, color: "rgba(255,255,255,0.35)", baseline: "middle" });
 
-  // many more blocks (not shown) connect the chain through to the block being mined
-  const hidden = Math.max(0, tip - (fh - 1));
-  ctx.strokeStyle = `rgba(${ACCENT},0.28)`; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(mineX, cy); ctx.stroke(); ctx.setLineDash([]);
-  if (hidden > 0) text(`⋯ +${hidden.toLocaleString()} blocks ⋯`, (lastRight + mineX) / 2, cy - 11, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  // dashed gap: the blocks between my synced block and the tip (what's left to download)
+  ctx.strokeStyle = `rgba(${ACCENT},0.28)`; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(lastX, cy); ctx.stroke(); ctx.setLineDash([]);
+  text(behind > 0 ? `⋯ ${behind.toLocaleString()} blocks to the tip ⋯` : "⋯ caught up to the tip ⋯", (lastRight + lastX) / 2, cy - 11, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+
+  // the latest already-mined block (the current tip) — real, confirmed, sitting beside the one being mined
+  const lastInfo = (model.recentBlocks && model.recentBlocks.length) ? model.recentBlocks[model.recentBlocks.length - 1] : null;
+  drawConveyorBlock(lastX, cy, bw, bh, tip, lastInfo, 1, 0);
+  text("last mined", lastCx, my - 8, { size: 9, weight: 700, color: "rgba(90,210,140,0.9)", align: "center", baseline: "middle" });
+  text("#" + (tip || 0).toLocaleString(), lastCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lastX + bw, cy); ctx.lineTo(mineX, cy); ctx.stroke(); // solid link: tip → tip+1
 
   // the block the network is mining right now (next height after the tip)
   const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));
