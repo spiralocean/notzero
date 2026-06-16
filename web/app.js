@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.14.0";
+const VERSION = "web v0.14.1";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -458,8 +458,14 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
   const y = cy - bh / 2, verified = fill >= 1;
   ctx.globalAlpha = a;
   ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(x, y, bw, bh, 4); ctx.fill();
-  // visible "filling" level rising as the block downloads
-  if (fill > 0.02 && !verified) { const lh = (bh - 6) * fill; ctx.fillStyle = `rgba(${ACCENT},0.22)`; roundRect(x + 2, y + bh - 3 - lh, bw - 4, lh, 3); ctx.fill(); }
+  // visible "filling" level rising as the block downloads — bold liquid + bright surface
+  if (fill > 0.001 && !verified) {
+    const lh = (bh - 6) * fill, top = y + bh - 3 - lh;
+    const grad = ctx.createLinearGradient(0, top, 0, y + bh - 3);
+    grad.addColorStop(0, `rgba(${ACCENT},0.35)`); grad.addColorStop(1, `rgba(${ACCENT},0.6)`);
+    ctx.fillStyle = grad; roundRect(x + 2, top, bw - 4, lh, 3); ctx.fill();
+    ctx.strokeStyle = "rgba(255,215,140,0.95)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 3, top); ctx.lineTo(x + bw - 3, top); ctx.stroke(); // data surface
+  }
   const target = info && info.tx ? Math.min(18, Math.max(4, Math.round(info.tx / 250))) : (info && info.size ? Math.min(18, Math.max(4, Math.round(info.size / 95000))) : 8);
   const shown = Math.max(0, Math.floor(target * fill));
   for (let d = 0; d < shown; d++) {
@@ -565,11 +571,12 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: data drops straight down only while data is actually streaming in
+  // node → new block: data pours straight down onto the rising fill surface while streaming
   if (streaming) {
-    const dropTop = nodeY + 14, dropBot = cy - bh / 2 - 2;
-    ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, dropBot); ctx.stroke(); // guide
-    for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, dropBot, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
+    const dropTop = nodeY + 14, surfaceY = cy + bh / 2 - 3 - (bh - 6) * newestFill;
+    ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, surfaceY); ctx.stroke(); // guide
+    for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, surfaceY, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
+    const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); // splash where it lands
   }
 
   // ---- pruner at the far left ----
@@ -592,7 +599,7 @@ function drawSync(r) {
     drawConveyorBlock(x, cy, bw, bh, k, info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  if (downloading) text(streaming ? `filling ▾ ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  if (downloading) text(streaming ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
 
   // ---- upcoming empty slots → (hidden blocks) → the live block being mined (far right) ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
