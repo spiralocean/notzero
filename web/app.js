@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.17.1";
+const VERSION = "web v0.17.2";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -614,7 +614,8 @@ function drawSync(r) {
     const fade = k <= syncState.prunedBelow ? 1 : (k === pruneTarget && syncState.phase === "prune" ? syncState.pruneT : 0);
     const info = syncRecentInfo(syncState.shown - k); // offset from center (0 = newest), independent of head jumps
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
-    if (fill >= 1 && x < birthX - 2) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
+    // chain link points only INTO the synced chain (left), never off the center/stepping block toward the empty next slot
+    if (k < syncState.shown) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
     drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
