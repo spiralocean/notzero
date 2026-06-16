@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.18.2";
+const VERSION = "web v0.19.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -568,19 +568,40 @@ function drawSync(r) {
   syncState.rateSmooth = syncState.rateSmooth == null ? rr : syncState.rateSmooth + (rr - syncState.rateSmooth) * 0.04;
   const paceMul = Math.max(0.6, Math.min(2.0, syncState.rateSmooth / 4)); // ~4 blk/s → 1×
   const pruneDur = Math.max(1.0, Math.min(2.5, PRUNE_SEC / paceMul)), stepDur = Math.max(0.28, 0.42 / paceMul); // variable with sync rate, capped 1–2.5s so it's always visible
-  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "fill"; syncState.fp = 0; syncState.pruneT = 0; }
+  // The block is a container; its level (fp) only changes as the node→block stream actually delivers water.
+  //   arrive : tap open, the stream's leading edge descends to the empty block — level NOT moving yet
+  //   fill   : water landing, level rises at the throughput-driven rate up to FP_CUT
+  //   topoff : tap closed; the water still in the pipe drains in, level tops off to 1 exactly as the tail lands
+  //   prune  : leftmost block digests   ·   step : chain advances
+  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.pruneT = 0; syncState.nh = 0; syncState.nt = 0; }
+  const flowRate = Math.min(1, syncState.flow / 2_000_000);
+  syncState.nph = ((syncState.nph || 0) + (0.9 + 2.0 * flowRate) / 60) % 1; // glyph scroll along the node→block pipe
+  const edgeStep = (1.6 + 1.4 * flowRate) / 60;                            // stream leading/trailing edge travel per frame
+  const FP_CUT = 0.7;                                                      // level delivered while the tap is open; the rest tops off as the tail lands
   if (downloading) {
-    if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "prune"; syncState.pruneT = 0; } }
-    else if (syncState.phase === "prune") { syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; } }
-    else { syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; } }
-  } else { syncState.phase = "fill"; syncState.fp = 0; }
+    if (syncState.phase === "arrive") {
+      syncState.nt = 0; if (flowing) syncState.nh = Math.min(1, syncState.nh + edgeStep);
+      if (syncState.nh >= 1) syncState.phase = "fill";
+    } else if (syncState.phase === "fill") {
+      syncState.fp += fillPerSec / 60;
+      if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
+    } else if (syncState.phase === "topoff") {
+      syncState.nt = Math.min(1, syncState.nt + edgeStep);
+      syncState.fp = syncState.fpCut + (1 - syncState.fpCut) * syncState.nt;
+      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "prune"; syncState.pruneT = 0; }
+    } else if (syncState.phase === "prune") {
+      syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; }
+    } else {
+      syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; }
+    }
+  } else { syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; }
   syncState.streams = syncState.streams || {};
   const sp = syncState.sp || 0;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
-  const streaming = downloading && flowing && syncState.phase === "fill"; // data actively dropping into the block
-  // the block under the node: filling/holding while in fill phase, full otherwise, empty when synced
-  const newestFill = !downloading ? 0 : (syncState.phase === "fill" ? syncState.fp : 1);
+  const arriving = downloading && syncState.phase === "arrive";
+  const filling = downloading && flowing && (syncState.phase === "fill" || syncState.phase === "topoff");
+  const newestFill = !downloading ? 0 : syncState.fp; // 0 until the leading edge lands, then rises with the water
   const blockX = (k) => birthX - (hs - k) * spacing;
   const dispHeight = (k) => Math.floor(head) - (syncState.shown - k); // live block height for conveyor slot k (center = head)
 
@@ -615,11 +636,12 @@ function drawSync(r) {
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      // data stream peer → node: tap opens when this peer sends (leading edge travels to the node) and
-      // closes when it idles (trailing edge follows down and drains). Flow speed scales with its rate.
-      const active = peers[i].downloading || (peers[i].rate || 0) > 20_000;
+      // data stream peer → node: tap opens only while this peer is actually sending bytes (not just the
+      // 'downloading' flag — bitcoind marks many peers in-flight). Flow speed/brightness scale with its rate,
+      // so you see which peers are really feeding you and how hard.
+      const active = (peers[i].rate || 0) > 15_000;
       const st = tickStream(syncState.streams, "peer:" + addr, active, 0.8 + intensity * 2.2);
-      drawStream(px, py, cx, nodeY, st, 0.55 + 0.4 * intensity);
+      drawStream(px, py, cx, nodeY, st, 0.5 + 0.45 * intensity);
     }
   }
 
@@ -628,15 +650,14 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: glyphs pour down onto the rising fill surface. The stream fills in when streaming
-  // and drains from the top when it stops — no solid line popping on/off; the leading drop and the last
-  // glyph are both visible as it starts and ends.
+  // node → new block: the stream's head/tail are driven by the fill phase machine above, so the water
+  // and the block level are one system — the level only moves once the leading edge lands and tops off
+  // exactly as the trailing edge lands. Glyphs land on the rising fill surface.
   {
     const dropTop = nodeY + 14, surfaceY = cy + bh / 2 - 3 - (bh - 6) * newestFill;
-    const flowRate = Math.min(1, syncState.flow / 2_000_000); // glyph speed scales with throughput
-    const st = tickStream(syncState.streams, "__node", streaming, 0.9 + flowRate * 2.0);
+    const st = { head: syncState.nh, tail: syncState.nt, phase: syncState.nph };
     drawStream(cx, dropTop, cx, surfaceY, st, 0.95);
-    if (st.head >= 0.98 && st.tail === 0) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash once the front has arrived and is flowing
+    if (syncState.phase === "fill" && flowing) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash while water is landing
   }
 
   // ---- pruner at the far left ----
@@ -661,8 +682,8 @@ function drawSync(r) {
     drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  if (downloading) text(streaming ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
-  if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} flow=${Math.round(syncState.flow/1000)}KB/s perSec=${fillPerSec.toFixed(2)} dl=${downloading} stream=${streaming} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)} blockX=${Math.round(blockX(syncState.shown))} cy=${Math.round(cy)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
+  if (downloading) text(arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
 
   // ---- right side: my upcoming slots → gap → last mined block → the block being mined ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
@@ -713,7 +734,8 @@ function drawSync(r) {
     version: VERSION, hasNode: !!node, tip, head: Math.floor(head), behind,
     phase: syncState.phase, fp: +(syncState.fp || 0).toFixed(3), fillPct: Math.round(newestFill * 100),
     flowKBs: Math.round(syncState.flow / 1000), fillPerSec: +fillPerSec.toFixed(3),
-    downloading, streaming, flowing, shown: Math.floor(syncState.shown), prunedBelow: syncState.prunedBelow,
+    downloading, arriving, filling, flowing, nh: +(syncState.nh || 0).toFixed(2), nt: +(syncState.nt || 0).toFixed(2),
+    shown: Math.floor(syncState.shown), prunedBelow: syncState.prunedBelow,
     pruneT: +(syncState.pruneT || 0).toFixed(2), peers: peersAll.length, sumRateKBs: Math.round(sumRate / 1000),
     block: { x: Math.round(birthX), y: Math.round(cy - bh / 2), w: bw, h: bh }, nodeY: Math.round(nodeY),
   };
