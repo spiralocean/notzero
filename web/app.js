@@ -221,11 +221,11 @@ const QUOTES = [
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 470 };
+const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.16.3";
+const VERSION = "web v0.17.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -474,16 +474,16 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade) {
     ctx.fillStyle = grad; roundRect(x + 2, top, bw - 4, lh, 3); ctx.fill();
     ctx.strokeStyle = "rgba(255,215,140,0.95)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + 3, top); ctx.lineTo(x + bw - 3, top); ctx.stroke(); // data surface
   }
-  const target = info && info.tx ? Math.min(18, Math.max(4, Math.round(info.tx / 250))) : (info && info.size ? Math.min(18, Math.max(4, Math.round(info.size / 95000))) : 8);
-  const shown = Math.max(0, Math.floor(target * fill));
+  const target = info && info.tx ? Math.min(28, Math.max(6, Math.round(info.tx / 200))) : (info && info.size ? Math.min(28, Math.max(6, Math.round(info.size / 75000))) : 12);
+  const shown = Math.max(0, Math.floor(target * fill)), dcols = 7;
   for (let d = 0; d < shown; d++) {
-    const col = d % 6, row = Math.floor(d / 6), dx = x + 9 + col * ((bw - 18) / 5), dy = y + 15 + row * 10;
-    ctx.beginPath(); ctx.arc(dx, dy, 1.5, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.85)"; ctx.fill();
+    const col = d % dcols, row = Math.floor(d / dcols), dx = x + 11 + col * ((bw - 22) / (dcols - 1)), dy = y + 22 + row * 12;
+    ctx.beginPath(); ctx.arc(dx, dy, 1.8, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.85)"; ctx.fill();
   }
   ctx.strokeStyle = verified ? `rgba(${ACCENT},0.85)` : "rgba(255,255,255,0.3)"; ctx.lineWidth = verified ? 1.5 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
-  if (height) text("#" + (height % 100000), x + bw / 2, y + 8, { size: 9, weight: 700, color: "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
-  if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 7, { size: 8, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
-  if (verified) text("✓", x + bw - 9, y + 8, { size: 11, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
+  if (height) text("#" + (height % 100000), x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
+  if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (verified) text("✓", x + bw - 11, y + 11, { size: 13, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
   // pruning: cover the block with churning matrix glyphs — digesting/dissolving it as it fades
   if (fade > 0.02) {
     const cols = Math.max(1, Math.floor((bw - 6) / 11)), rows = Math.max(1, Math.floor((bh - 8) / 13)), total = cols * rows;
@@ -518,8 +518,8 @@ function drawSync(r) {
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
   const cx = r.x + r.w / 2;
-  const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
-  const cy = r.y + r.h - 96, nodeY = r.y + 182, birthX = cx - bw / 2, leftExit = r.x + m;
+  const m = 22, bh = 74, gap = 16, bw = Math.max(84, Math.min(150, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
+  const cy = r.y + r.h - 116, nodeY = r.y + 188, birthX = cx - bw / 2, leftExit = r.x + m;
   const L = Math.max(2, Math.floor((birthX - leftExit) / spacing)); // visible blocks between center and the prune slot
   const PRUNE_SEC = 2.0; // how long the leftmost block visibly digests before it's gone
 
