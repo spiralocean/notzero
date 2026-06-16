@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.20.0";
+const VERSION = "web v0.20.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -716,14 +716,20 @@ function drawSync(r) {
   // only while waiting — when a freshly-found block is streaming in, the center shows the fill instead.
   if (!synced || !downloading) {
     const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));
+    // "mining progress" ≈ time since the last block vs the ~10-min average. PoW has no real progress (it's a
+    // random search), so elapsed time is the honest proxy — the block fills with churning glyphs as it goes.
+    const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
+    const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600));
     if (!synced) { ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(mineX, my, bw, bh, 4); ctx.fill(); }
+    const mcols = 7, mrows = Math.max(2, Math.floor((bh - 18) / 12)), mineShown = Math.max(1, Math.round(mcols * mrows * mineProg));
     ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let row = 0; row < 3; row++) for (let col = 0; col < 6; col++) {
-      ctx.fillStyle = `rgba(255,180,80,${0.25 + 0.45 * Math.abs(Math.sin(frame * 0.2 + row * 6 + col))})`;
-      ctx.fillText(CYBER[(frame + row * 7 + col * 3) % CYBER.length], mineX + 9 + col * ((bw - 18) / 5), my + 15 + row * 12);
+    for (let d = 0; d < mineShown; d++) {
+      const col = d % mcols, row = Math.floor(d / mcols);
+      ctx.fillStyle = `rgba(255,180,80,${0.3 + 0.5 * Math.abs(Math.sin(frame * 0.2 + row * 6 + col))})`;
+      ctx.fillText(CYBER[(frame + row * 7 + col * 3) % CYBER.length], mineX + 11 + col * ((bw - 22) / (mcols - 1)), my + 16 + row * 12);
     }
     ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; roundRect(mineX, my, bw, bh, 4); ctx.stroke();
-    text("⛏ mining", mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
+    text(`⛏ mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
     text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   }
 
