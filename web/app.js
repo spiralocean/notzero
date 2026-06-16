@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.13.2";
+const VERSION = "web v0.13.3";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -500,14 +500,16 @@ function drawSync(r) {
   if (head - syncState.shown > 8) syncState.shown = head - 8;
   if (syncState.shown < head) {
     if (syncState.phase === "fill") { syncState.fp += (1 / 60) / 0.85; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
-    else { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; syncState.sp = 0; } }
+    else if (syncState.phase === "step") { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "dwell"; syncState.dw = 0; } }
+    else { syncState.dw = (syncState.dw || 0) + 1 / 60; if (syncState.dw >= 1.3) { syncState.phase = "fill"; syncState.fp = 0; } } // pause between fills — time to watch the prune
   } else { syncState.phase = "fill"; syncState.fp = 0; }
   const sp = syncState.sp;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
   const downloading = syncState.shown < head;
-  // when waiting for the next data dump, the block under the node rests empty
-  const newestFill = downloading ? (syncState.phase === "fill" ? syncState.fp : 1) : 0;
+  const filling = downloading && syncState.phase === "fill"; // the stream flows only while a block is actively filling
+  // the block under the node: filling while in the fill phase, full while stepping, else empty
+  const newestFill = !downloading ? 0 : (syncState.phase === "fill" ? syncState.fp : (syncState.phase === "step" ? 1 : 0));
 
   // current synced block vs the block the network is mining right now (tip + 1)
   const mining = tip + 1;
@@ -557,8 +559,8 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: data drops straight down into the filling block
-  if (downloading) {
+  // node → new block: data drops straight down into the filling block (pauses between blocks)
+  if (filling) {
     const dropTop = nodeY + 14, dropBot = cy - bh / 2 - 2;
     ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, dropBot); ctx.stroke(); // guide
     for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, dropBot, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
