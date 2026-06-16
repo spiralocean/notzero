@@ -225,7 +225,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.18.0";
+const VERSION = "web v0.18.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -451,28 +451,28 @@ function dataComet(x0, y0, x1, y1, prog, seed, alpha = 1) {
   }
 }
 
-// A flowing glyph stream that fills DOWN from its source when active and drains DOWN (empties from
-// the top) when it stops — so you see the leading drop arrive and the last glyph fall, never a whole
-// line blinking on/off. State per stream: { head, tail, phase } in a caller-owned store.
-function tickStream(store, key, active, edgeSpeed, scrollSpeed) {
-  let st = store[key]; if (!st) st = store[key] = { head: 0, tail: 0, phase: 0 };
-  st.phase = (st.phase + scrollSpeed / 60) % 1;
-  if (active) { st.tail = 0; st.head = Math.min(1, st.head + edgeSpeed / 60); }
-  else if (st.head > 0) { st.tail = Math.min(1, st.tail + edgeSpeed / 60); if (st.tail >= 1) { st.head = 0; st.tail = 0; } }
+// A continuous glyph stream flowing source → destination, like a faucet: the tap "openness" eases
+// toward a target (the data rate), and both the flow SPEED and brightness scale with it — open it and
+// the stream speeds up and brightens, close it and it slows and fades out. Glyphs fade in at the source
+// and out at the destination, so the whole flow reads from beginning to end (no prominent single head).
+function tickStream(store, key, target, baseSpeed) {
+  let st = store[key]; if (!st) st = store[key] = { phase: 0, open: 0 };
+  st.open += (Math.max(0, Math.min(1, target)) - st.open) * 0.12;
+  st.phase = (st.phase + (baseSpeed * (0.18 + 0.82 * st.open)) / 60) % 1;
   return st;
 }
-function drawStream(x0, y0, x1, y1, st, alpha) {
-  if (alpha <= 0.01 || st.head <= st.tail) return;
-  const len = Math.hypot(x1 - x0, y1 - y0) || 1, n = Math.max(3, Math.round(len / 12));
+function drawStream(x0, y0, x1, y1, st, maxAlpha) {
+  if (st.open <= 0.02) return;
+  const len = Math.hypot(x1 - x0, y1 - y0) || 1, n = Math.max(3, Math.round(len / 13));
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let g = 0; g < n; g++) {
     const f = (g / n + st.phase) % 1;
-    if (f < st.tail || f > st.head) continue;
+    const ends = Math.min(1, f / 0.08, (1 - f) / 0.08); // fade in at the source, out at the destination
+    const a = maxAlpha * st.open * ends;
+    if (a <= 0.02) continue;
     const gx = x0 + (x1 - x0) * f, gy = y0 + (y1 - y0) * f;
-    const lead = 1 - Math.min(1, (st.head - f) / 0.3); // 1 at the leading (front) glyph, fading behind it
-    const a = alpha * (0.22 + 0.78 * lead);
-    if (lead > 0.6) { ctx.font = "700 13px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[(frame + g * 3) % CYBER.length], gx, gy); }
-    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
+    if (g % 3 === 0) { ctx.font = "700 12px ui-monospace, monospace"; ctx.fillStyle = `rgba(255,205,95,${a})`; ctx.fillText(CYBER[(frame + g * 3) % CYBER.length], gx, gy); }
+    else { ctx.font = "11px ui-monospace, monospace"; ctx.fillStyle = `rgba(70,190,140,${a * 0.8})`; ctx.fillText("0123456789abcdef"[(g * 5 + Math.floor(st.phase * 40)) % 16], gx, gy); }
   }
 }
 
@@ -564,7 +564,7 @@ function drawSync(r) {
   const rr = rh.length >= 2 ? (rh[rh.length - 1].h - rh[0].h) / Math.max(0.5, rh[rh.length - 1].t - rh[0].t) : 0;
   syncState.rateSmooth = syncState.rateSmooth == null ? rr : syncState.rateSmooth + (rr - syncState.rateSmooth) * 0.04;
   const paceMul = Math.max(0.6, Math.min(2.0, syncState.rateSmooth / 4)); // ~4 blk/s → 1×
-  const pruneDur = Math.max(1.0, PRUNE_SEC / paceMul), stepDur = Math.max(0.28, 0.42 / paceMul);
+  const pruneDur = Math.max(1.0, Math.min(2.5, PRUNE_SEC / paceMul)), stepDur = Math.max(0.28, 0.42 / paceMul); // variable with sync rate, capped 1–2.5s so it's always visible
   if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "fill"; syncState.fp = 0; syncState.pruneT = 0; }
   if (downloading) {
     if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "prune"; syncState.pruneT = 0; } }
@@ -612,11 +612,11 @@ function drawSync(r) {
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
-      // data stream peer → node: fills in when the peer is sending and drains (empties from the top)
-      // when it goes idle, so you see each stream begin and end instead of a whole line blinking.
-      const active = (peers[i].downloading || (peers[i].rate || 0) > 20_000) && intensity > 0.02;
-      const st = tickStream(syncState.streams, "peer:" + addr, active, 1.9, 0.9 + intensity * 1.3);
-      drawStream(px, py, cx, nodeY, st, 0.35 + 0.55 * intensity);
+      // data stream peer → node: a faucet whose flow speeds/brightens with this peer's rate and
+      // eases off to nothing when it goes idle — continuous flow, not a blinking line.
+      const target = (peers[i].downloading || (peers[i].rate || 0) > 20_000) ? Math.max(0.18, intensity) : 0;
+      const st = tickStream(syncState.streams, "peer:" + addr, target, 1.1 + intensity * 2.2);
+      drawStream(px, py, cx, nodeY, st, 0.9);
     }
   }
 
@@ -630,9 +630,10 @@ function drawSync(r) {
   // glyph are both visible as it starts and ends.
   {
     const dropTop = nodeY + 14, surfaceY = cy + bh / 2 - 3 - (bh - 6) * newestFill;
-    const st = tickStream(syncState.streams, "__node", streaming, 2.2, 1.4);
+    const target = streaming ? Math.max(0.4, Math.min(1, syncState.flow / 2_000_000)) : 0; // faucet opens with throughput
+    const st = tickStream(syncState.streams, "__node", target, 1.7);
     drawStream(cx, dropTop, cx, surfaceY, st, 0.95);
-    if (streaming && st.head > 0.9) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash where it lands
+    if (st.open > 0.5) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2 * st.open, 0, 7); ctx.fillStyle = `rgba(255,215,140,${0.9 * st.open})`; ctx.fill(); } // splash where it lands
   }
 
   // ---- pruner at the far left ----
