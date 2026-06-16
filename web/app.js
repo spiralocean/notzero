@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.15.0";
+const VERSION = "web v0.16.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -508,11 +508,21 @@ function drawSync(r) {
   const flowing = syncState.flow > 25_000; // >25 KB/s aggregate = data is actually arriving
   const fillPerSec = flowing ? Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)) : 0; // rate-driven; 0 → the block holds its partial level
 
-  // fill-then-step: the center block fills as data streams in, holds partial when the stream pauses, then steps left
-  if (syncState.shown == null) syncState.shown = head - 3;
-  if (head - syncState.shown > 8) syncState.shown = head - 8;
+  // geometry (needed by the phase machine to know how many blocks sit left of center)
+  const cx = r.x + r.w / 2;
+  const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
+  const cy = r.y + r.h - 96, nodeY = r.y + 182, birthX = cx - bw / 2, leftExit = r.x + m;
+  const L = Math.max(2, Math.floor((birthX - leftExit) / spacing)); // visible blocks between center and the prune slot
+  const PRUNE_SEC = 2.0; // how long the leftmost block visibly digests before it's gone
+
+  // fill → prune → step cycle: a block fills at center; when full, the leftmost block visibly
+  // digests in place for a couple seconds and disappears; THEN the chain steps left.
+  const reseat = () => { syncState.prunedBelow = syncState.shown - L - 1; syncState.phase = "fill"; syncState.fp = 0; };
+  if (syncState.shown == null) { syncState.shown = head - 3; reseat(); }
+  if (head - syncState.shown > 8) { syncState.shown = head - 8; reseat(); }
   if (syncState.shown < head) {
-    if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
+    if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "prune"; syncState.pruneT = 0; } }
+    else if (syncState.phase === "prune") { syncState.pruneT += (1 / 60) / PRUNE_SEC; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; } }
     else { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; } }
   } else { syncState.phase = "fill"; syncState.fp = 0; }
   const sp = syncState.sp;
@@ -520,8 +530,9 @@ function drawSync(r) {
   const hs = syncState.shown + stepEase;
   const downloading = syncState.shown < head;
   const streaming = downloading && flowing && syncState.phase === "fill"; // data actively dropping into the block
-  // the block under the node: filling/holding while downloading, full while stepping, empty when synced
+  // the block under the node: filling/holding while in fill phase, full otherwise, empty when synced
   const newestFill = !downloading ? 0 : (syncState.phase === "fill" ? syncState.fp : 1);
+  const blockX = (k) => birthX - (hs - k) * spacing;
 
   // current synced block vs the block the network is mining right now (tip + 1)
   const mining = tip + 1;
@@ -531,11 +542,6 @@ function drawSync(r) {
   text(`mining #${mining.toLocaleString()}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
   text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-
-  const cx = r.x + r.w / 2;
-  const m = 22, bh = 54, gap = 14, bw = Math.max(64, Math.min(108, (r.w - 2 * m) / 6 - gap)), spacing = bw + gap;
-  const cy = r.y + r.h - 96, nodeY = r.y + 182, birthX = cx - bw / 2, leftExit = r.x + m;
-  const blockX = (k) => birthX - (hs - k) * spacing;
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
@@ -580,19 +586,20 @@ function drawSync(r) {
   }
 
   // ---- pruner at the far left ----
-  const prX = leftExit - 2;
-  for (let g = 0; g < 4; g++) { const a = 0.35 + 0.5 * Math.abs(Math.sin(frame * 0.12 + g * 0.9)); ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(255,150,60,${a})`; ctx.fillText(CYBER[(frame + g * 7) % CYBER.length], prX, cy - 20 + g * 13); }
-  text("prune ♻", prX, cy + 40, { size: 9, color: "rgba(255,150,60,0.75)", align: "center", baseline: "middle" });
+  const prX = leftExit - 2, pruning = syncState.phase === "prune";
+  for (let g = 0; g < 4; g++) { const a = (pruning ? 0.6 : 0.3) + 0.4 * Math.abs(Math.sin(frame * (pruning ? 0.3 : 0.12) + g * 0.9)); ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(255,150,60,${a})`; ctx.fillText(CYBER[(frame + g * 7) % CYBER.length], prX, cy - 20 + g * 13); }
+  text(pruning ? "pruning ♻" : "prune ♻", prX, cy + 40, { size: 9, weight: pruning ? 700 : 400, color: `rgba(255,150,60,${pruning ? 0.95 : 0.7})`, align: "center", baseline: "middle" });
 
   // ---- conveyor: blocks born at center, step left, prune at far left ----
   // persistent empty slot directly under the node — the block currently being filled
   { const fy = cy - bh / 2; ctx.setLineDash([4, 3]); ctx.strokeStyle = `rgba(${ACCENT},0.4)`; ctx.lineWidth = 1; roundRect(birthX, fy, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); }
-  const span = Math.ceil((birthX - leftExit) / spacing) + 4, contact = prX + bw * 0.7;
+  const span = Math.ceil((birthX - leftExit) / spacing) + 4, pruneTarget = syncState.prunedBelow + 1;
   for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
     const x = blockX(k);
     if (x > cx + bw || x < r.x + m - bw) continue;
     const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
-    const fade = x >= contact ? 0 : Math.min(1, (contact - x) / (bw * 1.5));
+    // timed prune: only the leftmost block digests, and only during the prune phase; below it, already gone
+    const fade = k <= syncState.prunedBelow ? 1 : (k === pruneTarget && syncState.phase === "prune" ? syncState.pruneT : 0);
     const info = syncRecentInfo(Math.round(head) - k);
     if (fade > 0.12) for (let p = 0; p < 2; p++) { const pp = (syncState.t * 1.8 + p * 0.5 + k * 0.3) % 1, sy = cy + (p - 0.5) * 12; ctx.beginPath(); ctx.arc(x + (prX + 2 - x) * pp, sy + (cy - sy) * pp, 1.6, 0, 7); ctx.fillStyle = `rgba(255,170,80,${0.7 * (1 - pp)})`; ctx.fill(); }
     if (fill >= 1 && x < birthX - 2) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
