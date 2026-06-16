@@ -218,7 +218,7 @@ const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0;
-const VERSION = "web v0.13.3";
+const VERSION = "web v0.14.0";
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -495,21 +495,27 @@ function drawSync(r) {
   const head = node && node.blocks ? node.blocks : (model.tipHeight || 0);
   if (!head) { text("connecting to the network…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "#888", align: "center", baseline: "middle" }); return; }
 
-  // fill-then-step advance: a block fills at center, then steps left; one block at a time
+  // real aggregate throughput from peers drives how fast the current block fills
+  const peersAll = (node && Array.isArray(node.peers)) ? node.peers : [];
+  const sumRate = peersAll.reduce((s, p) => s + (p.rate || 0), 0);
+  syncState.flow = syncState.flow == null ? sumRate : syncState.flow + (sumRate - syncState.flow) * 0.08; // smooth across 4s polls
+  const flowing = syncState.flow > 25_000; // >25 KB/s aggregate = data is actually arriving
+  const fillPerSec = flowing ? Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)) : 0; // rate-driven; 0 → the block holds its partial level
+
+  // fill-then-step: the center block fills as data streams in, holds partial when the stream pauses, then steps left
   if (syncState.shown == null) syncState.shown = head - 3;
   if (head - syncState.shown > 8) syncState.shown = head - 8;
   if (syncState.shown < head) {
-    if (syncState.phase === "fill") { syncState.fp += (1 / 60) / 0.85; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
-    else if (syncState.phase === "step") { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "dwell"; syncState.dw = 0; } }
-    else { syncState.dw = (syncState.dw || 0) + 1 / 60; if (syncState.dw >= 1.3) { syncState.phase = "fill"; syncState.fp = 0; } } // pause between fills — time to watch the prune
+    if (syncState.phase === "fill") { syncState.fp += fillPerSec / 60; if (syncState.fp >= 1) { syncState.fp = 1; syncState.phase = "step"; syncState.sp = 0; } }
+    else { syncState.sp += (1 / 60) / 0.42; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "fill"; syncState.fp = 0; } }
   } else { syncState.phase = "fill"; syncState.fp = 0; }
   const sp = syncState.sp;
   const stepEase = syncState.phase === "step" ? 1 + 2.70158 * Math.pow(sp - 1, 3) + 1.70158 * Math.pow(sp - 1, 2) : 0;
   const hs = syncState.shown + stepEase;
   const downloading = syncState.shown < head;
-  const filling = downloading && syncState.phase === "fill"; // the stream flows only while a block is actively filling
-  // the block under the node: filling while in the fill phase, full while stepping, else empty
-  const newestFill = !downloading ? 0 : (syncState.phase === "fill" ? syncState.fp : (syncState.phase === "step" ? 1 : 0));
+  const streaming = downloading && flowing && syncState.phase === "fill"; // data actively dropping into the block
+  // the block under the node: filling/holding while downloading, full while stepping, empty when synced
+  const newestFill = !downloading ? 0 : (syncState.phase === "fill" ? syncState.fp : 1);
 
   // current synced block vs the block the network is mining right now (tip + 1)
   const mining = tip + 1;
@@ -559,8 +565,8 @@ function drawSync(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
-  // node → new block: data drops straight down into the filling block (pauses between blocks)
-  if (filling) {
+  // node → new block: data drops straight down only while data is actually streaming in
+  if (streaming) {
     const dropTop = nodeY + 14, dropBot = cy - bh / 2 - 2;
     ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx, dropTop); ctx.lineTo(cx, dropBot); ctx.stroke(); // guide
     for (let pk = 0; pk < 4; pk++) dataComet(cx, dropTop, cx, dropBot, (syncState.t * 0.8 + pk * 0.25) % 1, pk * 11 + 3);
@@ -586,7 +592,7 @@ function drawSync(r) {
     drawConveyorBlock(x, cy, bw, bh, k, info, fill, fade);
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  text("filling ▾", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  if (downloading) text(streaming ? `filling ▾ ${(syncState.flow / 1e6).toFixed(1)} MB/s` : "⏸ waiting for data — block held partial", cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${streaming ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
 
   // ---- upcoming empty slots → (hidden blocks) → the live block being mined (far right) ----
   const mineX = r.x + r.w - m - bw, mineCx = mineX + bw / 2, my = cy - bh / 2;
