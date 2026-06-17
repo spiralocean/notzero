@@ -77,12 +77,28 @@ def build(url, user, pw):
         if state_path.exists():
             st = json.load(state_path.open())
             stats = st.get("stats", {})
+            la = st.get("last_attempt") or {}
+            disp = st.get("display") or {}
+            win = disp.get("network_winner") or {}
+            prox = disp.get("hash_proximity") or {}
             miner = {
                 "mode": st.get("mode", "symbolic"),
                 "live_attempts": stats.get("live_attempts", 0),
                 "total_attempts": stats.get("total_attempts", 0),
                 "live_wins": stats.get("live_wins", 0),
                 "payout": st.get("payout_address", ""),
+                "attempt": {
+                    "height": la.get("height"),
+                    "hash": la.get("hash_hex"),
+                    "target": la.get("target_hex"),
+                    "nonce": la.get("nonce"),
+                    "won": la.get("won"),
+                    "leading_zero_bits": prox.get("leading_zero_bits"),
+                } if la else None,
+                "winner": {
+                    "hash": win.get("hash_hex"),
+                    "prefix_match": win.get("prefix_match_chars"),
+                } if win.get("hash_hex") else None,
             }
     except Exception:  # noqa: BLE001
         miner = None

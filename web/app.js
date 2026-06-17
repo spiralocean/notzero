@@ -246,7 +246,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 124, hashBuild: 300, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, closeness: 144, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold";
@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.28.0";
+const VERSION = "web v0.29.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -332,6 +332,26 @@ function drawNextBlock(r) {
 }
 
 function drawCloseness(r) {
+  // LIVE: compare your daemon's real last attempt to a winning block — the leading-zero "wall" tells the story
+  const mn = model.node && model.node.miner, at = mn && mn.attempt;
+  if (at && at.hash) {
+    const winner = (model.block && model.block.id) || "";
+    const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
+    text("YOUR LIVE ATTEMPT vs THE WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+    const rowX = r.x + 16, hx0 = rowX + 58, n = 40, rowW = r.w - 250, sp = rowW / n;
+    const row = (label, hex, y, lit, sub) => {
+      text(label, rowX, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+      const lead = leadingZeroHexChars(hex), show = hex.slice(0, n);
+      for (let i = 0; i < show.length; i++) { const z = i < lead; text(show[i], hx0 + sp * (i + 0.5), y, { size: 13, weight: z ? 700 : 400, color: z ? lit : "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
+      text(sub, r.x + r.w - 16, y, { size: 11, weight: 600, color: lit, align: "right", baseline: "middle" });
+    };
+    if (winner) row("winner", winner, r.y + 44, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
+    row("you", at.hash, r.y + 72, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
+    text(`to win, your hash must be ≤ the target — start with ~${need} leading zeros. this attempt had ${youZ}.`, rowX, r.y + 100, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    const att = mn.live_attempts || 0, won = mn.live_wins || 0;
+    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} block${won === 1 ? "" : "s"} won & submitted`, rowX, r.y + r.h - 12, { size: 12, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    return;
+  }
   const p = model.ticket?.prox;
   if (!p) { text("waiting for a draw…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
   const bw = Math.min(440, r.w * 0.8), bx = r.x + r.w / 2 - bw / 2, by = r.y + 12;
