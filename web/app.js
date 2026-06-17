@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.24.0";
+const VERSION = "web v0.24.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -557,10 +557,10 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
     const col = d % dcols, row = Math.floor(d / dcols), dx = x + 11 + col * ((bw - 22) / (dcols - 1)), dy = y + 22 + row * 12;
     ctx.beginPath(); ctx.arc(dx, dy, 1.8, 0, 7); ctx.fillStyle = verified ? "rgba(90,220,140,0.75)" : "rgba(255,200,120,0.85)"; ctx.fill();
   }
-  // border: orange highlight ONLY for the validated block under the node; blocks that have moved on show
-  // green (validated, part of the chain); a block still filling is neutral white.
-  ctx.strokeStyle = (verified && highlight) ? `rgba(${ACCENT},0.9)` : verified ? "rgba(90,205,130,0.5)" : "rgba(255,255,255,0.3)";
-  ctx.lineWidth = (verified && highlight) ? 1.8 : verified ? 1.2 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
+  // border: confirmed blocks are GREEN (the newest one a brighter green); a block still filling is neutral white.
+  // Orange is reserved exclusively for the mining block (drawn separately) — so only ever ONE orange block.
+  ctx.strokeStyle = (verified && highlight) ? "rgba(120,235,150,0.95)" : verified ? "rgba(90,200,130,0.45)" : "rgba(255,255,255,0.3)";
+  ctx.lineWidth = (verified && highlight) ? 1.9 : verified ? 1.1 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
   if (height) text("#" + (height % 100000), x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
   if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (verified) text("✓", x + bw - 11, y + 11, { size: 13, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
@@ -897,9 +897,13 @@ function demoNode() {
   return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, peers };
 }
 window.addEventListener("keydown", (e) => {
-  if (e.key === "d" || e.key === "D") {
-    syncDemo = !syncDemo;
-    if (syncDemo) { expanded.add("sync"); saveExpanded(); } else { demoHead = null; pollNode(); } // exit → restore the real node
+  if (e.key === "d" || e.key === "D") syncDemo = !syncDemo;
+  else if (e.key === "Escape" && syncDemo) syncDemo = false;
+  else return;
+  if (syncDemo) { expanded.add("sync"); saveExpanded(); }
+  else { // exit → restore the real node, and drop ?syncdemo so a reload won't re-enter
+    demoHead = null; pollNode();
+    if (new URLSearchParams(location.search).has("syncdemo")) history.replaceState(null, "", location.pathname);
   }
 });
 
@@ -946,7 +950,7 @@ function render() {
   }
   // fixed footer — accent-tinted so the version is easy to read but still understated
   text(`practice — 1 hash/block, not submitted to the network · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
-  if (syncDemo) text("◉ SYNC DEMO — simulated IBD · press D to exit", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  if (syncDemo) text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
 
   clock += 0.02; frame++;
   quoteT += 1 / 60;
