@@ -99,6 +99,7 @@ def build(url, user, pw):
                     "hash": win.get("hash_hex"),
                     "prefix_match": win.get("prefix_match_chars"),
                 } if win.get("hash_hex") else None,
+                "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
             }
     except Exception:  # noqa: BLE001
         miner = None

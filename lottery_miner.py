@@ -154,6 +154,16 @@ def normalize_stats(state: dict) -> dict:
     stats.setdefault("live_attempts", 0)
     stats.setdefault("live_wins", 0)
     state["stats"] = stats
+    if "best" not in state:  # seed the best-ever (most leading zero bits) from recent history
+        best = None
+        for h in state.get("history", []):
+            hh = h.get("hash_hex")
+            if h.get("mode") == "live" and hh:
+                z = 256 - int(hh, 16).bit_length()
+                if best is None or z > best["zero_bits"]:
+                    best = {"zero_bits": z, "height": h.get("height"), "hash": hh, "nonce": h.get("nonce"), "at": h.get("attempted_at")}
+        if best:
+            state["best"] = best
     return state
 
 
@@ -219,6 +229,11 @@ def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: 
         if attempt.won:
             stats["live_wins"] = stats.get("live_wins", 0) + 1
     state["stats"] = stats
+    if mode == "live" and attempt.hash_hex:  # track the best-ever attempt (most leading zero bits)
+        z = 256 - int(attempt.hash_hex, 16).bit_length()
+        best = state.get("best")
+        if best is None or z > best.get("zero_bits", -1):
+            state["best"] = {"zero_bits": z, "height": attempt.height, "hash": attempt.hash_hex, "nonce": attempt.nonce, "at": attempt.attempted_at}
     state = update_display_stats(state, new_block=True)
     winner = fetch_network_winner(attempt.height, attempt.hash_hex)
     if winner:

@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.29.0";
+const VERSION = "web v0.30.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -348,8 +348,10 @@ function drawCloseness(r) {
     if (winner) row("winner", winner, r.y + 44, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
     row("you", at.hash, r.y + 72, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
     text(`to win, your hash must be ≤ the target — start with ~${need} leading zeros. this attempt had ${youZ}.`, rowX, r.y + 100, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-    const att = mn.live_attempts || 0, won = mn.live_wins || 0;
-    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} block${won === 1 ? "" : "s"} won & submitted`, rowX, r.y + r.h - 12, { size: 12, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    const att = mn.live_attempts || 0, won = mn.live_wins || 0, best = mn.best;
+    let line = `● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted`;
+    if (best && best.zero_bits != null) { const tbits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76; line += ` · best ${best.zero_bits} of ~${tbits} zero bits`; }
+    text(line, rowX, r.y + r.h - 12, { size: 12, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
   const p = model.ticket?.prox;
