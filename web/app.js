@@ -210,7 +210,7 @@ function drawRain() {
 
 // ---- quotes ---- (strings are original; {q, src} carries a movie/source attribution)
 const QUOTES = [
-  { q: "So you're tellin' me there's a chance?", src: "Dumb and Dumber" },
+  { q: "So you're tellin' me there's a chance?", src: "Lloyd Christmas, Dumb and Dumber" },
   "Someone wins every block. Why not you?",
   "One ticket per block. One shot at glory.",
   "The lottery is hope with a timestamp.",
@@ -228,12 +228,12 @@ const QUOTES = [
   "The dice are 256 bits wide.",
   "Every block, the whole world plays. One wins.",
   "Trust the math. Play the dream.",
-  { q: "Never tell me the odds.", src: "Star Wars" },
-  { q: "May the odds be ever in your favor.", src: "The Hunger Games" },
-  { q: "Hope is a good thing, maybe the best of things.", src: "The Shawshank Redemption" },
-  { q: "If you build it, it will come.", src: "Field of Dreams" },
+  { q: "Never tell me the odds.", src: "Han Solo, Star Wars" },
+  { q: "May the odds be ever in your favor.", src: "Effie Trinket, The Hunger Games" },
+  { q: "Hope is a good thing, maybe the best of things.", src: "Andy Dufresne, The Shawshank Redemption" },
+  { q: "If you build it, it will come.", src: "the Voice, Field of Dreams" },
   { q: "Life is like a box of chocolates.", src: "Forrest Gump" },
-  { q: "Carpe diem. Seize the block.", src: "Dead Poets Society" },
+  { q: "Carpe diem. Seize the block.", src: "John Keating, Dead Poets Society" },
   { q: "We are the music makers, and we are the dreamers of dreams.", src: "Willy Wonka" },
   { q: "If you want to view paradise, simply look around and view it.", src: "Willy Wonka" },
   { q: "A little nonsense now and then is relished by the wisest men.", src: "Willy Wonka" },
@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.25.1";
+const VERSION = "web v0.26.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -710,6 +710,13 @@ function drawSync(r) {
       const active = (peers[i].rate || 0) > 15_000;
       const st = tickStream(syncState.streams, "peer:" + addr, active, 0.8 + intensity * 2.2);
       drawStream(px, py, cx, nodeY, st, 0.5 + 0.45 * intensity);
+      // synced/mining: peers keep exchanging block announcements, headers and pings — a faint heartbeat
+      // travelling peer → node shows data is still arriving even when no block body is downloading.
+      if (behind === 0) {
+        const hp = (syncState.t * 0.4 + i * 0.37) % 1;
+        ctx.beginPath(); ctx.arc(px + (cx - px) * hp, py + (nodeY - py) * hp, 1.5, 0, 7);
+        ctx.fillStyle = `rgba(${ACCENT},${0.12 + 0.4 * (1 - hp)})`; ctx.fill();
+      }
     }
   }
 
@@ -822,11 +829,8 @@ function drawSync(r) {
       const note = relaying ? `mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}` : "blocksonly · receives whole blocks";
       text(note, mineCx, cy + bh / 2 + 26, { size: 9, color: relaying ? "rgba(90,210,140,0.85)" : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     }
-    // tx relay stream into the block — only on a relaying node (a blocksonly node gets nothing until the block lands)
-    if (synced && relaying) {
-      const st = tickStream(syncState.streams, "__mine", true, 0.7 + Math.min(1.6, Math.max(0, mp.rate) / 6));
-      drawStream(cx, nodeY + 14, mineCx, my - 1, st, 0.7);
-    }
+    // (no node → mining-block stream: your node doesn't fill the block being mined — the network does,
+    //  and your node receives the found block FROM peers. The peer heartbeats above show that inflow.)
   }
 
   // ---- disk (concise) ----
