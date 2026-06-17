@@ -246,7 +246,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 144, hashBuild: 300, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, closeness: 172, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold";
@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.30.0";
+const VERSION = "web v0.31.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -337,7 +337,7 @@ function drawCloseness(r) {
   if (at && at.hash) {
     const winner = (model.block && model.block.id) || "";
     const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
-    text("YOUR LIVE ATTEMPT vs THE WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+    text("YOUR LIVE ATTEMPT vs THE TARGET & WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
     const rowX = r.x + 16, hx0 = rowX + 58, n = 40, rowW = r.w - 250, sp = rowW / n;
     const row = (label, hex, y, lit, sub) => {
       text(label, rowX, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.5)", baseline: "middle" });
@@ -345,9 +345,10 @@ function drawCloseness(r) {
       for (let i = 0; i < show.length; i++) { const z = i < lead; text(show[i], hx0 + sp * (i + 0.5), y, { size: 13, weight: z ? 700 : 400, color: z ? lit : "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
       text(sub, r.x + r.w - 16, y, { size: 11, weight: 600, color: lit, align: "right", baseline: "middle" });
     };
-    if (winner) row("winner", winner, r.y + 44, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
-    row("you", at.hash, r.y + 72, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
-    text(`to win, your hash must be ≤ the target — start with ~${need} leading zeros. this attempt had ${youZ}.`, rowX, r.y + 100, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros`);
+    if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
+    row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
+    text(`to win, your hash must be ≤ the target — start with ~${need} leading zeros. this attempt had ${youZ}.`, rowX, r.y + 126, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0, best = mn.best;
     let line = `● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted`;
     if (best && best.zero_bits != null) { const tbits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76; line += ` · best ${best.zero_bits} of ~${tbits} zero bits`; }
@@ -848,8 +849,8 @@ function drawSync(r) {
     }
     // dashed pulsing border — "being mined by the network", the only orange block
     ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -frame * 0.4; roundRect(mineX, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    text(`⛏ mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
-    text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    text(`⛏ network mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
+    text("#" + ((tip || 0) + 1).toLocaleString() + " · all miners", mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
     // readout: a relaying node shows its mempool filling; a blocksonly node receives whole blocks, no tx stream
     if (synced) {
       const note = relaying ? `mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}` : "blocksonly · receives whole blocks";
