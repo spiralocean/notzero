@@ -208,9 +208,9 @@ function drawRain() {
   ctx.fillStyle = s; ctx.fillRect(0, 0, W, H);
 }
 
-// ---- quotes ----
+// ---- quotes ---- (strings are original; {q, src} carries a movie/source attribution)
 const QUOTES = [
-  "So you're tellin' me there's a chance?",
+  { q: "So you're tellin' me there's a chance?", src: "Dumb and Dumber" },
   "Someone wins every block. Why not you?",
   "One ticket per block. One shot at glory.",
   "The lottery is hope with a timestamp.",
@@ -228,21 +228,21 @@ const QUOTES = [
   "The dice are 256 bits wide.",
   "Every block, the whole world plays. One wins.",
   "Trust the math. Play the dream.",
-  // movie quotes (applicable to chance, odds, hope)
-  "Never tell me the odds.",                                       // Star Wars
-  "May the odds be ever in your favor.",                           // The Hunger Games
-  "Hope is a good thing, maybe the best of things.",               // The Shawshank Redemption
-  "If you build it, it will come.",                                // Field of Dreams
-  "Life is like a box of chocolates.",                             // Forrest Gump
-  "Carpe diem. Seize the block.",                                  // Dead Poets Society (twist)
-  // Willy Wonka — the bright ones
-  "We are the music makers, and we are the dreamers of dreams.",
-  "If you want to view paradise, simply look around and view it.",
-  "A little nonsense now and then is relished by the wisest men.",
-  "So shines a good deed in a weary world.",
-  "The suspense is terrible — I hope it'll last.",
-  "Come with me, and you'll be in a world of pure imagination.",
+  { q: "Never tell me the odds.", src: "Star Wars" },
+  { q: "May the odds be ever in your favor.", src: "The Hunger Games" },
+  { q: "Hope is a good thing, maybe the best of things.", src: "The Shawshank Redemption" },
+  { q: "If you build it, it will come.", src: "Field of Dreams" },
+  { q: "Life is like a box of chocolates.", src: "Forrest Gump" },
+  { q: "Carpe diem. Seize the block.", src: "Dead Poets Society" },
+  { q: "We are the music makers, and we are the dreamers of dreams.", src: "Willy Wonka" },
+  { q: "If you want to view paradise, simply look around and view it.", src: "Willy Wonka" },
+  { q: "A little nonsense now and then is relished by the wisest men.", src: "Willy Wonka" },
+  { q: "So shines a good deed in a weary world.", src: "Willy Wonka" },
+  { q: "The suspense is terrible — I hope it'll last.", src: "Willy Wonka" },
+  { q: "Come with me, and you'll be in a world of pure imagination.", src: "Willy Wonka" },
 ];
+const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
+const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.23.0";
+const VERSION = "web v0.23.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -904,7 +904,9 @@ function render() {
   text("₿ITCOIN LOTTERY", W / 2, 40, { size: 28, weight: 800, align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
-  drawDecodeQuote(quotePhase === "hold" ? QUOTES[quoteIdx] : QUOTES[quoteNext], quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
+  drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
+  const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
+  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 102, { size: 11, weight: 500, color: `rgba(255,255,255,${quoteAlpha * 0.65})`, align: "center", baseline: "middle" });
 
   headerHits = [];
   if (model.error) {
