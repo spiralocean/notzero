@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.23.1";
+const VERSION = "web v0.23.2";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -745,13 +745,12 @@ function drawSync(r) {
     // moment a block validates (a calm beat), never pops in at the step, and never reaches the empty next block
     const isFull = (j) => j < syncState.shown || (j === syncState.shown && newestFill >= 0.999);
     if (isFull(k) && isFull(k + 1)) { ctx.globalAlpha = 1 - fade; ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x + bw, cy); ctx.lineTo(x + bw + gap, cy); ctx.stroke(); ctx.globalAlpha = 1; }
-    drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade, k === syncState.shown && syncState.phase !== "step"); // highlight only the validated block settled under the node
+    drawConveyorBlock(x, cy, bw, bh, dispHeight(k), info, fill, fade, k === syncState.shown - 1 && syncState.phase !== "step"); // highlight the newest block AFTER it has stepped into the chain (not while still under the node)
   }
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   if (downloading) {
-    const validated = syncState.phase === "prune" || syncState.phase === "step";
-    const lbl = arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : validated ? "✓ validated" : "⏸ waiting for data — block held partial";
-    text(lbl, cx, cy - bh / 2 - 8, { size: 9, weight: validated ? 700 : 400, color: validated ? "rgba(90,210,140,0.9)" : `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+    const lbl = arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : (!flowing ? "⏸ waiting for data — block held partial" : "");
+    if (lbl) text(lbl, cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
   }
   if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
 
@@ -906,7 +905,7 @@ function render() {
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
-  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 102, { size: 11, weight: 500, color: `rgba(255,255,255,${quoteAlpha * 0.65})`, align: "center", baseline: "middle" });
+  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
   headerHits = [];
   if (model.error) {
