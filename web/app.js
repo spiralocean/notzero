@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.24.1";
+const VERSION = "web v0.25.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -791,21 +791,39 @@ function drawSync(r) {
   if (!synced || !downloading) {
     const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));
     // "mining progress" ≈ time since the last block vs the ~10-min average. PoW has no real progress (it's a
-    // random search), so elapsed time is the honest proxy — the block fills with churning glyphs as it goes.
+    // random search), so elapsed time is the honest proxy.
     const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
     const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600));
+    const mp = node && node.mempool; // {count, bytes, rate} — transactions flowing in while we mine
     if (!synced) { ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(mineX, my, bw, bh, 4); ctx.fill(); }
-    const mcols = 7, mrows = Math.max(2, Math.floor((bh - 18) / 12)), mineShown = Math.max(1, Math.round(mcols * mrows * mineProg));
-    ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let d = 0; d < mineShown; d++) {
+    const mcols = 7, mrows = Math.max(2, Math.floor((bh - 18) / 12)), grid = mcols * mrows;
+    // transactions packed into the block from the mempool (green dots) — this is the "data coming in"
+    const txFrac = synced ? (mp ? Math.min(1, mp.count / 3000) : 0.8) : mineProg; // ~3000 mempool tx ≈ a full block
+    const txShown = Math.max(1, Math.round(grid * txFrac));
+    for (let d = 0; d < txShown; d++) {
       const col = d % mcols, row = Math.floor(d / mcols);
-      ctx.fillStyle = `rgba(255,180,80,${0.3 + 0.5 * Math.abs(Math.sin(frame * 0.2 + row * 6 + col))})`;
-      ctx.fillText(CYBER[(frame + row * 7 + col * 3) % CYBER.length], mineX + 11 + col * ((bw - 22) / (mcols - 1)), my + 16 + row * 12);
+      ctx.beginPath(); ctx.arc(mineX + 11 + col * ((bw - 22) / (mcols - 1)), my + 16 + row * 12, 1.8, 0, 7);
+      ctx.fillStyle = `rgba(90,210,140,${0.35 + 0.4 * Math.abs(Math.sin(frame * 0.12 + d * 1.3))})`; ctx.fill();
     }
-    // dashed pulsing border — "being mined by the network", distinct from the solid-orange validated-under-node highlight
+    // nonce search — a few churning orange glyphs over the transactions
+    ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let c = 0; c < 4; c++) {
+      const col = (frame * 2 + c * 11) % mcols, row = (frame + c * 5) % mrows;
+      ctx.fillStyle = `rgba(255,180,80,${0.55 + 0.4 * Math.abs(Math.sin(frame * 0.3 + c))})`;
+      ctx.fillText(CYBER[(frame + c * 7) % CYBER.length], mineX + 11 + col * ((bw - 22) / (mcols - 1)), my + 16 + row * 12);
+    }
+    // dashed pulsing border — "being mined by the network", the only orange block
     ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -frame * 0.4; roundRect(mineX, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
     text(`⛏ mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
     text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    // mempool readout — transactions arriving while the block is mined (the data coming in)
+    if (synced && mp) text(`mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}`, mineCx, cy + bh / 2 + 26, { size: 9, color: "rgba(90,210,140,0.85)", align: "center", baseline: "middle" });
+    // transactions relaying in from the node into the block being mined
+    if (synced) {
+      const relayActive = !mp || mp.rate >= 0; // txs relay continuously while mining
+      const st = tickStream(syncState.streams, "__mine", relayActive, 0.7 + Math.min(1.6, (mp ? Math.max(0, mp.rate) : 4) / 6));
+      drawStream(cx, nodeY + 14, mineCx, my - 1, st, 0.7);
+    }
   }
 
   // ---- disk (concise) ----
@@ -894,7 +912,10 @@ function demoNode() {
     peers.push({ addr: "demo-peer-" + i, inbound: i % 2 === 0, downloading: rate > 8000, rate, subver: "/demo:0.1/" });
   }
   const tip = Math.floor(demoTip);
-  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, peers };
+  // simulated mempool: transactions accumulate while mining, a fresh block clears some
+  const mpCount = Math.round(4500 + 2500 * (0.5 + 0.5 * Math.sin(clock * 0.25)) + (ibd ? 0 : sinceBlk * 55));
+  const mempool = { count: mpCount, bytes: mpCount * 540, rate: Math.round(7 + 16 * (0.5 + 0.5 * Math.sin(clock * 0.6))) };
+  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, mempool, peers };
 }
 window.addEventListener("keydown", (e) => {
   if (e.key === "d" || e.key === "D") syncDemo = !syncDemo;

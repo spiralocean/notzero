@@ -40,6 +40,15 @@ def rpc(url, user, pw, method, params=None):
 def build(url, user, pw):
     chain = rpc(url, user, pw, "getblockchaininfo")
     peers_raw = rpc(url, user, pw, "getpeerinfo")
+    # mempool: transactions flowing in while the next block is mined (the "data coming in")
+    try:
+        mp = rpc(url, user, pw, "getmempoolinfo")
+        mp_count = int(mp.get("size", 0))
+        mp_prev = _prev_recv.get("__mp", mp_count)
+        _prev_recv["__mp"] = mp_count
+        mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2)}
+    except Exception:  # noqa: BLE001
+        mempool = None
     peers = []
     for p in peers_raw:
         addr = p.get("addr", "?")
@@ -65,6 +74,7 @@ def build(url, user, pw):
         "initialblockdownload": chain.get("initialblockdownload", False),
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),
+        "mempool": mempool,
         "peers": peers,
     }
 
