@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.26.0";
+const VERSION = "web v0.27.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -596,6 +596,9 @@ function drawSync(r) {
   // When caught up we're "mining" the tip. A newly FOUND block (head advances while synced) is animated
   // joining the chain: one quick live cycle (same fill→validate→step→prune), not the IBD bulk download.
   const behind = Math.max(0, tip - Math.floor(head));
+  const atTip = behind === 0; // caught up — the network is mining the tip; your node assembles/receives #tip+1
+  const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
+  const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600)); // time since last block vs the ~10-min average
   const fHead = Math.floor(head);
   if (syncState.lastHead != null && fHead > syncState.lastHead && fHead - syncState.lastHead <= 2 && behind === 0) syncState.pending = Math.min(3, (syncState.pending || 0) + (fHead - syncState.lastHead)); // a real new block is +1; ignore big catch-up jumps
   syncState.lastHead = fHead;
@@ -662,6 +665,9 @@ function drawSync(r) {
     } else {
       syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; if (syncState.pending > 0) syncState.pending -= 1; } // one mined block committed
     }
+  } else if (atTip) { // caught up: assemble the next block under the node, filling slowly over the ~10-min interval
+    // capped below full — the candidate isn't a confirmed block; it only completes (and steps in) when the network finds it
+    syncState.phase = "fill"; syncState.fp = Math.min(0.92, mineProg); syncState.nh = 1; syncState.nt = 0;
   } else { syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; }
   syncState.streams = syncState.streams || {};
   const sp = syncState.sp || 0;
@@ -669,7 +675,7 @@ function drawSync(r) {
   const hs = syncState.shown + stepEase;
   const arriving = downloading && flowing && syncState.phase === "arrive";
   const filling = downloading && flowing && (syncState.phase === "fill" || syncState.phase === "topoff");
-  const newestFill = !downloading ? 0 : syncState.fp; // 0 until the leading edge lands, then rises with the water
+  const newestFill = (downloading || atTip) ? syncState.fp : 0; // IBD: rises with the water · mining: rises with mining progress
   const blockX = (k) => birthX - (hs - k) * spacing;
   const dispHeight = (k) => Math.floor(head) + 1 - (syncState.shown - k); // center (k=shown) = head+1, the block being obtained; left = head, head-1 …
 
@@ -770,8 +776,10 @@ function drawSync(r) {
   // Synced (behind ≈ 0): head+1 == tip+1, so the block being mined IS the center slot — they sit together.
   // During IBD: the mining block is far right, with the upcoming slots + the gap of blocks still to download.
   const my = cy - bh / 2;
-  const synced = behind <= 2;
-  const mineX = synced ? birthX : (r.x + r.w - m - bw), mineCx = mineX + bw / 2;
+  const synced = atTip; // caught up
+  // mining block sits to the RIGHT of the node — adjacent when synced (no gap), far right during IBD (the gap holds the
+  // blocks still to download). The block directly under the node fills like a sync, sharing the mining block's number.
+  const mineX = synced ? birthX + spacing : (r.x + r.w - m - bw), mineCx = mineX + bw / 2;
   if (!synced) {
     const lastX = mineX - spacing, lastCx = lastX + bw / 2; // latest already-mined block (#tip), beside the one being mined
     let fx = birthX + spacing, fh = Math.floor(head) + 2, lastRight = birthX + bw;
@@ -793,14 +801,10 @@ function drawSync(r) {
     ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lastX + bw, cy); ctx.lineTo(mineX, cy); ctx.stroke(); // solid link: tip → tip+1
   }
 
-  // the block the network is mining right now (#tip+1). When synced it IS the center slot; its churn shows
-  // only while waiting — when a freshly-found block is streaming in, the center shows the fill instead.
-  if (!synced || !downloading) {
+  // the block the network is mining right now (#tip+1) — always shown to the RIGHT of the node. The block
+  // directly under the node (the conveyor center) fills like a sync and shares this number.
+  {
     const pulse = 0.55 + 0.45 * Math.abs(Math.sin(syncState.t * 2));
-    // "mining progress" ≈ time since the last block vs the ~10-min average. PoW has no real progress (it's a
-    // random search), so elapsed time is the honest proxy.
-    const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
-    const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600));
     const mp = node && node.mempool; // {count, bytes, rate, relay}
     const relaying = mp && mp.relay !== false && mp.count > 0; // blocksonly (localrelay false) → no tx stream, whole blocks only
     if (!synced) { ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(mineX, my, bw, bh, 4); ctx.fill(); }
