@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.23.2";
+const VERSION = "web v0.24.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -593,12 +593,19 @@ function drawSync(r) {
   const peersAll = (node && Array.isArray(node.peers)) ? node.peers : [];
   const sumRate = peersAll.reduce((s, p) => s + (p.rate || 0), 0);
   syncState.flow = syncState.flow == null ? sumRate : syncState.flow + (sumRate - syncState.flow) * 0.08; // smooth across 4s polls
-  const flowing = peersAll.some((p) => (p.rate || 0) > 15_000); // ≥1 peer is actually sending
+  // When caught up we're "mining" the tip. A newly FOUND block (head advances while synced) is animated
+  // joining the chain: one quick live cycle (same fill→validate→step→prune), not the IBD bulk download.
+  const behind = Math.max(0, tip - Math.floor(head));
+  const fHead = Math.floor(head);
+  if (syncState.lastHead != null && fHead > syncState.lastHead && fHead - syncState.lastHead <= 2 && behind === 0) syncState.pending = Math.min(3, (syncState.pending || 0) + (fHead - syncState.lastHead)); // a real new block is +1; ignore big catch-up jumps
+  syncState.lastHead = fHead;
+  const minedAnim = behind === 0 && (syncState.pending || 0) > 0; // a freshly mined block is committing, live
+  const flowing = minedAnim || peersAll.some((p) => (p.rate || 0) > 15_000); // ≥1 peer sending, or a mined block landing
   syncState.streams = syncState.streams || {};
   // two-stage flow: a peer's water reaches the NODE only when its stream's leading edge is at the node (head≈1).
-  // The node doesn't start feeding the block until it's been fed — peers → node, then node → block.
-  const nodeFed = peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
-  const fillPerSec = flowing ? Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)) : 0; // rate-driven; 0 → the block holds its partial level
+  const nodeFed = minedAnim || peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
+  const fillPerSec = !flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000))); // rate-driven; mined block commits briskly
+  const downloading = behind > 0 || minedAnim;
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
   const cx = r.x + r.w / 2;
@@ -611,8 +618,6 @@ function drawSync(r) {
   // (one block per cycle); it deliberately does NOT chase the node's head block-for-block — real
   // IBD adds dozens of blocks per poll, far too fast to follow. Heights are derived from the live
   // head each frame, so labels stay truthful while the in-progress fill is never reset by a head jump.
-  const behind = Math.max(0, tip - Math.floor(head));
-  const downloading = behind > 0;
   // gently scale the cadence toward the node's real sync rate (blocks/sec from head movement), so faster
   // peers visibly sync faster. Clamped, and only the prune/step dead-time scales — the fill stays purely
   // throughput-driven (its varied speeds) — and the prune floor keeps it watchable.
@@ -655,7 +660,7 @@ function drawSync(r) {
     } else if (syncState.phase === "prune") {
       syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; }
     } else {
-      syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; }
+      syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; if (syncState.pending > 0) syncState.pending -= 1; } // one mined block committed
     }
   } else { syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; }
   syncState.streams = syncState.streams || {};
@@ -817,7 +822,7 @@ function drawSync(r) {
     version: VERSION, hasNode: !!node, tip, head: Math.floor(head), behind,
     phase: syncState.phase, fp: +(syncState.fp || 0).toFixed(3), fillPct: Math.round(newestFill * 100),
     flowKBs: Math.round(syncState.flow / 1000), fillPerSec: +fillPerSec.toFixed(3),
-    downloading, arriving, filling, flowing, nh: +(syncState.nh || 0).toFixed(2), nt: +(syncState.nt || 0).toFixed(2),
+    downloading, arriving, filling, flowing, minedAnim, pending: syncState.pending || 0, nh: +(syncState.nh || 0).toFixed(2), nt: +(syncState.nt || 0).toFixed(2),
     shown: Math.floor(syncState.shown), prunedBelow: syncState.prunedBelow,
     pruneT: +(syncState.pruneT || 0).toFixed(2), peers: peersAll.length, sumRateKBs: Math.round(sumRate / 1000),
     block: { x: Math.round(birthX), y: Math.round(cy - bh / 2), w: bw, h: bh }, nodeY: Math.round(nodeY),
@@ -868,19 +873,28 @@ function drawNetwork(r) {
 // ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----
 let syncDemo = new URLSearchParams(location.search).has("syncdemo");
 if (syncDemo) expanded.add("sync"); // ?syncdemo=1 → open the sync panel for the preview
-let demoHead = null;
+let demoHead = null, demoTip = null, demoStage = "ibd", demoT0 = 0, demoBlkMs = 0, demoMined = 0;
 function demoNode() {
-  const tip = model.tipHeight || 900000;
-  if (demoHead == null || demoHead > tip || tip - demoHead > 60000) demoHead = tip - 48000; // (re)seed, incl. when the real tip loads after the fallback
-  demoHead += 0.5; // ~30 blocks/s so "behind" believably counts down
-  if (demoHead >= tip - 2) demoHead = tip - 48000; // loop to keep previewing IBD
+  const realTip = model.tipHeight || 900000, now = Date.now();
+  if (demoHead == null || demoTip == null || demoTip < realTip - 1 || demoTip > realTip + 60) { demoTip = realTip; demoHead = realTip - 48000; demoStage = "ibd"; demoT0 = now; demoBlkMs = now; demoMined = 0; }
+  if (demoStage === "ibd") {
+    const prog = Math.min(1, (now - demoT0) / 12000); // catch up over ~12 real seconds (time-based, fps-independent)
+    demoHead = (demoTip - 48000) + prog * 48000;
+    if (prog >= 1) { demoHead = demoTip; demoStage = "mining"; demoBlkMs = now; } // caught up → mining the tip
+  } else { // mining: caught up; the network finds a new block every ~5s (head & tip advance together)
+    if (now - demoBlkMs > 5000) { demoTip += 1; demoHead += 1; demoBlkMs = now; demoMined += 1; }
+    if (demoMined >= 5) { demoStage = "ibd"; demoTip = realTip; demoHead = realTip - 48000; demoT0 = now; demoMined = 0; } // loop back to show IBD again
+  }
+  const ibd = demoStage === "ibd", sinceBlk = (now - demoBlkMs) / 1000;
   const peers = [];
   for (let i = 0; i < 8; i++) {
     const lively = (i * 3) % 7 < 4, osc = 0.5 + 0.5 * Math.sin(clock * (0.6 + i * 0.13) + i * 1.7);
-    const rate = lively ? Math.round(30000 + 360000 * osc * osc) : (i === 7 ? 0 : Math.round(7000 * osc)); // some peers busy, some idle
+    const burst = ibd ? 1 : Math.max(0, 1 - sinceBlk * 1.3); // mining: peers spike when a block lands, then quiet
+    const rate = lively ? Math.round((30000 + 360000 * osc * osc) * burst) : (i === 7 ? 0 : Math.round(7000 * osc * burst));
     peers.push({ addr: "demo-peer-" + i, inbound: i % 2 === 0, downloading: rate > 8000, rate, subver: "/demo:0.1/" });
   }
-  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: demoHead / tip, initialblockdownload: true, size_on_disk: 15.2e9, pruned: true, peers };
+  const tip = Math.floor(demoTip);
+  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, peers };
 }
 window.addEventListener("keydown", (e) => {
   if (e.key === "d" || e.key === "D") {
