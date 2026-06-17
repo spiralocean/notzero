@@ -46,7 +46,12 @@ def build(url, user, pw):
         mp_count = int(mp.get("size", 0))
         mp_prev = _prev_recv.get("__mp", mp_count)
         _prev_recv["__mp"] = mp_count
-        mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2)}
+        # localrelay=False means blocksonly: the node receives whole blocks but no loose transactions
+        try:
+            relay = bool(rpc(url, user, pw, "getnetworkinfo").get("localrelay", True))
+        except Exception:  # noqa: BLE001
+            relay = True
+        mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2), "relay": relay}
     except Exception:  # noqa: BLE001
         mempool = None
     peers = []

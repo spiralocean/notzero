@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.25.0";
+const VERSION = "web v0.25.1";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -794,11 +794,12 @@ function drawSync(r) {
     // random search), so elapsed time is the honest proxy.
     const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
     const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600));
-    const mp = node && node.mempool; // {count, bytes, rate} — transactions flowing in while we mine
+    const mp = node && node.mempool; // {count, bytes, rate, relay}
+    const relaying = mp && mp.relay !== false && mp.count > 0; // blocksonly (localrelay false) → no tx stream, whole blocks only
     if (!synced) { ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(mineX, my, bw, bh, 4); ctx.fill(); }
     const mcols = 7, mrows = Math.max(2, Math.floor((bh - 18) / 12)), grid = mcols * mrows;
-    // transactions packed into the block from the mempool (green dots) — this is the "data coming in"
-    const txFrac = synced ? (mp ? Math.min(1, mp.count / 3000) : 0.8) : mineProg; // ~3000 mempool tx ≈ a full block
+    // the network's tip+1 is a FULL block of transactions, regardless of your node's local mempool
+    const txFrac = synced ? 0.85 : mineProg;
     const txShown = Math.max(1, Math.round(grid * txFrac));
     for (let d = 0; d < txShown; d++) {
       const col = d % mcols, row = Math.floor(d / mcols);
@@ -816,12 +817,14 @@ function drawSync(r) {
     ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -frame * 0.4; roundRect(mineX, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
     text(`⛏ mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
     text("#" + ((tip || 0) + 1).toLocaleString(), mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
-    // mempool readout — transactions arriving while the block is mined (the data coming in)
-    if (synced && mp) text(`mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}`, mineCx, cy + bh / 2 + 26, { size: 9, color: "rgba(90,210,140,0.85)", align: "center", baseline: "middle" });
-    // transactions relaying in from the node into the block being mined
+    // readout: a relaying node shows its mempool filling; a blocksonly node receives whole blocks, no tx stream
     if (synced) {
-      const relayActive = !mp || mp.rate >= 0; // txs relay continuously while mining
-      const st = tickStream(syncState.streams, "__mine", relayActive, 0.7 + Math.min(1.6, (mp ? Math.max(0, mp.rate) : 4) / 6));
+      const note = relaying ? `mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}` : "blocksonly · receives whole blocks";
+      text(note, mineCx, cy + bh / 2 + 26, { size: 9, color: relaying ? "rgba(90,210,140,0.85)" : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    }
+    // tx relay stream into the block — only on a relaying node (a blocksonly node gets nothing until the block lands)
+    if (synced && relaying) {
+      const st = tickStream(syncState.streams, "__mine", true, 0.7 + Math.min(1.6, Math.max(0, mp.rate) / 6));
       drawStream(cx, nodeY + 14, mineCx, my - 1, st, 0.7);
     }
   }
@@ -914,7 +917,7 @@ function demoNode() {
   const tip = Math.floor(demoTip);
   // simulated mempool: transactions accumulate while mining, a fresh block clears some
   const mpCount = Math.round(4500 + 2500 * (0.5 + 0.5 * Math.sin(clock * 0.25)) + (ibd ? 0 : sinceBlk * 55));
-  const mempool = { count: mpCount, bytes: mpCount * 540, rate: Math.round(7 + 16 * (0.5 + 0.5 * Math.sin(clock * 0.6))) };
+  const mempool = { count: mpCount, bytes: mpCount * 540, rate: Math.round(7 + 16 * (0.5 + 0.5 * Math.sin(clock * 0.6))), relay: true };
   return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, mempool, peers };
 }
 window.addEventListener("keydown", (e) => {
