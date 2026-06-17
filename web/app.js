@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.27.0";
+const VERSION = "web v0.28.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -981,7 +981,12 @@ function render() {
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
   // fixed footer — accent-tinted so the version is easy to read but still understated
-  text(`practice — 1 hash/block, not submitted to the network · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
+  // footer reflects the REAL miner: live mode (daemon submits a block on a win) vs the standalone browser practice ticket
+  const miner = model.node && model.node.miner;
+  const footer = (miner && miner.mode === "live")
+    ? `● LIVE solo mining — submits a block if it wins · ${VERSION}`
+    : `practice — browser ticket, not submitted · ${VERSION}`;
+  text(footer, W - PAD, H - 14, { size: 13, weight: 700, color: (miner && miner.mode === "live") ? "rgba(90,220,140,0.95)" : `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
   if (syncDemo) text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
 
   clock += 0.02; frame++;

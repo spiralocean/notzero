@@ -70,6 +70,22 @@ def build(url, user, pw):
             "subver": p.get("subver", ""),
         })
     peers.sort(key=lambda x: x["addr"])  # stable order so the web doesn't shuffle peer positions
+    # miner status from the lottery daemon's state.json, so the dashboard can show whether it's really live
+    miner = None
+    try:
+        state_path = CONFIG.parent / "state.json"
+        if state_path.exists():
+            st = json.load(state_path.open())
+            stats = st.get("stats", {})
+            miner = {
+                "mode": st.get("mode", "symbolic"),
+                "live_attempts": stats.get("live_attempts", 0),
+                "total_attempts": stats.get("total_attempts", 0),
+                "live_wins": stats.get("live_wins", 0),
+                "payout": st.get("payout_address", ""),
+            }
+    except Exception:  # noqa: BLE001
+        miner = None
     return {
         "ts": int(time.time()),
         "reachable": True,
@@ -80,6 +96,7 @@ def build(url, user, pw):
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),
         "mempool": mempool,
+        "miner": miner,
         "peers": peers,
     }
 
