@@ -261,6 +261,14 @@ const QUOTES = [
   { q: "To infinity and beyond!", src: "Buzz Lightyear, Toy Story" },
   { q: "'Impossible'? I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
   { q: "Adventure is out there!", src: "Ellie, Up" },
+  // from Bitcoin's history
+  { q: "Chancellor on brink of second bailout for banks", src: "The Times — Bitcoin's genesis block, 2009" },
+  { q: "Running bitcoin", src: "Hal Finney, 2009" },
+  { q: "It might make sense just to get some in case it catches on.", src: "Satoshi Nakamoto, 2009" },
+  { q: "Lost coins only make everyone else's coins worth slightly more.", src: "Satoshi Nakamoto" },
+  { q: "If you don't believe me or don't get it, I don't have time to try to convince you, sorry.", src: "Satoshi Nakamoto" },
+  { q: "I'll pay 10,000 bitcoins for a couple of pizzas.", src: "Laszlo Hanyecz, 2010" },
+  { q: "Vires in numeris — strength in numbers.", src: "Bitcoin motto" },
 ];
 const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
@@ -295,7 +303,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.35.0";
+const VERSION = "web v0.36.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
