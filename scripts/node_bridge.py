@@ -10,10 +10,16 @@ Run alongside the dev server:  python3 scripts/node_bridge.py
 import base64
 import json
 import pathlib
+import sys
 import time
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(REPO))  # import the miner's real bech32 validator (single source of truth)
+try:
+    from lottery_miner import validate_payout_address as _validate_payout
+except Exception:  # noqa: BLE001 — fall back to the format check below if it can't be imported
+    _validate_payout = None
 OUT = REPO / "web" / "node.json"
 CONFIG = pathlib.Path.home() / "Library/Application Support/BitcoinLottery/config.json"
 POLL_SEC = 4
@@ -32,8 +38,17 @@ def mask_addr(a):
 
 
 def valid_btc_address(a):
-    """Format sanity check (mainnet) for the footer's 'looks invalid' nudge — not a full checksum."""
+    """True if the miner could actually pay this address. Uses the miner's real bech32/base58 checksum
+    validator (catches single-char typos); falls back to a format check only if it can't be imported."""
     a = (a or "").strip()
+    if not a:
+        return False
+    if _validate_payout is not None:
+        try:
+            _validate_payout(a)
+            return True
+        except Exception:  # noqa: BLE001 — invalid checksum, unsupported type, etc.
+            return False
     if a.startswith("bc1"):
         body = a[3:].lower()
         return 39 <= len(a) <= 62 and bool(body) and all(c in _BECH32_CHARSET for c in body)
