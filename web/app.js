@@ -246,7 +246,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 172, hashBuild: 300, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, closeness: 200, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold";
@@ -274,7 +274,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.31.0";
+const VERSION = "web v0.32.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -348,11 +348,24 @@ function drawCloseness(r) {
     if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros`);
     if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
     row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
-    text(`to win, your hash must be ≤ the target — start with ~${need} leading zeros. this attempt had ${youZ}.`, rowX, r.y + 126, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-    const att = mn.live_attempts || 0, won = mn.live_wins || 0, best = mn.best;
-    let line = `● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted`;
-    if (best && best.zero_bits != null) { const tbits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76; line += ` · best ${best.zero_bits} of ~${tbits} zero bits`; }
-    text(line, rowX, r.y + r.h - 12, { size: 12, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    const best = mn.best;
+    // ---- ODDS MAP: leading-zero-bits axis = a log-by-rarity map of the whole 2^256 space (each bit = 2× fewer hashes) ----
+    const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
+    const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
+    const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
+    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 130, tkH = 9;
+    const px = (b) => tkX + tkW * Math.min(1, Math.max(0, b / axisMax));
+    text("ODDS MAP — the whole number space, by rarity (each zero bit = 2× fewer hashes)", tkX, r.y + 122, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+    ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(tkX, tkY, tkW, tkH, 4); ctx.fill();
+    const winX = px(tBits);
+    ctx.fillStyle = "rgba(90,210,140,0.25)"; roundRect(winX, tkY, tkX + tkW - winX, tkH, 4); ctx.fill(); // win zone (≥ target)
+    ctx.fillStyle = `rgba(${ACCENT},0.55)`; roundRect(tkX, tkY, Math.max(2, px(bestBits) - tkX), tkH, 4); ctx.fill(); // your best reach
+    ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 5); ctx.lineTo(winX, tkY + tkH + 5); ctx.stroke(); // target = WIN line
+    ctx.fillStyle = "rgba(255,205,120,1)"; ctx.beginPath(); ctx.arc(px(youBits), tkY + tkH / 2, 3.6, 0, 7); ctx.fill(); // your last attempt
+    text(`0 — almost every hash`, tkX, tkY + tkH + 13, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+    text(`target ${tBits} = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX + tkW, tkY + tkH + 13, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", align: "right", baseline: "middle" });
+    const att = mn.live_attempts || 0, won = mn.live_wins || 0;
+    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted · ● your last (${youBits} bits) · ▮ best (${bestBits})`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
   const p = model.ticket?.prox;
