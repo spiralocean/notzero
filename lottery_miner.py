@@ -336,30 +336,38 @@ def _convertbits(data: list[int], frombits: int, tobits: int, pad: bool = True) 
 
 def _bech32_decode(address: str) -> tuple[int, bytes]:
     address = address.lower()
-    if address.startswith("bc1p"):
-        raise ValueError("Taproot (bc1p) payout addresses are not supported yet; use bc1q or 1...")
     if not address.startswith("bc1"):
         raise ValueError("Only mainnet bech32 addresses (bc1...) are supported")
     pos = address.rfind("1")
     if pos < 1 or pos + 7 > len(address):
         raise ValueError("Invalid bech32 address")
     hrp = address[:pos]
-    data = [BECH32_CHARSET.index(char) for char in address[pos + 1 :]]
-    if hrp != "bc" or _bech32_polymod(_bech32_hrp_expand(hrp) + data) != 1:
+    try:
+        data = [BECH32_CHARSET.index(char) for char in address[pos + 1 :]]
+    except ValueError as exc:
+        raise ValueError("Invalid bech32 character") from exc
+    witness_version = data[0]
+    # witness v0 (bc1q...) uses bech32; v1+ (bc1p... taproot) uses bech32m — BIP-350
+    expected = 1 if witness_version == 0 else 0x2BC830A3
+    if hrp != "bc" or _bech32_polymod(_bech32_hrp_expand(hrp) + data) != expected:
         raise ValueError("Invalid bech32 checksum")
-    payload = data[:-6]
-    witness_version = payload[0]
-    program = _convertbits(payload[1:], 5, 8, False)
-    if witness_version != 0 or len(program) != 20:
-        raise ValueError("Only P2WPKH (bc1q...) addresses are supported")
+    program = _convertbits(data[1:-6], 5, 8, False)
+    if witness_version == 0 and len(program) != 20:
+        raise ValueError("P2WPKH (bc1q...) program must be 20 bytes")
+    if witness_version == 1 and len(program) != 32:
+        raise ValueError("Taproot (bc1p...) program must be 32 bytes")
+    if witness_version > 1:
+        raise ValueError("Unsupported witness version (only bc1q and bc1p are supported)")
     return witness_version, bytes(program)
 
 
 def address_to_script_pubkey(address: str) -> bytes:
     address = address.strip()
     if address.startswith(("bc1", "tb1")):
-        _, program = _bech32_decode(address)
-        return bytes([0x00, 0x14]) + program
+        witness_version, program = _bech32_decode(address)
+        # OP_0 for v0 (P2WPKH), OP_1 for v1 (P2TR / taproot); then push the program
+        opcode = 0x00 if witness_version == 0 else 0x50 + witness_version
+        return bytes([opcode, len(program)]) + program
     decoded = _base58_decode(address)
     if len(decoded) != 25:
         raise ValueError("Invalid legacy address length")

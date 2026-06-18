@@ -147,8 +147,7 @@ def build(url, user, pw):
         cfg_payout = ""
     cfg_payout = cfg_payout.strip()
     effective = cfg_payout or DEFAULT_PAYOUT
-    # taproot is well-formed but the miner can't pay it yet → 'unsupported' (a softer nudge than 'invalid')
-    status = "unsupported" if effective.lower().startswith("bc1p") else ("ok" if valid_btc_address(effective) else "invalid")
+    status = "ok" if valid_btc_address(effective) else "invalid"  # bc1q, legacy, and bc1p (taproot) all valid now
     payout = {"masked": mask_addr(effective), "is_default": not cfg_payout, "valid": status == "ok", "status": status}
     return {
         "ts": int(time.time()),

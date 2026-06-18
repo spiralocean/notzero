@@ -318,7 +318,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.44.0";
+const VERSION = "web v0.45.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1162,7 +1162,6 @@ function render() {
     const status = pay ? (pay.status || (pay.valid ? "ok" : "invalid")) : "ok";
     let msg = `⛏ payout ${masked}`, col = "rgba(255,255,255,0.5)";
     if (status === "invalid") { msg = `⚠ payout ${masked} — that address looks invalid`; col = "rgba(255,120,90,0.95)"; }
-    else if (status === "unsupported") { msg = `⚠ payout ${masked} — taproot (bc1p) not supported yet, use a bc1q address`; col = "rgba(255,180,80,0.95)"; }
     else if (isDefault) { msg = `⚠ no wallet set — rewards go to the dashboard owner (${masked})`; col = "rgba(255,180,80,0.95)"; }
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
