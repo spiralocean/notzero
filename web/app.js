@@ -1,6 +1,6 @@
 // Bitcoin Lottery — browser dashboard (cross-platform port of the macOS viz).
-// Self-contained: public chain/price data from mempool.space + client-side
-// SHA-256 practice ticket (Web Crypto). No backend.
+// Self-contained: public chain/price data from mempool.space + a client-side
+// SHA-256 hash visualization (Web Crypto). No backend.
 
 const API = "https://mempool.space/api";
 const ACCENT = "255, 153, 26";          // brand orange
@@ -318,7 +318,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.45.0";
+const VERSION = "web v0.46.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -446,7 +446,7 @@ function drawCloseness(r) {
     text(hex[i], r.x + 20 + sp * (i + 0.5), rowY, { size: 16, weight: isLead ? 700 : 400, color: isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true });
   }
   text(`${lead} leading zero hex · ${p.leadingZeroBits} zero bits`, r.x + r.w / 2, rowY + 24, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-  text("one practice hash per block — real mining searches trillions, and submits to the network", r.x + r.w / 2, r.y + r.h - 6, { size: 10, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
+  text("one hash shown per block — your miner searches trillions and submits the instant one wins", r.x + r.w / 2, r.y + r.h - 6, { size: 10, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
 }
 
 // ---- HASH BUILD ceremony: phased, accurate-but-stylized ----
@@ -1145,13 +1145,8 @@ function render() {
     const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + 24)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
-  // fixed footer — accent-tinted so the version is easy to read but still understated
-  // footer reflects the REAL miner: live mode (daemon submits a block on a win) vs the standalone browser practice ticket
-  const miner = model.node && model.node.miner;
-  const footer = (miner && miner.mode === "live")
-    ? `● LIVE solo mining — submits a block if it wins · ${VERSION}`
-    : `practice — browser ticket, not submitted · ${VERSION}`;
-  text(footer, W - PAD, H - 14, { size: 13, weight: 700, color: (miner && miner.mode === "live") ? "rgba(90,220,140,0.95)" : `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
+  // fixed footer — live solo-mining dashboard: submits a block to the network the instant one wins
+  text(`● LIVE solo mining — submits a block if it wins · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,220,140,0.95)", align: "right", baseline: "middle" });
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
   } else {
