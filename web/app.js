@@ -318,7 +318,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.46.0";
+const VERSION = "web v0.47.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1091,7 +1091,7 @@ function demoNode() {
   // simulated mempool: transactions accumulate while mining, a fresh block clears some
   const mpCount = Math.round(4500 + 2500 * (0.5 + 0.5 * Math.sin(clock * 0.25)) + (ibd ? 0 : sinceBlk * 55));
   const mempool = { count: mpCount, bytes: mpCount * 540, rate: Math.round(7 + 16 * (0.5 + 0.5 * Math.sin(clock * 0.6))), relay: true };
-  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, mempool, peers };
+  return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, mempool, peers, miner: { mode: "live" } };
 }
 window.addEventListener("keydown", (e) => {
   if (e.key === "d" || e.key === "D") syncDemo = !syncDemo;
@@ -1145,8 +1145,22 @@ function render() {
     const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + 24)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
-  // fixed footer — live solo-mining dashboard: submits a block to the network the instant one wins
-  text(`● LIVE solo mining — submits a block if it wins · ${VERSION}`, W - PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,220,140,0.95)", align: "right", baseline: "middle" });
+  // fixed footer — LIVE means everything's good: node reachable, fully synced, miner submitting.
+  // anything short of that shows the real status (offline / syncing %) instead of claiming LIVE.
+  const node = model.node;
+  const reachable = !!(node && node.reachable !== false);
+  const headH = node ? Math.floor(node.blocks || 0) : 0, tipH = node ? (node.headers || 0) : 0;
+  const behindH = Math.max(0, tipH - headH);
+  const prog = node && node.verificationprogress != null ? node.verificationprogress : 0;
+  const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
+  const minerLive = !!(node && node.miner && node.miner.mode === "live");
+  let fmsg, fcol;
+  if (!node) { fmsg = `○ no node connected · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
+  else if (!reachable) { fmsg = `○ node unreachable — check your node · ${VERSION}`; fcol = "rgba(255,150,80,0.95)"; }
+  else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
+  else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
+  else { fmsg = `● LIVE solo mining — submits a block if it wins · ${VERSION}`; fcol = "rgba(90,220,140,0.95)"; }
+  text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
   } else {
