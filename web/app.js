@@ -318,7 +318,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.41.0";
+const VERSION = "web v0.42.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -457,7 +457,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 43.2], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -523,13 +523,10 @@ function drawHashBuild(r) {
   text(caption, r.x + r.w / 2, valY + 18, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
 
   const detailTop = valY + 34;
-  if (assembling) {
-    // the merkle root field is the top of a tree built from every transaction — show that tree building
-    const mBuild = lockedCount > 2 ? 1 : lockedCount === 2 ? fillFrac : 0.001;
-    drawMerkleTree({ x: r.x + 24, y: detailTop, w: r.w - 48, h: (r.y + r.h - 10) - detailTop }, mBuild, lockedCount >= 2);
-  } else {
-    drawHashMachine(r, ph, detailTop - 6, b, tk);
-  }
+  const dr = { x: r.x + 24, y: detailTop, w: r.w - 48, h: (r.y + r.h - 10) - detailTop };
+  // each field gets its OWN animation in the pane while it's the one being constructed
+  if (assembling) drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
+  else drawHashMachine(r, ph, detailTop - 6, b, tk);
 }
 
 // the assembled header pours into a SHA-256 ×2 "machine", churns into a 256-bit grid that settles into
@@ -540,7 +537,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   // header bytes pour down into the machine while packing/churning
   if (grind) {
     ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = headerBottom + 2 + (boxY - headerBottom - 4) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.75 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[(frame + s * 5) % CYBER.length], xx, yy); }
+    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = headerBottom + 2 + (boxY - headerBottom - 4) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.75 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[((frame / 3 | 0) + s * 5) % CYBER.length], xx, yy); }
   }
   // the machine box
   ctx.fillStyle = grind ? "rgba(255,150,60,0.1)" : "rgba(255,255,255,0.04)"; roundRect(boxX, boxY, boxW, boxH, 5); ctx.fill();
@@ -561,7 +558,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   // 256-bit grid (16×16): a cell per bit; leading zeros lit green, ones amber, zeros dim
   const cell = 5, gw = 16 * cell, gx = cx - gw / 2, gy = boxY + boxH + 14;
   for (let i = 0; i < 256; i++) {
-    const settled = hrand(i * 7 + 1) < settleP, bit = settled ? bitAt(hashShown, i) : (frame + i * 13) % 2;
+    const settled = hrand(i * 7 + 1) < settleP, bit = settled ? bitAt(hashShown, i) : (hrand(i * 3.1 + (frame >> 2)) < 0.5 ? 1 : 0); // unsettled cells churn at ~15Hz, desynced — not a 60Hz strobe
     ctx.fillStyle = (settled && i < lzb) ? "rgba(90,225,140,0.95)" : bit ? `rgba(${ACCENT},0.8)` : "rgba(255,255,255,0.07)";
     ctx.fillRect(gx + (i % 16) * cell + 0.5, gy + ((i / 16) | 0) * cell + 0.5, cell - 1.4, cell - 1.4);
   }
@@ -576,7 +573,48 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   if (ph.name === "hold") text(avalanche ? "one bit changed → every character is different (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits — that's your ticket`), cx, r.y + r.h - 11, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle" });
 }
 
-// a row of monospace chars that scramble then lock in left-to-right as p rises
+// a row of monospace chars that scramble then lock in left-to-right as p rises (in step with the segment)
+function fieldValueRow(strV, p, cx, cy, size, lead = 0) {
+  const chars = strV.split("");
+  const lock = Math.min(chars.length, Math.ceil(p * chars.length));
+  ctx.font = `${size}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const cw = ctx.measureText("0").width || size * 0.6;
+  let x = cx - (cw * chars.length) / 2 + cw / 2;
+  for (let i = 0; i < chars.length; i++) {
+    const lk = i < lock, isLead = lk && i < lead;
+    ctx.fillStyle = lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.85)") : "rgba(120,165,150,0.6)";
+    ctx.fillText(lk ? chars[i] : churnChar(i), x, cy); x += cw;
+  }
+}
+
+// each header field's own animation in the pane, shown only while that field is being constructed
+function drawFieldDetail(idx, p, dr, b, tk) {
+  const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2;
+  const cap = (s) => text(s, cx, dr.y + 14, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (idx === 0) {
+    cap("4 bytes — which consensus rules this block follows");
+    fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY, 26);
+  } else if (idx === 1) {
+    cap(`⛓ links back to block #${(model.tipHeight - 1).toLocaleString()} — this is what makes it a chain`);
+    fieldValueRow(b.previousblockhash.slice(0, 40), p, cx, midY, 15);
+  } else if (idx === 2) {
+    drawMerkleTree(dr, p, true); // the merkle tree, building in step with this field
+  } else if (idx === 3) {
+    cap("when the block was assembled");
+    text(new Date(b.timestamp * 1000).toUTCString().replace("GMT", "UTC"), cx, midY - 8, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", align: "center", baseline: "middle" });
+    fieldValueRow("unix " + b.timestamp, p, cx, midY + 20, 15);
+  } else if (idx === 4) {
+    cap("your hash must land BELOW this target to win:");
+    const tgt = bitsToTarget(b.bits).toString(16).padStart(64, "0").slice(0, 44), tlead = leadingZeroHexChars(tgt);
+    fieldValueRow(tgt, Math.max(p, 0.5), cx, midY, 14, tlead);
+    text(`${tlead} leading zeros required — that's the difficulty`, cx, dr.y + dr.h - 16, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  } else {
+    cap("the one field you change — your lottery number");
+    fieldValueRow("#" + tk.nonce.toLocaleString(), Math.max(p, 0.4), cx, midY, 24);
+    text("~4 billion values per pass — then change a field and hash again", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  }
+}
+
 // The merkle root is the top of a binary tree: every transaction is a leaf, leaves are hashed in pairs
 // up to a single root. Show that structure — leaves at the bottom, pair→parent edges, the root on top —
 // building level by level as buildP rises (0 → just leaves, 1 → complete with the root lit).
@@ -1113,7 +1151,7 @@ function render() {
   text(footer, W - PAD, H - 14, { size: 13, weight: 700, color: (miner && miner.mode === "live") ? "rgba(90,220,140,0.95)" : `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
   if (syncDemo) text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
 
-  clock += 0.02; frame++;
+  clock += 0.02; frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session
   quoteT += 1 / 60;
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
   else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
