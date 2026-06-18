@@ -92,6 +92,10 @@ async function pollNode() {
   try {
     const r = await fetch("./node.json", { cache: "no-store" });
     model.node = r.ok ? await r.json() : null;
+    // the local node sees a new block within ~3s; if it's ahead of our last mempool fetch, refresh now
+    // so the elapsed/countdown stays synced with current mining instead of lagging up to REFRESH_MS
+    const n = model.node;
+    if (n && n.reachable !== false && !n.initialblockdownload && Math.floor(n.blocks || 0) > (model.tipHeight || 0)) refresh();
   } catch { model.node = null; }
 }
 
@@ -318,7 +322,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.47.0";
+const VERSION = "web v0.48.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -367,12 +371,13 @@ function drawNextBlock(r) {
   if (!model.block) { text("waiting…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
   const cx = r.x + 78, cy = r.y + r.h / 2, rad = 52;
   const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp));
+  const over = elapsed > 600; // past the ~10-min estimate — count UP the overrun (long blocks are normal: Poisson)
   const progress = Math.min(1, elapsed / 600);
   ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
-  ctx.strokeStyle = `rgba(${ACCENT}, 0.9)`; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke(); ctx.lineCap = "butt";
-  const rem = Math.max(0, 600 - elapsed);
-  text(`${Math.floor(rem / 60)}:${String(rem % 60).padStart(2, "0")}`, cx, cy, { size: 20, weight: 700, align: "center", baseline: "middle", mono: true });
-  text("next block (est)", cx, cy + rad + 16, { size: 14, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  ctx.strokeStyle = over ? "rgba(255,180,80,0.95)" : `rgba(${ACCENT}, 0.9)`; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke(); ctx.lineCap = "butt";
+  const disp = over ? elapsed - 600 : 600 - elapsed;
+  text(`${over ? "+" : ""}${Math.floor(disp / 60)}:${String(disp % 60).padStart(2, "0")}`, cx, cy, { size: 20, weight: 700, color: over ? "rgba(255,190,90,1)" : "#fff", align: "center", baseline: "middle", mono: true });
+  text(over ? "over ~10 min est" : "next block (est)", cx, cy + rad + 16, { size: 14, color: over ? "rgba(255,180,80,0.8)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
   const rows = [["Elapsed", `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`], ["Avg block", "~10:00"], ["Last block", "#" + model.tipHeight.toLocaleString()]];
   let sy = cy - 36;
   for (const [l, v] of rows) { text(l, r.x + 192, sy, { size: 14, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 320, sy, { size: 14, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 30; }
