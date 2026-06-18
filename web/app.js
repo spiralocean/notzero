@@ -244,9 +244,23 @@ const QUOTES = [
   "One hash by hand could win a whole block.",
   "A hash is a hash — whether a chip or a pencil found it.",
   "Pen, paper, and one lucky hash: a valid lottery ticket.",
-  "People have mined Bitcoin by hand. The door is open.",
   "Compute one SHA-256 by hand. Below the target? You mined a block.",
   "The network can't tell if a human or a warehouse found the nonce.",
+  // more — philosophical
+  "Every block resets the odds — the past owes you nothing.",
+  "Vanishingly small is still larger than zero.",
+  "The chain rewards luck and work alike.",
+  "Hope is the cheapest hash you'll ever compute.",
+  // more — funny
+  "Statistically, you should've quit 9 quintillion hashes ago.",
+  "It's not gambling if you call it proof-of-work.",
+  "Somebody has to be absurdly lucky. Probably not you — but somebody.",
+  // more — movies
+  { q: "Do, or do not. There is no try.", src: "Yoda, The Empire Strikes Back" },
+  { q: "Just keep swimming.", src: "Dory, Finding Nemo" },
+  { q: "To infinity and beyond!", src: "Buzz Lightyear, Toy Story" },
+  { q: "'Impossible'? I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
+  { q: "Adventure is out there!", src: "Ellie, Up" },
 ];
 const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
@@ -281,7 +295,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.34.0";
+const VERSION = "web v0.35.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
