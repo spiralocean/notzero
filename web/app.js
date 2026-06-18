@@ -271,6 +271,19 @@ const QUOTES = [
   { q: "If you don't believe me or don't get it, I don't have time to try to convince you, sorry.", src: "Satoshi Nakamoto" },
   { q: "I'll pay 10,000 bitcoins for a couple of pizzas.", src: "Laszlo Hanyecz, 2010" },
   { q: "Vires in numeris — strength in numbers.", src: "Bitcoin motto" },
+  // real-world long shots — all far likelier than solo-mining a block, yet they happen to someone
+  "Struck by lightning this year: about 1 in a million. A block is a longer shot — and still gets found.",
+  "Powerball jackpot: 1 in 292 million. Someone wins it anyway.",
+  "A royal flush off the deal: 1 in 650,000 — practically a sure thing next to a block.",
+  "Hole-in-one: about 1 in 12,500. The course never calls it impossible.",
+  "Find a four-leaf clover: about 1 in 5,000. Keep looking down.",
+  "Lightning finds someone every single day. A winning block, every ten minutes.",
+  "Rare is not never. Ten minutes from now, somebody wins.",
+  "The unlikeliest thing today already happened to somebody.",
+  "Every winner was once 'statistically unlikely.'",
+  "Someone buys the winning ticket — hands shaking, almost didn't.",
+  "The odds you exist — this exact sperm, this exact egg — are about 1 in 400 trillion. You already won a longer lottery.",
+  "Just by being born, you beat odds longer than any block. The unlikeliest thing already happened — it's you.",
 ];
 const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
@@ -280,7 +293,7 @@ const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, closeness: 216, hashBuild: 300, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
-let clock = 0, quoteIdx = 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold";
+let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
 const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
 // shuffle-bag: random order, but every quote is shown once before any repeats
 let quoteBag = [];
@@ -305,7 +318,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.39.0";
+const VERSION = "web v0.40.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -444,7 +457,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 14.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
+const PHASES = [["assemble", 21.6], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -466,7 +479,7 @@ function drawHashBuild(r) {
   const assembling = ph.name === "assemble";
   const lockedCount = assembling ? Math.min(6, Math.floor(ph.p * 6)) : 6;
   const rawFrac = assembling ? ph.p * 6 - lockedCount : 1;
-  const fillFrac = Math.min(1, rawFrac / 0.7); // fill over the first 70% of each field's slot, then hold — a pause between segments
+  const fillFrac = Math.min(1, rawFrac / 0.6); // fill over the first 60% of each field's slot, then hold — a longer pause between segments
 
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
@@ -493,7 +506,7 @@ function drawHashBuild(r) {
       const cw = ctx.measureText("0").width, maxC = Math.max(4, Math.floor((segW - 8) / cw));
       const vv = full.length > maxC ? full.slice(0, maxC - 1) + "…" : full;
       let s = vv;
-      if (filling) { const lk = Math.floor(fillFrac * vv.length * 1.25); s = ""; for (let c = 0; c < vv.length; c++) s += c < lk ? vv[c] : churnChar(c); }
+      if (filling) { const lk = Math.ceil(fillFrac * vv.length); s = ""; for (let c = 0; c < vv.length; c++) s += c < lk ? vv[c] : churnChar(c); } // lock in step with the segment bar + merkle build
       ctx.fillStyle = f.you ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.8)"; ctx.fillText(s, bx + segW / 2, valY);
     }
     bx += segW;
