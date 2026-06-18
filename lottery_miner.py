@@ -48,6 +48,9 @@ PRICE_HISTORY_LIMIT = 96
 POLL_INTERVAL_SEC = 30
 DEFAULT_PRICE_POLL_MIN = 15
 AVG_BLOCK_SEC = 600
+# fallback payout when the operator hasn't set their own wallet — rewards go to the project owner.
+# Keep in sync with DEFAULT_PAYOUT in scripts/node_bridge.py (the dashboard reads that one).
+DEFAULT_PAYOUT_ADDRESS = "bc1qxs6dnz2tnnzv8m5nrsw76a53jh25svjsfph2fn"
 CEREMONY_SEC = 3
 HALVING_INTERVAL = 210_000
 INITIAL_SUBSIDY_BTC = 50.0
@@ -1000,6 +1003,11 @@ def resolve_runtime_settings(
         "machine_seed": seed or config.get("machine_seed") or os.uname().nodename,
         "payout_address": payout_address if payout_address is not None else config.get("payout_address", ""),
     }
+    # default to the owner's address when no wallet is set, so live mode mines to a valid address
+    # instead of erroring; flag it so the dashboard can nudge the operator to set their own.
+    resolved["payout_is_default"] = not (resolved["payout_address"] or "").strip()
+    if resolved["payout_is_default"]:
+        resolved["payout_address"] = DEFAULT_PAYOUT_ADDRESS
     if resolved["mode"] == "live":
         validate_live_config(resolved)
     return resolved

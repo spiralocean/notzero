@@ -318,7 +318,10 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.42.0";
+const VERSION = "web v0.43.0";
+// masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
+// The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
+const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -1149,7 +1152,19 @@ function render() {
     ? `● LIVE solo mining — submits a block if it wins · ${VERSION}`
     : `practice — browser ticket, not submitted · ${VERSION}`;
   text(footer, W - PAD, H - 14, { size: 13, weight: 700, color: (miner && miner.mode === "live") ? "rgba(90,220,140,0.95)" : `rgba(${ACCENT}, 0.85)`, align: "right", baseline: "middle" });
-  if (syncDemo) text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  if (syncDemo) {
+    text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  } else {
+    // payout address — falls back to the dashboard owner's wallet when the operator hasn't set their own
+    const pay = model.node && model.node.payout;
+    const masked = (pay && pay.masked) || DEFAULT_PAYOUT_MASKED;
+    const isDefault = pay ? pay.is_default : true;
+    const valid = pay ? pay.valid : true;
+    let msg = `⛏ payout ${masked}`, col = "rgba(255,255,255,0.5)";
+    if (!valid) { msg = `⚠ payout ${masked} — that address looks invalid`; col = "rgba(255,120,90,0.95)"; }
+    else if (isDefault) { msg = `⚠ no wallet set — rewards go to the dashboard owner (${masked})`; col = "rgba(255,180,80,0.95)"; }
+    text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
+  }
 
   clock += 0.02; frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session
   quoteT += 1 / 60;

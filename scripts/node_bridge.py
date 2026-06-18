@@ -17,8 +17,29 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 OUT = REPO / "web" / "node.json"
 CONFIG = pathlib.Path.home() / "Library/Application Support/BitcoinLottery/config.json"
 POLL_SEC = 4
+# fallback payout when the operator hasn't set their own wallet — must match
+# DEFAULT_PAYOUT_ADDRESS in lottery_miner.py (rewards go to the project owner until a wallet is set).
+DEFAULT_PAYOUT = "bc1qxs6dnz2tnnzv8m5nrsw76a53jh25svjsfph2fn"
+_BECH32_CHARSET = "qpzry9x8gf2tvdw0s3jn54khce6mua7l"
+_B58_CHARSET = set("123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz")
 
 _prev_recv = {}  # addr -> bytesrecv, to detect active download per peer
+
+
+def mask_addr(a):
+    a = (a or "").strip()
+    return a if len(a) <= 12 else f"{a[:6]}…{a[-6:]}"
+
+
+def valid_btc_address(a):
+    """Format sanity check (mainnet) for the footer's 'looks invalid' nudge — not a full checksum."""
+    a = (a or "").strip()
+    if a.startswith("bc1"):
+        body = a[3:].lower()
+        return 39 <= len(a) <= 62 and bool(body) and all(c in _BECH32_CHARSET for c in body)
+    if a[:1] in ("1", "3"):
+        return 26 <= len(a) <= 35 and all(c in _B58_CHARSET for c in a)
+    return False
 
 
 def load_rpc():
@@ -104,6 +125,14 @@ def build(url, user, pw):
             }
     except Exception:  # noqa: BLE001
         miner = None
+    # payout for the dashboard footer: the operator's configured wallet, or the owner's default with a flag
+    try:
+        cfg_payout = (json.load(CONFIG.open()).get("payout_address") if CONFIG.exists() else "") or ""
+    except Exception:  # noqa: BLE001
+        cfg_payout = ""
+    cfg_payout = cfg_payout.strip()
+    effective = cfg_payout or DEFAULT_PAYOUT
+    payout = {"masked": mask_addr(effective), "is_default": not cfg_payout, "valid": valid_btc_address(effective)}
     return {
         "ts": int(time.time()),
         "reachable": True,
@@ -115,6 +144,7 @@ def build(url, user, pw):
         "pruned": chain.get("pruned", False),
         "mempool": mempool,
         "miner": miner,
+        "payout": payout,
         "peers": peers,
     }
 
