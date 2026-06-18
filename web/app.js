@@ -107,7 +107,9 @@ async function refresh() {
     const nonce = await pickNonce(machineSeed(), blk.height);
     const hashHex = await hashBlockHeader(blk, nonce);
     const target = bitsToTarget(blk.bits);
-    model.ticket = { nonce, hashHex, prox: proximity(hashHex, target) };
+    const avNonce = (nonce + 1) >>> 0;
+    const avalancheHex = await hashBlockHeader(blk, avNonce); // same header, nonce+1 → a totally different hash (avalanche)
+    model.ticket = { nonce, hashHex, prox: proximity(hashHex, target), avNonce, avalancheHex };
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
       if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name }));
@@ -303,7 +305,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.36.0";
+const VERSION = "web v0.37.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -449,6 +451,9 @@ const ceremony = { height: null, t: 0, cycle: -1, order: [] };
 function phaseAt(t) { let acc = 0; for (const [name, dur] of PHASES) { if (t < acc + dur) return { name, p: (t - acc) / dur }; acc += dur; } return { name: "hold", p: 1 }; }
 function shuffled(n) { const a = [...Array(n).keys()]; for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function churnChar(i) { return CYBER[(frame + i * 7) % CYBER.length]; }
+const hrand = (s) => { const x = Math.sin(s * 91.7) * 47453.13; return x - Math.floor(x); }; // deterministic 0..1
+function bitAt(hex, i) { return (parseInt(hex[i >> 2] || "0", 16) >> (3 - (i & 3))) & 1; } // bit i of a hex string (256-bit)
+function zeroBits(hex) { return hex ? 256 - BigInt("0x" + hex).toString(2).length : 0; }
 
 function drawHashBuild(r) {
   if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
@@ -494,22 +499,53 @@ function drawHashBuild(r) {
   if (assembling) {
     const dr = { x: r.x + 24, y: barY + barH + 50, w: r.w - 48, h: (r.y + r.h - 70) - (barY + barH + 50) };
     drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
+  } else {
+    drawHashMachine(r, ph, barY + barH, b, tk);
   }
+}
 
-  // output row: churn → reveal → hold
-  const hex = tk.hashHex.slice(0, 40), lead = leadingZeroHexChars(tk.hashHex);
-  const rowY = r.y + r.h - 52, sp = (r.w - 40) / hex.length;
-  if (ph.name === "pack" || ph.name === "churn") {
-    for (let i = 0; i < hex.length; i++) text(churnChar(i), r.x + 20 + sp * (i + 0.5), rowY, { size: 15, color: `rgba(${ACCENT},${0.45 + 0.45 * Math.random()})`, align: "center", baseline: "middle", mono: true });
-  } else if (ph.name === "reveal" || ph.name === "hold") {
-    const lockN = ph.name === "hold" ? hex.length : Math.floor(ph.p * hex.length);
-    for (let i = 0; i < hex.length; i++) {
-      const lk = ceremony.order.indexOf(i) < lockN, isLead = i < lead;
-      text(lk ? hex[i] : churnChar(i), r.x + 20 + sp * (i + 0.5), rowY,
-        { size: 15, weight: lk && isLead ? 700 : 400, color: lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
-    }
-    if (ph.name === "hold") text(tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits`, r.x + r.w / 2, rowY + 24, { size: 13, weight: 600, color: tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+// the assembled header pours into a SHA-256 ×2 "machine", churns into a 256-bit grid that settles into
+// the hash (leading zeros lit green); in hold, flip one nonce bit to show the avalanche.
+function drawHashMachine(r, ph, headerBottom, b, tk) {
+  const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
+  const boxW = 236, boxH = 28, boxX = cx - boxW / 2, boxY = headerBottom + 48;
+  // header bytes pour down into the machine while packing/churning
+  if (grind) {
+    ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = headerBottom + 2 + (boxY - headerBottom - 4) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.75 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[(frame + s * 5) % CYBER.length], xx, yy); }
   }
+  // the machine box
+  ctx.fillStyle = grind ? "rgba(255,150,60,0.1)" : "rgba(255,255,255,0.04)"; roundRect(boxX, boxY, boxW, boxH, 5); ctx.fill();
+  ctx.strokeStyle = `rgba(${ACCENT},${grind ? 0.75 : 0.4})`; ctx.lineWidth = 1.4; roundRect(boxX, boxY, boxW, boxH, 5); ctx.stroke();
+  text("SHA-256  ·  applied twice", cx - 14, boxY + boxH / 2, { size: 12, weight: 700, color: `rgba(${ACCENT},0.92)`, align: "center", baseline: "middle" });
+  if (grind) for (let g = 0; g < 3; g++) { ctx.fillStyle = `rgba(255,205,120,${0.4 + 0.5 * Math.abs(Math.sin(frame * 0.25 + g))})`; ctx.beginPath(); ctx.arc(boxX + boxW - 26 + g * 8, boxY + boxH / 2, 2, 0, 7); ctx.fill(); }
+
+  // what to show + how settled, with the hold-phase avalanche (flip one nonce bit → totally different hash)
+  let hashShown = tk.hashHex, lzb = tk.prox.leadingZeroBits, settleP = 1, avalanche = false;
+  if (grind) settleP = 0;
+  else if (ph.name === "reveal") settleP = ph.p;
+  else { // hold: show the hash, then ~1.6s in, flip one nonce bit and re-hash
+    const ht = ph.p * 3.4;
+    if (ht >= 1.6 && tk.avalancheHex) { avalanche = true; hashShown = tk.avalancheHex; lzb = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 1.6) / 0.6); }
+  }
+  const lzHex = leadingZeroHexChars(hashShown);
+
+  // 256-bit grid (16×16): a cell per bit; leading zeros lit green, ones amber, zeros dim
+  const cell = 5, gw = 16 * cell, gx = cx - gw / 2, gy = boxY + boxH + 14;
+  for (let i = 0; i < 256; i++) {
+    const settled = hrand(i * 7 + 1) < settleP, bit = settled ? bitAt(hashShown, i) : (frame + i * 13) % 2;
+    ctx.fillStyle = (settled && i < lzb) ? "rgba(90,225,140,0.95)" : bit ? `rgba(${ACCENT},0.8)` : "rgba(255,255,255,0.07)";
+    ctx.fillRect(gx + (i % 16) * cell + 0.5, gy + ((i / 16) | 0) * cell + 0.5, cell - 1.4, cell - 1.4);
+  }
+  text(avalanche ? `nonce ${tk.avNonce.toLocaleString()} → 256-bit output` : "256-bit output", cx, gy + 16 * cell + 11, { size: 10, color: avalanche ? "rgb(90,225,140)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+
+  // readable hash row + result/avalanche caption
+  const hex = hashShown.slice(0, 40), rowY = r.y + r.h - 30, sp = (r.w - 40) / hex.length;
+  for (let i = 0; i < hex.length; i++) {
+    const settled = hrand(i * 7 + 1) < settleP, isLead = i < lzHex;
+    text(settled ? hex[i] : churnChar(i), r.x + 20 + sp * (i + 0.5), rowY, { size: 14, weight: settled && isLead ? 700 : 400, color: settled ? (isLead ? "rgb(90,225,140)" : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
+  }
+  if (ph.name === "hold") text(avalanche ? "one bit changed → every character is different (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits — that's your ticket`), cx, r.y + r.h - 11, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle" });
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises
