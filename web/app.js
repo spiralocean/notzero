@@ -240,6 +240,13 @@ const QUOTES = [
   { q: "So shines a good deed in a weary world.", src: "Willy Wonka" },
   { q: "The suspense is terrible — I hope it'll last.", src: "Willy Wonka" },
   { q: "Come with me, and you'll be in a world of pure imagination.", src: "Willy Wonka" },
+  // you really could win a whole block with a single hash — even one done by hand
+  "One hash by hand could win a whole block.",
+  "A hash is a hash — whether a chip or a pencil found it.",
+  "Pen, paper, and one lucky hash: a valid lottery ticket.",
+  "People have mined Bitcoin by hand. The door is open.",
+  "Compute one SHA-256 by hand. Below the target? You mined a block.",
+  "The network can't tell if a human or a warehouse found the nonce.",
 ];
 const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
@@ -274,7 +281,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.33.0";
+const VERSION = "web v0.34.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -350,21 +357,36 @@ function drawCloseness(r) {
     row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
     const best = mn.best;
     if (best && best.hash) { const bz = leadingZeroHexChars(best.hash); row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} (${best.zero_bits} bits)`); }
-    // ---- ODDS MAP — reversed: WIN = your hash BELOW the target (a smaller number), on the LEFT. Most hashes land far right. ----
+    // ---- ODDS MAP HEAT MAP — every attempt plotted by leading-zero-bits (reversed: WIN = BELOW target = LEFT) ----
     const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
-    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, tkH = 9;
+    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 142, bandH = 24;
     const px = (b) => tkX + tkW * (1 - Math.min(1, Math.max(0, b / axisMax))); // smaller value (more zeros) → LEFT
-    text("ODDS MAP — you WIN only if your hash is BELOW the target (a smaller number), never above", tkX, r.y + 140, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-    ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(tkX, tkY, tkW, tkH, 4); ctx.fill();
     const winX = px(tBits);
-    ctx.fillStyle = "rgba(90,210,140,0.28)"; roundRect(tkX, tkY, winX - tkX, tkH, 4); ctx.fill(); // win zone = BELOW target (left)
-    ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 5); ctx.lineTo(winX, tkY + tkH + 5); ctx.stroke(); // target line
-    ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + tkH / 2, 3, 0, 7); ctx.fill(); // your best
-    ctx.fillStyle = "rgba(255,190,110,1)"; ctx.beginPath(); ctx.arc(px(youBits), tkY + tkH / 2, 3.6, 0, 7); ctx.fill(); // your last attempt
-    text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + tkH + 13, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
-    text("your hashes land here — above the target ►", tkX + tkW, tkY + tkH + 13, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
+    text("ODDS MAP — every attempt lands here; you WIN only BELOW the target (left), never above", tkX, r.y + 134, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    ctx.fillStyle = "rgba(90,210,140,0.14)"; ctx.fillRect(tkX, tkY, winX - tkX, bandH); // win zone (below target)
+    ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
+    // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
+    const zhist = mn.zhist || {}, slotW = tkW / axisMax;
+    let total = 0; for (const k in zhist) total += zhist[k];
+    const scale = total > 250 ? 250 / total : 1;
+    const rnd = (s) => { const x = Math.sin(s * 127.1) * 43758.5453; return x - Math.floor(x); };
+    for (const k in zhist) {
+      const b = +k, n = Math.max(1, Math.round(zhist[k] * scale)), t = Math.min(1, b / tBits);
+      const col = `rgba(${Math.round(255 - 165 * t)},${Math.round(190 + 35 * t)},${Math.round(110 + 30 * t)},0.2)`;
+      ctx.fillStyle = col;
+      for (let i = 0; i < n; i++) {
+        const x = Math.min(tkX + tkW - 2, Math.max(tkX + 2, px(b) + (rnd(b * 97 + i * 1.7) - 0.5) * slotW * 0.85));
+        const y = tkY + 3 + rnd(b * 131 + i * 3.3) * (bandH - 6);
+        ctx.beginPath(); ctx.arc(x, y, 1.7, 0, 7); ctx.fill();
+      }
+    }
+    ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 3); ctx.lineTo(winX, tkY + bandH + 3); ctx.stroke(); // target = WIN line
+    ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + bandH / 2, 3.2, 0, 7); ctx.fill(); // best (◆)
+    ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(px(youBits), tkY + bandH / 2, 3.4, 0, 7); ctx.fill(); // last (●)
+    text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
+    text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
     text(`● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted · ◆ best ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;

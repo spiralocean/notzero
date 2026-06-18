@@ -100,6 +100,7 @@ def build(url, user, pw):
                     "prefix_match": win.get("prefix_match_chars"),
                 } if win.get("hash_hex") else None,
                 "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
+                "zhist": st.get("zhist"),  # leading-zero-bits histogram {bits: count} for the heat map
             }
     except Exception:  # noqa: BLE001
         miner = None
