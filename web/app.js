@@ -305,7 +305,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.37.0";
+const VERSION = "web v0.38.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -444,7 +444,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 7.8], ["pack", 1.0], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.4]];
+const PHASES = [["assemble", 14.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -465,7 +465,8 @@ function drawHashBuild(r) {
   const ph = phaseAt(t);
   const assembling = ph.name === "assemble";
   const lockedCount = assembling ? Math.min(6, Math.floor(ph.p * 6)) : 6;
-  const fillFrac = assembling ? ph.p * 6 - lockedCount : 1;
+  const rawFrac = assembling ? ph.p * 6 - lockedCount : 1;
+  const fillFrac = Math.min(1, rawFrac / 0.7); // fill over the first 70% of each field's slot, then hold — a pause between segments
 
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
@@ -497,8 +498,23 @@ function drawHashBuild(r) {
   else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this block's hash · try again next block";
   text(caption, r.x + r.w / 2, barY + barH + 36, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
   if (assembling) {
-    const dr = { x: r.x + 24, y: barY + barH + 50, w: r.w - 48, h: (r.y + r.h - 70) - (barY + barH + 50) };
-    drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
+    // record each field's value under the header as it locks in — the assembled result builds up
+    const lx = r.x + 28, vx = r.x + 150, ly0 = barY + barH + 52, rh = (r.y + r.h - 18 - ly0) / HEADER_FIELDS.length;
+    HEADER_FIELDS.forEach((f, i) => {
+      const y = ly0 + rh * (i + 0.5);
+      if (i > lockedCount) { text(f.label, lx, y, { size: 12, color: "rgba(255,255,255,0.22)", baseline: "middle" }); return; }
+      const locked = i < lockedCount, v = f.val(b, tk);
+      text(f.label, lx, y, { size: 12, weight: 600, color: f.you ? `rgb(${ACCENT})` : "rgba(255,255,255,0.62)", baseline: "middle" });
+      if (locked) {
+        text(v, vx, y, { size: 13, color: f.you ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.85)", baseline: "middle", mono: true });
+        text("✓", r.x + r.w - 26, y, { size: 12, weight: 700, color: "rgb(90,220,140)", align: "right", baseline: "middle" });
+      } else { // currently filling — scramble→lock the value left-to-right
+        const chars = v.split(""), lock = Math.floor(fillFrac * chars.length * 1.25);
+        ctx.font = "13px ui-monospace, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
+        const cw = ctx.measureText("0").width; let xx = vx;
+        for (let c = 0; c < chars.length; c++) { const lk = c < lock; ctx.fillStyle = lk ? "rgba(255,255,255,0.85)" : "rgba(120,165,150,0.6)"; ctx.fillText(lk ? chars[c] : churnChar(c), xx, y); xx += cw; }
+      }
+    });
   } else {
     drawHashMachine(r, ph, barY + barH, b, tk);
   }
