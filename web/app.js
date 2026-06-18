@@ -305,7 +305,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.38.0";
+const VERSION = "web v0.39.0";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
 function layoutSections() {
@@ -440,7 +440,7 @@ const HEADER_FIELDS = [
   { label: "version", bytes: 4, explain: "which consensus rules this block follows", val: (b) => (b.version >>> 0).toString(16).padStart(8, "0") },
   { label: "prev block", bytes: 32, explain: "the link back to the previous block — this is the chain", val: (b) => b.previousblockhash.slice(0, 24) + "…" },
   { label: "merkle root", bytes: 32, explain: "one fingerprint of every transaction in the block", val: (b) => b.merkle_root.slice(0, 24) + "…" },
-  { label: "time", bytes: 4, explain: "when the block was assembled", val: (b) => new Date(b.timestamp * 1000).toISOString().slice(0, 19).replace("T", " ") + " UTC" },
+  { label: "time", bytes: 4, explain: "when the block was assembled (UTC)", val: (b) => new Date(b.timestamp * 1000).toISOString().slice(11, 19) },
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
@@ -472,8 +472,9 @@ function drawHashBuild(r) {
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
   text(`Building your ticket — block #${model.tipHeight.toLocaleString()}`, r.x + r.w / 2, r.y + 20, { size: 14, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
 
-  // byte-proportional header bar (structure, to scale)
-  const barX = r.x + 18, barW = r.w - 36, barY = r.y + 40, barH = 30, total = 80;
+  // byte-proportional, two-row header: column title (row 1) + the data result directly under it (row 2)
+  const barX = r.x + 18, barW = r.w - 36, barY = r.y + 32, barH = 22, total = 80;
+  const valY = barY + barH + 13; // row 2 — the value sits under its column
   let bx = barX;
   HEADER_FIELDS.forEach((f, i) => {
     const segW = barW * f.bytes / total;
@@ -484,39 +485,37 @@ function drawHashBuild(r) {
     else if (filling) fill = `rgba(${ACCENT},${0.14 * fillFrac})`;
     ctx.fillStyle = fill; roundRect(bx + 1, barY, segW - 2, barH, 3); ctx.fill();
     if (locked || filling) { ctx.strokeStyle = `rgba(${ACCENT},${filling ? 0.9 : 0.4})`; ctx.lineWidth = filling ? 1.4 : 1; roundRect(bx + 1, barY, segW - 2, barH, 3); ctx.stroke(); }
-    if (segW > 58) text(f.label, bx + segW / 2, barY + barH / 2, { size: 11, weight: 600, color: locked || filling ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    if (segW > 50) text(f.label, bx + segW / 2, barY + barH / 2, { size: 11, weight: 600, color: locked || filling ? "rgba(255,255,255,0.82)" : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    // row 2 — the data result, under the column, truncated to fit, scrambling→locking while it fills
+    if (locked || filling) {
+      const full = f.val(b, tk);
+      ctx.font = "11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const cw = ctx.measureText("0").width, maxC = Math.max(4, Math.floor((segW - 8) / cw));
+      const vv = full.length > maxC ? full.slice(0, maxC - 1) + "…" : full;
+      let s = vv;
+      if (filling) { const lk = Math.floor(fillFrac * vv.length * 1.25); s = ""; for (let c = 0; c < vv.length; c++) s += c < lk ? vv[c] : churnChar(c); }
+      ctx.fillStyle = f.you ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.8)"; ctx.fillText(s, bx + segW / 2, valY);
+    }
     bx += segW;
   });
-  text("80-byte block header", barX, barY + barH + 13, { size: 11, weight: 600, color: "rgba(255,255,255,0.4)" });
+  text("80-byte block header — value shown under each field", barX, valY + 18, { size: 11, weight: 600, color: "rgba(255,255,255,0.38)" });
 
-  // caption (phase-aware) + per-field detail animation while assembling
+  // caption (phase-aware)
   let caption = "";
   if (assembling) { const f = HEADER_FIELDS[Math.min(5, lockedCount)]; caption = `${f.label} — ${f.explain}`; }
   else if (ph.name === "pack") caption = "header complete — now hash it";
   else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
   else if (ph.name === "reveal") caption = "the one and only result emerges…";
   else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this block's hash · try again next block";
-  text(caption, r.x + r.w / 2, barY + barH + 36, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+  text(caption, r.x + r.w / 2, valY + 18, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+
+  const detailTop = valY + 34;
   if (assembling) {
-    // record each field's value under the header as it locks in — the assembled result builds up
-    const lx = r.x + 28, vx = r.x + 150, ly0 = barY + barH + 52, rh = (r.y + r.h - 18 - ly0) / HEADER_FIELDS.length;
-    HEADER_FIELDS.forEach((f, i) => {
-      const y = ly0 + rh * (i + 0.5);
-      if (i > lockedCount) { text(f.label, lx, y, { size: 12, color: "rgba(255,255,255,0.22)", baseline: "middle" }); return; }
-      const locked = i < lockedCount, v = f.val(b, tk);
-      text(f.label, lx, y, { size: 12, weight: 600, color: f.you ? `rgb(${ACCENT})` : "rgba(255,255,255,0.62)", baseline: "middle" });
-      if (locked) {
-        text(v, vx, y, { size: 13, color: f.you ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.85)", baseline: "middle", mono: true });
-        text("✓", r.x + r.w - 26, y, { size: 12, weight: 700, color: "rgb(90,220,140)", align: "right", baseline: "middle" });
-      } else { // currently filling — scramble→lock the value left-to-right
-        const chars = v.split(""), lock = Math.floor(fillFrac * chars.length * 1.25);
-        ctx.font = "13px ui-monospace, monospace"; ctx.textAlign = "left"; ctx.textBaseline = "middle";
-        const cw = ctx.measureText("0").width; let xx = vx;
-        for (let c = 0; c < chars.length; c++) { const lk = c < lock; ctx.fillStyle = lk ? "rgba(255,255,255,0.85)" : "rgba(120,165,150,0.6)"; ctx.fillText(lk ? chars[c] : churnChar(c), xx, y); xx += cw; }
-      }
-    });
+    // the merkle root field is the top of a tree built from every transaction — show that tree building
+    const mBuild = lockedCount > 2 ? 1 : lockedCount === 2 ? fillFrac : 0.001;
+    drawMerkleTree({ x: r.x + 24, y: detailTop, w: r.w - 48, h: (r.y + r.h - 10) - detailTop }, mBuild, lockedCount >= 2);
   } else {
-    drawHashMachine(r, ph, barY + barH, b, tk);
+    drawHashMachine(r, ph, detailTop - 6, b, tk);
   }
 }
 
@@ -524,7 +523,7 @@ function drawHashBuild(r) {
 // the hash (leading zeros lit green); in hold, flip one nonce bit to show the avalanche.
 function drawHashMachine(r, ph, headerBottom, b, tk) {
   const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
-  const boxW = 236, boxH = 28, boxX = cx - boxW / 2, boxY = headerBottom + 48;
+  const boxW = 236, boxH = 28, boxX = cx - boxW / 2, boxY = headerBottom + 22;
   // header bytes pour down into the machine while packing/churning
   if (grind) {
     ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -565,57 +564,36 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises
-function fieldValueRow(strV, p, cx, cy, size, lead = 0) {
-  const chars = strV.split("");
-  const lock = Math.min(chars.length, Math.floor(p * chars.length * 1.25));
-  ctx.font = `${size}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const cw = ctx.measureText("0").width || size * 0.6;
-  let x = cx - (cw * chars.length) / 2 + cw / 2;
-  for (let i = 0; i < chars.length; i++) {
-    const lk = i < lock, isLead = lk && i < lead;
-    ctx.fillStyle = lk ? (isLead ? `rgb(${ACCENT})` : "rgba(255,255,255,0.85)") : "rgba(120,165,150,0.6)";
-    ctx.fillText(lk ? chars[i] : churnChar(i), x, cy); x += cw;
-  }
-}
-
-function drawMerkleMini(p, dr) {
-  const n = Math.min(8, Math.max(2, model.txCount || 4));
+// The merkle root is the top of a binary tree: every transaction is a leaf, leaves are hashed in pairs
+// up to a single root. Show that structure — leaves at the bottom, pair→parent edges, the root on top —
+// building level by level as buildP rises (0 → just leaves, 1 → complete with the root lit).
+function drawMerkleTree(dr, buildP, showRoot) {
+  const real = model.txCount || 4;
+  const n = Math.min(16, Math.max(2, real)); // representative leaves
   const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
-  const rows = levels.length, lv = Math.floor(p * rows);
-  text(`${(model.txCount || n).toLocaleString()} transactions → 1 merkle root`, dr.x + dr.w / 2, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-  for (let row = 0; row < rows; row++) {
-    const cnt = levels[row], built = row <= lv, yy = dr.y + dr.h - 10 - row * (dr.h - 26) / Math.max(1, rows - 1);
-    for (let k = 0; k < cnt; k++) {
-      const xx = dr.x + dr.w * (k + 0.5) / cnt;
-      ctx.beginPath(); ctx.arc(xx, yy, 5, 0, 7);
-      ctx.fillStyle = built ? (row === rows - 1 ? `rgb(${ACCENT})` : `rgba(${ACCENT},0.55)`) : "rgba(255,255,255,0.14)"; ctx.fill();
+  const rows = levels.length, built = buildP * rows;
+  const topY = dr.y + 12, botY = dr.y + dr.h - 30, gap = (botY - topY) / Math.max(1, rows - 1);
+  const pos = (L, k) => ({ x: dr.x + dr.w * (k + 0.5) / levels[L], y: botY - L * gap });
+  // edges: each node links up to its parent (the pair-hash), fading in as the parent level builds
+  ctx.lineWidth = 1;
+  for (let L = 0; L < rows - 1; L++) {
+    const e = Math.max(0, Math.min(1, built - (L + 1))); if (e <= 0) continue;
+    ctx.strokeStyle = `rgba(${ACCENT},${0.3 * e})`;
+    for (let k = 0; k < levels[L]; k++) { const a = pos(L, k), p = pos(L + 1, k >> 1); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  }
+  // nodes — leaves always present; upper levels light up as they're built; root ringed
+  for (let L = 0; L < rows; L++) {
+    const on = L === 0 || L < built, isRoot = L === rows - 1, rad = isRoot ? 6 : 4;
+    for (let k = 0; k < levels[L]; k++) {
+      const p = pos(L, k);
+      ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7);
+      ctx.fillStyle = on ? (isRoot ? `rgb(${ACCENT})` : `rgba(${ACCENT},0.6)`) : "rgba(255,255,255,0.12)"; ctx.fill();
+      if (isRoot && on) { ctx.strokeStyle = `rgba(${ACCENT},0.5)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); }
     }
   }
-}
-
-function drawFieldDetail(idx, p, dr, b, tk) {
-  const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2;
-  if (idx === 0) {
-    text("4 bytes · the block format", cx, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
-    fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY + 4, 22);
-  } else if (idx === 1) {
-    text(`⛓ links back to block #${(model.tipHeight - 1).toLocaleString()}`, cx, dr.y + 8, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
-    fieldValueRow(b.previousblockhash.slice(0, 32), p, cx, midY + 6, 14);
-  } else if (idx === 2) {
-    drawMerkleMini(p, dr);
-  } else if (idx === 3) {
-    text(new Date(b.timestamp * 1000).toUTCString().replace("GMT", "UTC"), cx, dr.y + 12, { size: 13, weight: 600, color: "rgba(255,255,255,0.8)", align: "center", baseline: "middle" });
-    fieldValueRow(String(b.timestamp), p, cx, midY + 14, 16);
-  } else if (idx === 4) {
-    text("your hash must land BELOW this target:", cx, dr.y + 8, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-    const tgt = bitsToTarget(b.bits).toString(16).padStart(64, "0").slice(0, 40), tlead = leadingZeroHexChars(tgt);
-    fieldValueRow(tgt, 1, cx, midY + 6, 13, tlead);
-    text(`${tlead} leading zeros required`, cx, dr.y + dr.h - 6, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
-  } else {
-    text(`"${machineSeed()}:${model.tipHeight}"`, cx, dr.y + 10, { size: 12, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
-    text("↓  SHA-256  ↓", cx, midY, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
-    fieldValueRow("#" + tk.nonce.toLocaleString(), Math.max(p, 0.4), cx, dr.y + dr.h - 12, 20);
-  }
+  text(`${real.toLocaleString()} transactions`, dr.x + dr.w / 2, botY + 14, { size: 11, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  text("hashed in pairs, all the way up to one root", dr.x + dr.w / 2, botY + 27, { size: 10, color: "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+  if (showRoot && built >= rows - 0.01) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 16, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
 }
 
 // ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
