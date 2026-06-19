@@ -112,11 +112,13 @@ async function refresh() {
     model.difficulty = blk.difficulty;
 
     const nonce = await pickNonce(machineSeed(), blk.height);
-    const hashHex = await hashBlockHeader(blk, nonce);
+    const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
+    const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
     const target = bitsToTarget(blk.bits);
     const avNonce = (nonce + 1) >>> 0;
-    const avalancheHex = await hashBlockHeader(blk, avNonce); // same header, nonce+1 → a totally different hash (avalanche)
-    model.ticket = { nonce, hashHex, prox: proximity(hashHex, target), avNonce, avalancheHex };
+    const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
+    const avalancheHex = bytesToHex(await sha256(avH1));
+    model.ticket = { nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
       if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name }));
@@ -325,7 +327,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.54.0";
+const VERSION = "web v0.55.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -573,48 +575,34 @@ function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
 }
 
-// the assembled header pours into a SHA-256 ×2 "machine", churns into a 256-bit grid that settles into
-// the hash (leading zeros lit green); in hold, flip one nonce bit to show the avalanche.
+// two stacked, ALIGNED hash rows under the concatenation: 1st SHA-256 → 2nd SHA-256 (our submission).
+// both 64 hex at identical spacing, so the two rounds line up and look the same — that's the "double".
+// Each row resolves left-to-right out of scrambling glyphs; in hold, flip one nonce bit (the avalanche).
 function drawHashMachine(r, ph, headerBottom, b, tk) {
   const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
-  const boxW = 236, boxH = 26, boxX = cx - boxW / 2, boxY = headerBottom + 24;
-  // the concatenated string (zone 2, above) feeds down into the machine while packing/churning
-  if (grind) {
-    ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = headerBottom + 2 + (boxY - headerBottom - 4) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.7 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[((frame / 3 | 0) + s * 5) % CYBER.length], xx, yy); }
-  }
-  // the machine box
-  ctx.fillStyle = grind ? "rgba(255,150,60,0.1)" : "rgba(255,255,255,0.04)"; roundRect(boxX, boxY, boxW, boxH, 5); ctx.fill();
-  ctx.strokeStyle = `rgba(${ACCENT},${grind ? 0.75 : 0.4})`; ctx.lineWidth = 1.4; roundRect(boxX, boxY, boxW, boxH, 5); ctx.stroke();
-  text("SHA-256  ·  applied twice", cx - 14, boxY + boxH / 2, { size: 12, weight: 700, color: `rgba(${ACCENT},0.92)`, align: "center", baseline: "middle" });
-  if (grind) for (let g = 0; g < 3; g++) { ctx.fillStyle = `rgba(255,205,120,${0.4 + 0.5 * Math.abs(Math.sin(frame * 0.25 + g))})`; ctx.beginPath(); ctx.arc(boxX + boxW - 26 + g * 8, boxY + boxH / 2, 2, 0, 7); ctx.fill(); }
-
-  // what to show + how settled, with the hold-phase avalanche (flip one nonce bit → totally different hash)
-  let hashShown = tk.hashHex, lzb = tk.prox.leadingZeroBits, settleP = 1, avalanche = false;
+  let h1 = tk.hash1Hex || "", h2 = tk.hashHex || "", lzb2 = tk.prox.leadingZeroBits, settleP = 1, avalanche = false;
   if (grind) settleP = 0;
   else if (ph.name === "reveal") settleP = ph.p;
-  else { // hold: show the hash, then ~1.6s in, flip one nonce bit and re-hash
+  else { // hold: show the hashes, then ~1.6s in, flip one nonce bit and re-hash (both rounds change)
     const ht = ph.p * 3.4;
-    if (ht >= 1.6 && tk.avalancheHex) { avalanche = true; hashShown = tk.avalancheHex; lzb = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 1.6) / 0.6); }
+    if (ht >= 1.6 && tk.avalancheHex) { avalanche = true; h1 = tk.avHash1Hex || ""; h2 = tk.avalancheHex; lzb2 = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 1.6) / 0.6); }
   }
-  const lzHex = leadingZeroHexChars(hashShown);
+  // sequential reveal: the 1st hash forms left-to-right, then the 2nd forms from it
+  const p1 = Math.min(1, settleP * 2), p2 = Math.max(0, settleP * 2 - 1), lzHex2 = leadingZeroHexChars(h2);
 
-  // 256-bit grid — settles LEFT-TO-RIGHT, top-to-bottom (row-major) as the hash forms; leading zeros lit green
-  const cell = 5, gw = 16 * cell, gx = cx - gw / 2, gy = boxY + boxH + 14, settledCells = Math.floor(settleP * 256);
-  for (let i = 0; i < 256; i++) {
-    const settled = i < settledCells, bit = settled ? bitAt(hashShown, i) : (hrand(i * 3.1 + (frame >> 2)) < 0.5 ? 1 : 0); // unsettled cells churn at ~15Hz, desynced — not a 60Hz strobe
-    ctx.fillStyle = (settled && i < lzb) ? "rgba(90,225,140,0.95)" : bit ? `rgba(${ACCENT},0.8)` : "rgba(255,255,255,0.07)";
-    ctx.fillRect(gx + (i % 16) * cell + 0.5, gy + ((i / 16) | 0) * cell + 0.5, cell - 1.4, cell - 1.4);
-  }
-  text(avalanche ? `nonce ${tk.avNonce.toLocaleString()} → 256-bit output` : "double-SHA256 → our 256-bit submission", cx, gy + 16 * cell + 11, { size: 10, color: avalanche ? "rgb(90,225,140)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  const rowX = r.x + 20, rowW = r.w - 40, sp = rowW / 64; // 64 hex chars, full width — both rows identical
+  const hashRow = (s, p, y, lead) => {
+    const lit = Math.floor(p * 64);
+    for (let i = 0; i < 64; i++) { const on = i < lit, isLead = lead && i < lead;
+      text(on ? (s[i] || "0") : churnChar(i), rowX + sp * (i + 0.5), y, { size: 13, weight: on && isLead ? 700 : 400, color: on ? (isLead ? "rgb(90,225,140)" : "rgba(255,255,255,0.82)") : "rgba(120,170,150,0.5)", align: "center", baseline: "middle", mono: true }); }
+  };
 
-  // readable hash row — fills in LEFT TO RIGHT; this is our submission for the block
-  const hex = hashShown.slice(0, 40), rowY = r.y + r.h - 28, sp = (r.w - 40) / hex.length, hSet = Math.floor(settleP * hex.length);
-  for (let i = 0; i < hex.length; i++) {
-    const settled = i < hSet, isLead = i < lzHex;
-    text(settled ? hex[i] : churnChar(i), r.x + 20 + sp * (i + 0.5), rowY, { size: 14, weight: settled && isLead ? 700 : 400, color: settled ? (isLead ? "rgb(90,225,140)" : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
-  }
-  if (ph.name === "hold") text(avalanche ? "one bit changed → every character is different (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${tk.prox.leadingZeroBits} leading zero bits — our submission for this block`), cx, r.y + r.h - 11, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle" });
+  const y1 = headerBottom + 30, y2 = headerBottom + 80;
+  text(avalanche ? "one bit changed (nonce + 1) → a new 1st SHA-256" : grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 15, { size: 10, weight: 600, color: `rgba(${ACCENT},0.72)`, baseline: "middle" });
+  hashRow(h1, p1, y1, 0);
+  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — of the 1st hash · this is our submission", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
+  hashRow(h2, p2, y2, lzHex2);
+  if (ph.name === "hold") text(avalanche ? "same operation, same input but one flipped bit — every character differs (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${lzb2} leading zero bits — our submission for this block`), cx, y2 + 26, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.6)"), align: "center", baseline: "middle" });
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises (in step with the segment)
