@@ -351,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.65.0";
+const VERSION = "web v0.66.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -520,10 +520,14 @@ function drawHashBuild(r) {
   if (cyc !== ceremony.cycle) { ceremony.cycle = cyc; ceremony.order = shuffled(40); }
   const ph = phaseAt(t);
   const assembling = ph.name === "assemble";
-  const lockedCount = assembling ? Math.min(6, Math.floor(ph.p * 6)) : 6;
+  // weighted assemble slots — the merkle field (idx 2) gets 2× the time so its tree build + root can dwell
+  const W = [1, 1, 2, 1, 1, 1], TW = 7;
+  const pp = assembling ? ph.p * TW : TW;
+  let lockedCount = 0, wAcc = 0;
+  while (lockedCount < 6 && pp >= wAcc + W[lockedCount]) { wAcc += W[lockedCount]; lockedCount++; }
   window.__hb = { phase: ph.name, field: assembling ? Math.min(5, lockedCount) : -1 };
-  const rawFrac = assembling ? ph.p * 6 - lockedCount : 1;
-  const fillFrac = Math.min(1, rawFrac / 0.6); // fill over the first 60% of each field's slot, then hold — a longer pause between segments
+  const rawFrac = lockedCount < 6 ? (pp - wAcc) / W[lockedCount] : 1;
+  const fillFrac = Math.min(1, rawFrac / 0.6); // fill over the first 60% of each field's slot, then hold
 
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
@@ -693,7 +697,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
   const n = Math.min(16, Math.max(2, real)); // representative leaves
   const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
   const rows = levels.length;
-  const topY = dr.y + 18, botY = dr.y + dr.h - 30, gap = (botY - topY) / Math.max(1, rows - 1);
+  const topY = dr.y + 16, botY = dr.y + dr.h - 44, gap = (botY - topY) / Math.max(1, rows - 1); // extra bottom room for the captions
   const pos = (L, k) => ({ x: dr.x + dr.w * (k + 0.5) / levels[L], y: botY - L * gap });
   const rootHex = (model.block && model.block.merkle_root) || "";
   const frag = (L, k, len, lockP) => {
@@ -747,11 +751,11 @@ function drawMerkleTree(dr, buildP, showRoot) {
   const cap = climbT < 0.999 ? "hash two together → one parent · climbing the tree, level by level"
     : expandT < 0.5 ? "↑ all the way up to one merkle root"
       : "every transaction is a leaf — hashed in pairs up to one root";
-  text(cap, dr.x + dr.w / 2, dr.y + dr.h - 15, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
+  text(cap, dr.x + dr.w / 2, dr.y + dr.h - 18, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
   text(example
     ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
     : `${real.toLocaleString()} transactions → one merkle root`,
-    dr.x + dr.w / 2, dr.y + dr.h - 3, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    dr.x + dr.w / 2, dr.y + dr.h - 5, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   if (showRoot && alphaOf(rows - 1, 0) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
 }
 
