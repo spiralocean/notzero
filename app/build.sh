@@ -8,6 +8,7 @@ APP="$BUILD/Bitcoin Lottery.app"
 rm -rf "$BUILD"
 mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
 cp "$ROOT/../bitcoind/bitcoin.conf.template" "$APP/Contents/Resources/bitcoin.conf.template"
+cp "$ROOT/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 
 VERSION="$(grep 'static let string' "$ROOT/../shared/LotteryVersion.swift" | sed 's/.*"\(.*\)".*/\1/')"
 
@@ -43,6 +44,8 @@ cat > "$APP/Contents/Info.plist" <<PLIST
     <string>₿itcoin Lottery</string>
     <key>CFBundlePackageType</key>
     <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
     <key>CFBundleShortVersionString</key>
     <string>$VERSION</string>
 </dict>
