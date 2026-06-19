@@ -359,7 +359,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.79.0";
+const VERSION = "web v0.80.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -458,7 +458,7 @@ function drawCloseness(r) {
     ctx.fillStyle = "rgba(90,210,140,0.14)"; ctx.fillRect(tkX, tkY, winX - tkX, bandH); // win zone (below target)
     ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
     // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
-    const zhist = mn.zhist || {};
+    const zhist = mn.zhist || {}, loseSlot = tkW * (1 - WIN_FRAC) / Math.max(1, tBits); // px between adjacent zero-bit columns; jitter by ~this so the heat blends into a cloud instead of hard bands
     let total = 0; for (const k in zhist) total += zhist[k];
     const scale = total > 250 ? 250 / total : 1;
     const rnd = (s) => { const x = Math.sin(s * 127.1) * 43758.5453; return x - Math.floor(x); };
@@ -467,7 +467,7 @@ function drawCloseness(r) {
       const col = `rgba(${Math.round(255 - 165 * t)},${Math.round(190 + 35 * t)},${Math.round(110 + 30 * t)},0.2)`;
       ctx.fillStyle = col;
       for (let i = 0; i < n; i++) {
-        const x = Math.min(tkX + tkW - 2, Math.max(tkX + 2, px(b) + (rnd(b * 97 + i * 1.7) - 0.5) * 9));
+        const x = Math.min(tkX + tkW - 2, Math.max(tkX + 2, px(b) + (rnd(b * 97 + i * 1.7) - 0.5) * loseSlot * 1.3));
         const y = tkY + 3 + rnd(b * 131 + i * 3.3) * (bandH - 6);
         ctx.beginPath(); ctx.arc(x, y, 1.7, 0, 7); ctx.fill();
       }
