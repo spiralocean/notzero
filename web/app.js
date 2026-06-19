@@ -524,7 +524,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 30.0]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 6.8], ["hold", 30.0]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -663,7 +663,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
     ctx.strokeStyle = "rgba(255,205,110,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, box.y + 11); ctx.lineTo(ex, outY - 11); ctx.stroke(); // connector
     ctx.strokeStyle = "rgba(255,205,110,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, box.y - 12); ctx.lineTo(sx, box.y + 12); ctx.stroke();
     ctx.fillStyle = "rgba(255,205,110,0.18)"; ctx.beginPath(); ctx.arc(sx, box.y, 12, 0, 7); ctx.fill(); // glow
-    text(CYBER[(frame * 3) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
+    text(CYBER[(frame >> 1) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
     ctx.fillStyle = "rgba(255,205,110,0.95)"; ctx.beginPath(); ctx.arc(ex, outY, 2.6, 0, 7); ctx.fill(); // marker at the output edge
   };
   scan(concatBox, p1, y1);                               // concatenation → 1st hash
@@ -1250,20 +1250,20 @@ function drawNetwork(r) {
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
-  const gap = 18, chartW = (r.w - gap * 2) * 0.58, rightW = (r.w - gap * 2) * 0.42, ch = r.y + r.h - y - 6;
-  // mining power vs difficulty chart (the centerpiece)
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(r.x, y, chartW, ch, 8); ctx.fill();
-  text("Mining power vs difficulty", r.x + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-  drawMiningChart({ x: r.x + 14, y: y + 26, w: chartW - 28, h: ch - 36 });
-  // right column: BTC price (top) + next halving (bottom), stacked
-  const rx = r.x + chartW + gap, rh = (ch - 8) / 2;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(rx, y, rightW, rh, 8); ctx.fill();
-  text(model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", rx + 10, y + 15, { size: 13, weight: 600, color: "rgb(70,220,130)" });
-  sparkline({ x: rx + 10, y: y + 24, w: rightW - 20, h: rh - 32 }, model.priceHistory, "rgb(70,220,130)");
-  const hy = y + rh + 8;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(rx, hy, rightW, rh, 8); ctx.fill();
-  text("Next halving", rx + 10, hy + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-  drawHalvingCard({ x: rx + 12, y: hy + 26, w: rightW - 24, h: rh - 36 });
+  // all three indicators in one row: BTC price (left) · mining power vs difficulty (middle) · halving (right)
+  const gap = 16, totW = r.w - gap * 2, priceW = totW * 0.27, chartW = totW * 0.46, halvW = totW * 0.27, ch = r.y + r.h - y - 6;
+  let cx = r.x;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, priceW, ch, 8); ctx.fill();
+  text(model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", cx + 10, y + 15, { size: 13, weight: 600, color: "rgb(70,220,130)" });
+  sparkline({ x: cx + 10, y: y + 26, w: priceW - 20, h: ch - 36 }, model.priceHistory, "rgb(70,220,130)");
+  cx = r.x + priceW + gap;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, chartW, ch, 8); ctx.fill();
+  text("Mining power vs difficulty", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  drawMiningChart({ x: cx + 14, y: y + 26, w: chartW - 28, h: ch - 36 });
+  cx = r.x + priceW + chartW + gap * 2;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, halvW, ch, 8); ctx.fill();
+  text("Next halving", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  drawHalvingCard({ x: cx + 12, y: y + 30, w: halvW - 24, h: ch - 42 });
 }
 
 // ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----
