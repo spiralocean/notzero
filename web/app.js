@@ -114,14 +114,18 @@ async function refresh() {
     model.txCount = blk.tx_count;
     model.difficulty = blk.difficulty;
 
-    const nonce = await pickNonce(machineSeed(), blk.height);
-    const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
-    const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
-    const target = bitsToTarget(blk.bits);
-    const avNonce = (nonce + 1) >>> 0;
-    const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
-    const avalancheHex = bytesToHex(await sha256(avH1));
-    model.ticket = { nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+    // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
+    const seed = machineSeed();
+    if (!model.ticket || model.ticket.height !== blk.height || model.ticket.seed !== seed) {
+      const nonce = await pickNonce(seed, blk.height);
+      const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
+      const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
+      const target = bitsToTarget(blk.bits);
+      const avNonce = (nonce + 1) >>> 0;
+      const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
+      const avalancheHex = bytesToHex(await sha256(avH1));
+      model.ticket = { height: blk.height, seed, nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+    }
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
       if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name }));
@@ -330,7 +334,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.56.0";
+const VERSION = "web v0.57.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -606,6 +610,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — hash that result AGAIN → a new value · our submission", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
   hashRow(h2, p2, y2, lzHex2);
   if (ph.name === "hold") text(avalanche ? "same operation, same input but one flipped bit — every character differs (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${lzb2} leading zero bits — our submission for this block`), cx, y2 + 26, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.6)"), align: "center", baseline: "middle" });
+  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, r.y + r.h - 12, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises (in step with the segment)
