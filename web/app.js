@@ -175,6 +175,20 @@ function resize() {
 }
 window.addEventListener("resize", resize);
 
+// accessibility / battery: honour prefers-reduced-motion (calm the ambient rain) and pause the
+// animation loop entirely while the tab is hidden (no point burning CPU/battery on an unseen page)
+let reduceMotion = false;
+try {
+  const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
+  reduceMotion = mq.matches;
+  mq.addEventListener("change", (e) => { reduceMotion = e.matches; });
+} catch (_) { /* matchMedia unavailable */ }
+let rafId = 0;
+document.addEventListener("visibilitychange", () => {
+  if (document.hidden) { cancelAnimationFrame(rafId); rafId = 0; }
+  else if (!rafId) { rafId = requestAnimationFrame(render); } // resume where we left off
+});
+
 function text(s, x, y, { size = 16, weight = 400, color = "#fff", align = "left", baseline = "alphabetic", mono = false } = {}) {
   ctx.font = `${weight} ${size}px ${mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "-apple-system, system-ui, sans-serif"}`;
   ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = baseline;
@@ -217,6 +231,7 @@ function drawRain() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#06040c"); g.addColorStop(1, "#0a0603");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
+  if (reduceMotion) return; // reduced-motion: keep the calm gradient backdrop, skip the falling rain
   ensureRain();
   const pool = rainPool();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -359,7 +374,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.80.0";
+const VERSION = "web v0.81.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1334,7 +1349,8 @@ function render() {
 
   ctx.save();
   ctx.translate(0, -scrollY);
-  text("₿ITCOIN LOTTERY", W / 2, 40, { size: 28, weight: 800, align: "center", baseline: "middle" });
+  text("₿ITCOIN LOTTERY", W / 2, 38, { size: 28, weight: 800, align: "center", baseline: "middle" });
+  text("real Bitcoin solo mining — your node races the whole network for the block reward · astronomically long odds · a lottery ticket, not an investment", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
@@ -1399,7 +1415,7 @@ function render() {
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
   else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
   window.__q = { phase: quotePhase, idx: quoteIdx, next: quoteNext, bag: quoteBag.length };
-  requestAnimationFrame(render);
+  rafId = requestAnimationFrame(render);
 }
 
 // ---- interaction ----
