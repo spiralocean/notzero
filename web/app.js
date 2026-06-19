@@ -374,7 +374,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.82.0";
+const VERSION = "web v0.83.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1351,10 +1351,7 @@ function render() {
   ctx.save();
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 38, { size: 28, weight: 800, align: "center", baseline: "middle" });
-  const _diff = model.difficulty || 0;
-  const _sup = (n) => String(n).replace(/[0-9]/g, (d) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[+d]);
-  const _odds = _diff > 0 ? `~1 in 10${_sup(Math.round(Math.log10(_diff) + 9.633))} each block` : "astronomically long odds";
-  text(`real Bitcoin solo mining · ${_odds} · you'll almost certainly never win — the point is running your own node, not the payout`, W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
