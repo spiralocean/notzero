@@ -782,10 +782,9 @@ function drawMerkleTree(dr, buildP, showRoot) {
       ctx.strokeStyle = "rgba(255,205,110,0.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, 7); ctx.stroke();
       for (let s = 0; s < 3; s++) { const pr = (frame * 0.045 + s / 3 + ci * 0.16) % 1, x = c.x + (P.x - c.x) * pr, y = c.y + (P.y - c.y) * pr; ctx.fillStyle = `rgba(255,205,110,${0.85 * (1 - pr) + 0.15})`; ctx.fillText(CYBER[(frame + s * 5 + ci * 9) % CYBER.length], x, y); }
     });
-    // #13: a churning glyph at the junction — the SHA-256 chewing the two hashes into one, mid-fingerprint
+    // the node itself is the churning glyph now — here just label the operation at the junction
     const mx = (kids[0].x + kids[1].x) / 2, my = (kids[0].y + P.y) / 2;
-    text(CYBER[(frame >> 1) % CYBER.length], mx, my, { size: 16, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
-    text("⊕ SHA-256²", mx, my + 13, { size: 8, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
+    text("⊕ SHA-256²", mx, my, { size: 9, weight: 600, color: "rgba(255,205,110,0.72)", align: "center", baseline: "middle" });
   }
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
