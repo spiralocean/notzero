@@ -10,11 +10,22 @@ Run alongside the dev server:  python3 scripts/node_bridge.py
 import base64
 import json
 import pathlib
+import subprocess
 import sys
 import time
 import urllib.request
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+
+def miner_proc_stats():
+    """CPU% / RAM the lottery miner daemon is using — to show it's a lottery ticket, not a mining rig."""
+    try:
+        pid = subprocess.check_output(["pgrep", "-f", "lottery_miner.py"], text=True).split()[0]
+        cpu, rss = subprocess.check_output(["ps", "-o", "%cpu=,rss=", "-p", pid], text=True).split()
+        return {"cpu": round(float(cpu), 1), "mem_mb": round(int(rss) / 1024, 1)}
+    except Exception:  # noqa: BLE001 — daemon not running / not found
+        return None
 sys.path.insert(0, str(REPO))  # import the miner's real bech32 validator (single source of truth)
 try:
     from lottery_miner import validate_payout_address as _validate_payout
@@ -168,6 +179,7 @@ def build(url, user, pw):
         "pruned": chain.get("pruned", False),
         "mempool": mempool,
         "miner": miner,
+        "miner_proc": miner_proc_stats(),  # CPU%/RAM the miner daemon uses — calms 'is this a mining rig?' fears
         "payout": payout,
         "peers": peers,
     }

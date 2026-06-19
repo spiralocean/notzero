@@ -77,7 +77,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null };
 
 async function loadHistory() {
   try {
@@ -149,6 +149,7 @@ async function refresh() {
     }).catch(() => {});
     fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
     fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
+    fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { if (d && d.remainingBlocks != null) model.diffAdjust = d; }).catch(() => {}); // #2: next-difficulty estimate + timing
     model.error = null;
   } catch (e) {
     model.error = "Couldn't reach mempool.space — retrying…";
@@ -428,7 +429,8 @@ function drawCloseness(r) {
       text(sub, r.x + r.w - 16, y, { size: 11, weight: 600, color: lit, align: "right", baseline: "middle" });
     };
     if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros`);
-    if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros`);
+    const lastWin = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1], winPool = lastWin && lastWin.pool ? ` · won by ${lastWin.pool}` : "";
+    if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros${winPool}`);
     row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
     const best = mn.best;
     if (best && best.hash) { const bz = leadingZeroHexChars(best.hash); row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} (${best.zero_bits} bits)`); }
@@ -457,9 +459,20 @@ function drawCloseness(r) {
         ctx.beginPath(); ctx.arc(x, y, 1.7, 0, 7); ctx.fill();
       }
     }
+    // #15: past WINNERS — recent winning blocks by their leading-zero bits; they land LEFT of the target
+    // (most barely beat it; a lucky few reach much further left)
+    const winners = (model.recentBlocks || []).filter((w) => w.id).map((w) => 256 - BigInt("0x" + w.id).toString(2).length);
+    ctx.fillStyle = "rgba(90,225,140,0.6)";
+    winners.forEach((wb, i) => { const x = Math.max(tkX + 2, Math.min(winX - 1, px(wb) + (rnd(wb * 53 + i * 2.3) - 0.5) * 7)), y = tkY + 4 + rnd(wb * 61 + i * 5.1) * (bandH - 8); ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); });
     ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 3); ctx.lineTo(winX, tkY + bandH + 3); ctx.stroke(); // target = WIN line
     ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + bandH / 2, 3.2, 0, 7); ctx.fill(); // best (◆)
-    ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(px(youBits), tkY + bandH / 2, 3.4, 0, 7); ctx.fill(); // last (●)
+    // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
+    const yx = px(youBits), yy = tkY + bandH / 2;
+    ctx.strokeStyle = "rgba(10,8,4,0.75)"; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
+    ctx.strokeStyle = "rgba(255,140,80,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
+    ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.fill();
+    ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.stroke();
+    text("you", yx, tkY - 13, { size: 9, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
@@ -496,7 +509,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 16.0]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 30.0]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -628,9 +641,11 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
-  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 22, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  // #6: what makes the hash random
+  text("the randomness: every input is fixed, yet SHA-256's output is unpredictable — you can't aim, only compute & check", cx, y2 + 36, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 
-  const y3 = headerBottom + 108;
+  const y3 = headerBottom + 122;
   if (live) {
     const v = model.liveBuild;
     text(`${v.verified ? "✓ verified" : "⚠ mismatch"} — our double-SHA256 reproduces your node’s submission for block #${(height || 0).toLocaleString()}`, cx, y3, { size: 11, weight: 700, color: v.verified ? "rgb(90,220,140)" : "rgba(255,150,80,0.95)", align: "center", baseline: "middle" });
@@ -657,32 +672,38 @@ function fieldValueRow(strV, p, cx, cy, size, lead = 0) {
 // each header field's own animation in the pane, shown only while that field is being constructed
 function drawFieldDetail(idx, p, dr, b, tk, height) {
   const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2, h = height || model.tipHeight || 0;
-  const cap = (s) => text(s, cx, dr.y + 14, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  const cap = (s) => text(s, cx, dr.y + 12, { size: 12, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  const src = (s) => text("comes from: " + s, cx, dr.y + 28, { size: 10, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" }); // #3: where each part comes from
   if (idx === 0) {
-    cap("4 bytes — which consensus rules this block follows");
-    fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY, 26);
+    cap("version — which consensus rules this block follows");
+    src("the miner — a few bits signalling which soft-fork rules it supports");
+    fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY + 8, 26);
   } else if (idx === 1) {
-    cap(`⛓ links back to block #${(h - 1).toLocaleString()} — this is what makes it a chain`);
-    fieldValueRow(b.previousblockhash.slice(0, 40), p, cx, midY, 15);
+    cap("⛓ the previous block's hash — the literal link that forms the chain");
+    src("the current chain tip (block #" + (h - 1).toLocaleString() + ") — copied straight in");
+    fieldValueRow(b.previousblockhash.slice(0, 40), p, cx, midY + 8, 15);
   } else if (idx === 2) {
     drawMerkleTree(dr, p, true); // the merkle tree, building in step with this field
   } else if (idx === 3) {
-    cap("when the block was assembled");
-    text(new Date(b.timestamp * 1000).toUTCString().replace("GMT", "UTC"), cx, midY - 8, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", align: "center", baseline: "middle" });
-    fieldValueRow("unix " + b.timestamp, p, cx, midY + 20, 15);
+    cap("time — when the block was assembled (UTC)");
+    src("the miner's own clock at build time");
+    text(new Date(b.timestamp * 1000).toUTCString().replace("GMT", "UTC"), cx, midY + 4, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", align: "center", baseline: "middle" });
+    fieldValueRow("unix " + b.timestamp, p, cx, midY + 28, 15);
   } else if (idx === 4) {
-    cap("your hash must land BELOW this target to win:");
+    cap("bits — your hash must land BELOW this target to win:");
+    src("the network — recalculated every 2,016 blocks (~2 weeks) to keep blocks ~10 min apart");
     const tgt = bitsToTarget(b.bits).toString(16).padStart(64, "0").slice(0, 44), tlead = leadingZeroHexChars(tgt);
-    fieldValueRow(tgt, Math.max(p, 0.5), cx, midY, 14, tlead);
+    fieldValueRow(tgt, Math.max(p, 0.5), cx, midY + 8, 14, tlead);
     text(`${tlead} leading zeros required — that's the difficulty`, cx, dr.y + dr.h - 16, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   } else {
-    cap("your lottery number — a deterministic ticket, not a random guess");
+    cap("nonce — your lottery number; the one field a miner is free to change");
+    src("you (the miner) — every other field is fixed by the block, so this is the only knob to vary");
     const seed = machineSeed(), seedShort = seed.length > 24 ? seed.slice(0, 22) + "…" : seed;
     // the nonce is DERIVED: hash "seed:height", take the first 4 bytes → your ticket number for this block
-    text(`SHA-256( "${seedShort} : ${h.toLocaleString()}" )`, cx, dr.y + 42, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
-    text("↓  first 4 bytes", cx, dr.y + 64, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
-    fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 94, 24);
-    text("derived from this machine + this block — reproducible, unique to you, one draw", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    text(`SHA-256( "${seedShort} : ${h.toLocaleString()}" )`, cx, dr.y + 48, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
+    text("↓  first 4 bytes", cx, dr.y + 68, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
+    fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 96, 24);
+    text("we take ONE deterministic value — a real miner sweeps all ~4 billion of them", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   }
 }
 
@@ -745,6 +766,10 @@ function drawMerkleTree(dr, buildP, showRoot) {
       ctx.strokeStyle = "rgba(255,205,110,0.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, 7); ctx.stroke();
       for (let s = 0; s < 3; s++) { const pr = (frame * 0.045 + s / 3 + ci * 0.16) % 1, x = c.x + (P.x - c.x) * pr, y = c.y + (P.y - c.y) * pr; ctx.fillStyle = `rgba(255,205,110,${0.85 * (1 - pr) + 0.15})`; ctx.fillText(CYBER[(frame + s * 5 + ci * 9) % CYBER.length], x, y); }
     });
+    // #13: a churning glyph at the junction — the SHA-256 chewing the two hashes into one, mid-fingerprint
+    const mx = (kids[0].x + kids[1].x) / 2, my = (kids[0].y + P.y) / 2;
+    text(CYBER[(frame >> 1) % CYBER.length], mx, my, { size: 16, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+    text("⊕ SHA-256²", mx, my + 13, { size: 8, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
   }
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
@@ -1154,10 +1179,21 @@ function drawHalvingCard(b) {
 function drawNetwork(r) {
   let y = r.y + 16;
   if (model.difficulty) {
-    const odds = model.difficulty * 4294967296;
-    text(`Difficulty ${model.difficulty.toExponential(2)}  ·  ~1 in ${odds.toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 14, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
-    y += 26;
+    const hr = model.hashrateEh ? `${model.hashrateEh.toFixed(0)} EH/s mining` : "";
+    text(`Difficulty ${model.difficulty.toExponential(2)}${hr ? "  ·  " + hr : ""}  ·  ~1 in ${(model.difficulty * 4294967296).toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 13, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
+    y += 19;
+    // #2: mining power vs difficulty → estimated next difficulty + when it adjusts
+    const da = model.diffAdjust;
+    if (da && da.remainingBlocks != null) {
+      const chg = da.difficultyChange || 0, days = (da.remainingTime || 0) / 86400000, avgMin = da.timeAvg ? da.timeAvg / 60000 : null;
+      const pace = avgMin == null ? "" : ` · blocks avg ${avgMin.toFixed(1)} min — ${avgMin < 10 ? "miners outrunning difficulty → it rises" : "blocks slow → difficulty eases"}`;
+      text(`next difficulty in ${da.remainingBlocks.toLocaleString()} blocks (~${days.toFixed(1)} days) → est ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% (${chg >= 0 ? "harder" : "easier"})${pace}`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+      y += 19;
+    } else y += 7;
   }
+  // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
+  const mp = model.node && model.node.miner_proc;
+  if (mp) { text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
   const gap = 24, cw = (r.w - gap * 2) / 3, ch = r.y + r.h - y - 6;
   const cards = [
     { title: model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", spark: model.priceHistory, color: "rgb(70,220,130)" },
