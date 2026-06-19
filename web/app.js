@@ -791,7 +791,9 @@ function drawMerkleTree(dr, buildP, showRoot) {
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
   const cap = climbT < 0.999 ? "hash two together → one parent · climbing the tree, level by level"
     : expandT < 0.5 ? "↑ all the way up to one merkle root"
-      : "every transaction is a leaf — hashed in pairs up to one root";
+      : (Math.floor(frame / 270) % 2 === 0   // during the dwell, alternate the summary with the 'not frozen' note
+        ? "every transaction is a leaf — hashed in pairs up to one root"
+        : "and it re-computes as new transactions arrive — the block isn't frozen while it's mined");
   text(cap, dr.x + dr.w / 2, dr.y + dr.h - 18, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
   text(example
     ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
