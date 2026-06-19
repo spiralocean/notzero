@@ -322,7 +322,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.50.0";
+const VERSION = "web v0.51.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -619,9 +619,13 @@ function drawFieldDetail(idx, p, dr, b, tk) {
     fieldValueRow(tgt, Math.max(p, 0.5), cx, midY, 14, tlead);
     text(`${tlead} leading zeros required — that's the difficulty`, cx, dr.y + dr.h - 16, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   } else {
-    cap("the one field you change — your lottery number");
-    fieldValueRow("#" + tk.nonce.toLocaleString(), Math.max(p, 0.4), cx, midY, 24);
-    text("~4 billion values per pass — then change a field and hash again", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+    cap("your lottery number — a deterministic ticket, not a random guess");
+    const seed = machineSeed(), seedShort = seed.length > 24 ? seed.slice(0, 22) + "…" : seed;
+    // the nonce is DERIVED: hash "seed:height", take the first 4 bytes → your ticket number for this block
+    text(`SHA-256( "${seedShort} : ${(model.tipHeight || 0).toLocaleString()}" )`, cx, dr.y + 42, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
+    text("↓  first 4 bytes", cx, dr.y + 64, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
+    fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 94, 24);
+    text("derived from this machine + this block — reproducible, unique to you, one draw", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   }
 }
 
