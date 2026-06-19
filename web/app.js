@@ -632,8 +632,10 @@ function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   ctx.font = "12px ui-monospace, monospace"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
   let total = 0; for (const s of segs) total += ctx.measureText(s.t).width;
   let x = r.x + r.w / 2 - total / 2;
+  concatBox = { x, w: total, y }; // remember the extent so the hash machine can sweep a glyph across it
   for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
 }
+let concatBox = null;
 
 // concat → 1st SHA-256 → 2nd SHA-256, two aligned rows forming left-to-right. When `live`, these are the
 // REAL block's rounds (display order) and the 2nd row IS your node's submitted block hash — verified.
@@ -652,6 +654,15 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   };
 
   const y1 = headerBottom + 26, y2 = headerBottom + 66;
+  // a glyph sweeps across the SOURCE line as the OUTPUT below it resolves: concat→1st hash, then 1st→2nd
+  const scan = (box, prog) => {
+    if (!box || prog <= 0.02 || prog >= 0.99) return;
+    const sx = box.x + prog * box.w;
+    ctx.strokeStyle = "rgba(255,205,110,0.4)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, box.y - 9); ctx.lineTo(sx, box.y + 9); ctx.stroke();
+    text(CYBER[(frame * 2) % CYBER.length], sx, box.y, { size: 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+  };
+  scan(concatBox, p1);                                  // sweep the concatenation while the 1st hash forms
+  scan({ x: rowX, w: rowW, y: y1 }, p2);                 // sweep the 1st hash while the 2nd forms
   text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
