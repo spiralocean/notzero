@@ -77,12 +77,19 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null };
 
 async function loadHistory() {
   try {
     const hr = await (await fetch(`${API}/v1/mining/hashrate/1m`)).json();
-    if (hr?.hashrates) model.hashrateHistory = hr.hashrates.map((p) => p.avgHashrate / 1e18);
+    if (hr?.hashrates) {
+      model.hashrateHistory = hr.hashrates.map((p) => p.avgHashrate / 1e18);
+      // mining power vs difficulty: both as EH/s over time (difficulty → the hashrate it implies = diff·2^32/600)
+      model.miningSeries = {
+        hr: hr.hashrates.map((p) => ({ t: p.timestamp, v: p.avgHashrate / 1e18 })),
+        diff: (hr.difficulty || []).map((p) => ({ t: p.time, v: (p.difficulty * 4294967296 / 600) / 1e18 })),
+      };
+    }
   } catch {}
   try {
     const pr = await (await fetch(`${API}/v1/historical-price?currency=USD`)).json();
@@ -1193,37 +1200,66 @@ function drawHalvingCard(b) {
   ctx.fillStyle = `rgb(${ACCENT})`; roundRect(b.x, barY, b.w * Math.min(1, prog), 8, 4); ctx.fill();
 }
 
+// the difficulty target the network must mine against, expressed as the hashrate it implies (EH/s)
+function diffToEH(difficulty) { return difficulty * 4294967296 / 600 / 1e18; }
+
+// dual-line chart: actual mining power (hashrate) vs the difficulty-implied hashrate. Whether the power
+// line sits ABOVE or BELOW the difficulty line is the pending adjustment; a dashed line marks the retarget.
+function drawMiningChart(b) {
+  const ms = model.miningSeries, da = model.diffAdjust;
+  if (!ms || !ms.hr || ms.hr.length < 2) { text("collecting…", b.x + b.w / 2, b.y + b.h / 2, { size: 12, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" }); return; }
+  const hr = ms.hr, now = Date.now() / 1000;
+  const curDiffV = model.difficulty ? diffToEH(model.difficulty) : (ms.diff[ms.diff.length - 1] || {}).v || hr[hr.length - 1].v;
+  const diff = ms.diff && ms.diff.length ? ms.diff : [{ t: hr[0].t, v: curDiffV }];
+  const retargetT = da && da.remainingTime ? now + da.remainingTime / 1000 : now;
+  const t0 = hr[0].t, t1 = Math.max(now, retargetT);
+  const allV = hr.map((p) => p.v).concat(diff.map((p) => p.v), [curDiffV, model.hashrateEh || 0]).filter((v) => v > 0);
+  let vmin = Math.min(...allV), vmax = Math.max(...allV); const pv = (vmax - vmin) * 0.2 || vmax * 0.1; vmin -= pv; vmax += pv;
+  const X = (t) => b.x + Math.max(0, Math.min(1, (t - t0) / (t1 - t0))) * b.w, Y = (v) => b.y + b.h - (v - vmin) / (vmax - vmin) * b.h;
+  const nowX = X(now), rx = X(retargetT), curHash = model.hashrateEh || hr[hr.length - 1].v, above = curHash >= curDiffV, chg = da ? da.difficultyChange || 0 : 0;
+
+  // difficulty step line (held flat to the retarget), then a dashed projected step to the estimated new level
+  const step = [[t0, diff[0].v]];
+  for (let i = 0; i < diff.length; i++) { if (i > 0) step.push([diff[i].t, diff[i - 1].v]); step.push([diff[i].t, diff[i].v]); }
+  step.push([retargetT, curDiffV]);
+  const DIFF = "96,165,235"; // cool blue — distinct from the orange mining-power line
+  ctx.strokeStyle = `rgba(${DIFF},0.95)`; ctx.lineWidth = 2; ctx.beginPath(); step.forEach((p, i) => (i ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1])))); ctx.stroke();
+  if (da) { const nv = curDiffV * (1 + chg / 100); ctx.setLineDash([4, 3]); ctx.strokeStyle = `rgba(${DIFF},0.6)`; ctx.beginPath(); ctx.moveTo(rx, Y(curDiffV)); ctx.lineTo(rx, Y(nv)); ctx.stroke(); ctx.setLineDash([]); }
+  // actual mining power (hashrate)
+  ctx.strokeStyle = "rgba(255,180,90,0.95)"; ctx.lineWidth = 1.6; ctx.beginPath(); hr.forEach((p, i) => (i ? ctx.lineTo(X(p.t), Y(p.v)) : ctx.moveTo(X(p.t), Y(p.v)))); ctx.stroke();
+  // the gap right now = the pending adjustment
+  ctx.fillStyle = above ? "rgba(90,225,140,0.3)" : "rgba(255,150,80,0.3)"; ctx.fillRect(nowX - 3, Math.min(Y(curHash), Y(curDiffV)), 6, Math.abs(Y(curHash) - Y(curDiffV)) || 1);
+  // now + retarget verticals
+  ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(nowX, b.y); ctx.lineTo(nowX, b.y + b.h); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(rx, b.y); ctx.lineTo(rx, b.y + b.h); ctx.stroke(); ctx.setLineDash([]);
+  // labels
+  text("● mining power", b.x + 2, b.y + 7, { size: 9, weight: 600, color: "rgba(255,180,90,0.95)", baseline: "middle" });
+  text("● difficulty", b.x + 2, b.y + 19, { size: 9, weight: 600, color: "rgba(96,165,235,0.95)", baseline: "middle" });
+  if (da) text(`retarget ~${(da.remainingTime / 86400000).toFixed(1)}d`, rx - 4, b.y + 7, { size: 9, color: "rgba(255,255,255,0.6)", align: "right", baseline: "middle" });
+  text(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, nowX + 5, Y((curHash + curDiffV) / 2), { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", baseline: "middle" });
+}
+
 function drawNetwork(r) {
   let y = r.y + 16;
   if (model.difficulty) {
-    const hr = model.hashrateEh ? `${model.hashrateEh.toFixed(0)} EH/s mining` : "";
-    text(`Difficulty ${model.difficulty.toExponential(2)}${hr ? "  ·  " + hr : ""}  ·  ~1 in ${(model.difficulty * 4294967296).toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 13, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
+    const hr = model.hashrateEh ? `  ·  ${model.hashrateEh.toFixed(0)} EH/s mining` : "";
+    const pr = model.price ? `  ·  BTC $${Math.round(model.price).toLocaleString()}` : "";
+    text(`Difficulty ${model.difficulty.toExponential(2)}${hr}${pr}  ·  ~1 in ${(model.difficulty * 4294967296).toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 13, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
     y += 19;
-    // #2: mining power vs difficulty → estimated next difficulty + when it adjusts
-    const da = model.diffAdjust;
-    if (da && da.remainingBlocks != null) {
-      const chg = da.difficultyChange || 0, days = (da.remainingTime || 0) / 86400000, avgMin = da.timeAvg ? da.timeAvg / 60000 : null;
-      const pace = avgMin == null ? "" : ` · blocks avg ${avgMin.toFixed(1)} min — ${avgMin < 10 ? "miners outrunning difficulty → it rises" : "blocks slow → difficulty eases"}`;
-      text(`next difficulty in ${da.remainingBlocks.toLocaleString()} blocks (~${days.toFixed(1)} days) → est ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}% (${chg >= 0 ? "harder" : "easier"})${pace}`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
-      y += 19;
-    } else y += 7;
   }
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
-  const mp = model.node && model.node.miner_proc;
-  if (mp) { text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
-  const gap = 24, cw = (r.w - gap * 2) / 3, ch = r.y + r.h - y - 6;
-  const cards = [
-    { title: model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", spark: model.priceHistory, color: "rgb(70,220,130)" },
-    { title: model.hashrateEh ? `${model.hashrateEh.toFixed(0)} EH/s` : "Hashrate", spark: model.hashrateHistory, color: `rgb(${ACCENT})` },
-    { title: "Next halving", halving: true },
-  ];
-  cards.forEach((c, i) => {
-    const cx = r.x + i * (cw + gap);
-    ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, cw, ch, 8); ctx.fill();
-    text(c.title, cx + 10, y + 18, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-    const body = { x: cx + 10, y: y + 28, w: cw - 20, h: ch - 38 };
-    if (c.halving) drawHalvingCard(body); else sparkline(body, c.spark, c.color);
-  });
+  const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
+  if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
+  const gap = 22, chartW = (r.w - gap) * 0.64, halvW = (r.w - gap) * 0.36, ch = r.y + r.h - y - 6;
+  // mining power vs difficulty chart
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(r.x, y, chartW, ch, 8); ctx.fill();
+  text("Mining power vs difficulty", r.x + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  drawMiningChart({ x: r.x + 14, y: y + 26, w: chartW - 28, h: ch - 36 });
+  // next halving
+  const hx = r.x + chartW + gap;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(hx, y, halvW, ch, 8); ctx.fill();
+  text("Next halving", hx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  drawHalvingCard({ x: hx + 12, y: y + 28, w: halvW - 24, h: ch - 40 });
 }
 
 // ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----
