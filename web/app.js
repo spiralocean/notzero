@@ -351,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.63.0";
+const VERSION = "web v0.64.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -718,13 +718,15 @@ function drawMerkleTree(dr, buildP, showRoot) {
     ctx.strokeStyle = `rgba(${ACCENT},${0.3 * e})`; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(P.x, P.y); ctx.stroke();
   }
   for (let L = 0; L < rows; L++) {
-    const isRoot = L === rows - 1, fragLen = isRoot ? 6 : levels[L] > 8 ? 4 : 5, fy = L === 0 ? pos(0, 0).y + 13 : pos(L, 0).y - 10;
+    const isRoot = L === rows - 1;
     for (let k = 0; k < levels[L]; k++) {
       const a = alphaOf(L, k); if (a <= 0.03) continue;
-      const p = pos(L, k), forming = onSpine(L, k) && a > 0.12 && a < 0.97, rad = (isRoot ? 6 : 4) + (forming ? 1.5 : 0);
+      const p = pos(L, k), forming = onSpine(L, k) && a > 0.06 && a < 0.99, rad = (isRoot ? 6 : 4) + (forming ? 1.5 : 0);
+      const fragLen = isRoot ? 6 : forming ? 8 : levels[L] > 8 ? 4 : 5, fy = L === 0 ? p.y + 13 : p.y - 11;
       if (L === 0) { ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill(); }
       else { ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? `rgba(90,225,140,${a})` : `rgba(${ACCENT},${0.62 * a})`; ctx.fill(); if (isRoot && a > 0.5) { ctx.strokeStyle = `rgba(${ACCENT},${0.5 * a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, (isRoot ? 6 : 4) + 3, 0, 7); ctx.stroke(); } }
-      if (a > 0.35) text(frag(L, k, fragLen, a) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot ? 11 : 9, weight: isRoot ? 700 : 400, color: isRoot ? `rgba(90,225,140,${a})` : `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
+      // the hash GENERATING: a forming node churns through glyphs (amber, bigger) then locks in left-to-right
+      if (a > 0.3 || forming) text(frag(L, k, fragLen, a) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot || forming ? 11 : 9, weight: isRoot || forming ? 700 : 400, color: forming ? "rgb(255,205,110)" : isRoot ? `rgba(90,225,140,${a})` : `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
     }
   }
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
