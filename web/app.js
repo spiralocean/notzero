@@ -334,7 +334,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.57.0";
+const VERSION = "web v0.58.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -547,7 +547,7 @@ function drawHashBuild(r) {
   else if (ph.name === "pack") caption = "the whole string goes into SHA-256";
   else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
   else if (ph.name === "reveal") caption = "the hash forms, left to right…";
-  else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this is our submission · try again next block";
+  else caption = (model.node && model.node.miner && model.node.miner.attempt && model.node.miner.attempt.hash) ? "in-browser demo of the process — your node’s live submission is below ↓" : "this is our hash for this block · try again next block";
   text(caption, r.x + r.w / 2, concatY + 22, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
 
   // ---- ZONE 3: per-field detail while assembling; the hashing → our submission once the header is done
@@ -607,10 +607,18 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   const y1 = headerBottom + 30, y2 = headerBottom + 80;
   text(avalanche ? "one bit changed (nonce + 1) → a new 1st SHA-256" : grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 15, { size: 10, weight: 600, color: `rgba(${ACCENT},0.72)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0);
-  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — hash that result AGAIN → a new value · our submission", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
+  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — hash that result AGAIN → a new value (in-browser demo)", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
   hashRow(h2, p2, y2, lzHex2);
-  if (ph.name === "hold") text(avalanche ? "same operation, same input but one flipped bit — every character differs (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${lzb2} leading zero bits — our submission for this block`), cx, y2 + 26, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.6)"), align: "center", baseline: "middle" });
-  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, r.y + r.h - 12, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  if (ph.name === "hold" && avalanche) text("same operation, same input but one flipped bit — every character differs (the avalanche effect)", cx, y2 + 24, { size: 11, weight: 600, color: "rgb(90,225,140)", align: "center", baseline: "middle" });
+  else text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 24, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  // the daemon's ACTUAL live submission for the block it's mining — real data, separate from the demo above
+  const at = model.node && model.node.miner && model.node.miner.attempt;
+  if (at && at.hash) {
+    const az = at.leading_zero_bits != null ? at.leading_zero_bits : zeroBits(at.hash);
+    const below = at.target ? BigInt("0x" + at.hash) <= BigInt("0x" + at.target) : false;
+    text(`⚡ LIVE — your node’s actual submission · block #${(at.height || 0).toLocaleString()}`, cx, r.y + r.h - 38, { size: 11, weight: 700, color: "rgb(90,220,140)", align: "center", baseline: "middle" });
+    text(`${at.hash.slice(0, 40)}…  ·  ${az} leading zero bits  ·  ${below ? "BELOW target — WIN!" : "above the target"}`, cx, r.y + r.h - 21, { size: 11, color: below ? "rgb(90,225,140)" : "rgba(255,255,255,0.74)", align: "center", baseline: "middle", mono: true });
+  }
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises (in step with the segment)
