@@ -654,15 +654,20 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   };
 
   const y1 = headerBottom + 26, y2 = headerBottom + 66;
-  // a glyph sweeps across the SOURCE line as the OUTPUT below it resolves: concat→1st hash, then 1st→2nd
-  const scan = (box, prog) => {
-    if (!box || prog <= 0.02 || prog >= 0.99) return;
-    const sx = box.x + prog * box.w;
-    ctx.strokeStyle = "rgba(255,205,110,0.4)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, box.y - 9); ctx.lineTo(sx, box.y + 9); ctx.stroke();
-    text(CYBER[(frame * 2) % CYBER.length], sx, box.y, { size: 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+  // a glyph sweeps the SOURCE line in lockstep with the OUTPUT resolving below it. Source and output are
+  // different lengths, but both are driven by the same prog (0→1), so they finish together — the glyph just
+  // moves at sourceWidth/phase while the output fills at rowW/phase. A connector links the two.
+  const scan = (box, prog, outY) => {
+    if (!box || prog <= 0.02 || prog >= 0.995) return;
+    const sx = box.x + prog * box.w, ex = rowX + prog * rowW; // glyph on source; resolving edge on output
+    ctx.strokeStyle = "rgba(255,205,110,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, box.y + 11); ctx.lineTo(ex, outY - 11); ctx.stroke(); // connector
+    ctx.strokeStyle = "rgba(255,205,110,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, box.y - 12); ctx.lineTo(sx, box.y + 12); ctx.stroke();
+    ctx.fillStyle = "rgba(255,205,110,0.18)"; ctx.beginPath(); ctx.arc(sx, box.y, 12, 0, 7); ctx.fill(); // glow
+    text(CYBER[(frame * 3) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
+    ctx.fillStyle = "rgba(255,205,110,0.95)"; ctx.beginPath(); ctx.arc(ex, outY, 2.6, 0, 7); ctx.fill(); // marker at the output edge
   };
-  scan(concatBox, p1);                                  // sweep the concatenation while the 1st hash forms
-  scan({ x: rowX, w: rowW, y: y1 }, p2);                 // sweep the 1st hash while the 2nd forms
+  scan(concatBox, p1, y1);                               // concatenation → 1st hash
+  scan({ x: rowX, w: rowW, y: y1 }, p2, y2);             // 1st hash → 2nd hash
   text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
@@ -1245,16 +1250,20 @@ function drawNetwork(r) {
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
-  const gap = 22, chartW = (r.w - gap) * 0.64, halvW = (r.w - gap) * 0.36, ch = r.y + r.h - y - 6;
-  // mining power vs difficulty chart
+  const gap = 18, chartW = (r.w - gap * 2) * 0.58, rightW = (r.w - gap * 2) * 0.42, ch = r.y + r.h - y - 6;
+  // mining power vs difficulty chart (the centerpiece)
   ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(r.x, y, chartW, ch, 8); ctx.fill();
   text("Mining power vs difficulty", r.x + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
   drawMiningChart({ x: r.x + 14, y: y + 26, w: chartW - 28, h: ch - 36 });
-  // next halving
-  const hx = r.x + chartW + gap;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(hx, y, halvW, ch, 8); ctx.fill();
-  text("Next halving", hx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-  drawHalvingCard({ x: hx + 12, y: y + 28, w: halvW - 24, h: ch - 40 });
+  // right column: BTC price (top) + next halving (bottom), stacked
+  const rx = r.x + chartW + gap, rh = (ch - 8) / 2;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(rx, y, rightW, rh, 8); ctx.fill();
+  text(model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", rx + 10, y + 15, { size: 13, weight: 600, color: "rgb(70,220,130)" });
+  sparkline({ x: rx + 10, y: y + 24, w: rightW - 20, h: rh - 32 }, model.priceHistory, "rgb(70,220,130)");
+  const hy = y + rh + 8;
+  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(rx, hy, rightW, rh, 8); ctx.fill();
+  text("Next halving", rx + 10, hy + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  drawHalvingCard({ x: rx + 12, y: hy + 26, w: rightW - 24, h: rh - 36 });
 }
 
 // ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----
