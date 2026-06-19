@@ -334,7 +334,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.58.0";
+const VERSION = "web v0.59.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -479,7 +479,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 7.5]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 16.0]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -582,42 +582,37 @@ function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
 }
 
-// two stacked, ALIGNED hash rows under the concatenation: 1st SHA-256 → 2nd SHA-256 (our submission).
-// both 64 hex at identical spacing, so the two rounds line up and look the same — that's the "double".
-// Each row resolves left-to-right out of scrambling glyphs; in hold, flip one nonce bit (the avalanche).
+// PROCESS (demo): concat → 1st SHA-256 → 2nd SHA-256, both rows aligned, forming left-to-right.
+// FINAL HASH: the daemon's ACTUAL submission for the block being mined — the real thing, dwelt on.
 function drawHashMachine(r, ph, headerBottom, b, tk) {
   const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
-  let h1 = tk.hash1Hex || "", h2 = tk.hashHex || "", lzb2 = tk.prox.leadingZeroBits, settleP = 1, avalanche = false;
-  if (grind) settleP = 0;
-  else if (ph.name === "reveal") settleP = ph.p;
-  else { // hold: dwell on the result, then ~4s in, flip one nonce bit and re-hash (both rounds change)
-    const ht = ph.p * 7.5;
-    if (ht >= 4.0 && tk.avalancheHex) { avalanche = true; h1 = tk.avHash1Hex || ""; h2 = tk.avalancheHex; lzb2 = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 4.0) / 0.6); }
-  }
-  // sequential reveal: the 1st hash forms left-to-right, then the 2nd forms from it
-  const p1 = Math.min(1, settleP * 2), p2 = Math.max(0, settleP * 2 - 1), lzHex2 = leadingZeroHexChars(h2);
+  const settleP = grind ? 0 : ph.name === "reveal" ? ph.p : 1;
+  const h1 = tk.hash1Hex || "", h2 = tk.hashHex || "";
+  const p1 = Math.min(1, settleP * 2), p2 = Math.max(0, settleP * 2 - 1); // 1st forms, then 2nd forms from it
 
-  const rowX = r.x + 20, rowW = r.w - 40, sp = rowW / 64; // 64 hex chars, full width — both rows identical
-  const hashRow = (s, p, y, lead) => {
+  const rowX = r.x + 20, rowW = r.w - 40, sp = rowW / 64; // 64 hex chars, full width — rows line up
+  const hashRow = (s, p, y, lead, baseCol) => {
     const lit = Math.floor(p * 64);
     for (let i = 0; i < 64; i++) { const on = i < lit, isLead = lead && i < lead;
-      text(on ? (s[i] || "0") : churnChar(i), rowX + sp * (i + 0.5), y, { size: 13, weight: on && isLead ? 700 : 400, color: on ? (isLead ? "rgb(90,225,140)" : "rgba(255,255,255,0.82)") : "rgba(120,170,150,0.5)", align: "center", baseline: "middle", mono: true }); }
+      text(on ? (s[i] || "0") : churnChar(i), rowX + sp * (i + 0.5), y, { size: 13, weight: on && isLead ? 700 : 400, color: on ? (isLead ? "rgb(90,225,140)" : baseCol) : "rgba(120,170,150,0.5)", align: "center", baseline: "middle", mono: true }); }
   };
 
-  const y1 = headerBottom + 30, y2 = headerBottom + 80;
-  text(avalanche ? "one bit changed (nonce + 1) → a new 1st SHA-256" : grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 15, { size: 10, weight: 600, color: `rgba(${ACCENT},0.72)`, baseline: "middle" });
-  hashRow(h1, p1, y1, 0);
-  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — hash that result AGAIN → a new value (in-browser demo)", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
-  hashRow(h2, p2, y2, lzHex2);
-  if (ph.name === "hold" && avalanche) text("same operation, same input but one flipped bit — every character differs (the avalanche effect)", cx, y2 + 24, { size: 11, weight: 600, color: "rgb(90,225,140)", align: "center", baseline: "middle" });
-  else text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 24, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
-  // the daemon's ACTUAL live submission for the block it's mining — real data, separate from the demo above
-  const at = model.node && model.node.miner && model.node.miner.attempt;
+  const y1 = headerBottom + 22, y2 = headerBottom + 56;
+  text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 13, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.6)");
+  text("2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 13, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  hashRow(h2, p2, y2, 0, "rgba(255,255,255,0.6)");
+  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+
+  // THE FINAL HASH — your node's ACTUAL submission for the block being mined (real data from the daemon)
+  const at = model.node && model.node.miner && model.node.miner.attempt, y3 = headerBottom + 112;
   if (at && at.hash) {
     const az = at.leading_zero_bits != null ? at.leading_zero_bits : zeroBits(at.hash);
     const below = at.target ? BigInt("0x" + at.hash) <= BigInt("0x" + at.target) : false;
-    text(`⚡ LIVE — your node’s actual submission · block #${(at.height || 0).toLocaleString()}`, cx, r.y + r.h - 38, { size: 11, weight: 700, color: "rgb(90,220,140)", align: "center", baseline: "middle" });
-    text(`${at.hash.slice(0, 40)}…  ·  ${az} leading zero bits  ·  ${below ? "BELOW target — WIN!" : "above the target"}`, cx, r.y + r.h - 21, { size: 11, color: below ? "rgb(90,225,140)" : "rgba(255,255,255,0.74)", align: "center", baseline: "middle", mono: true });
+    text(`⚡ YOUR ACTUAL SUBMISSION · block #${(at.height || 0).toLocaleString()}  ·  ${az} leading zero bit${az === 1 ? "" : "s"}  ·  ${below ? "BELOW target — WIN!" : "above the target"}`, rowX, y3 - 14, { size: 10, weight: 700, color: "rgb(90,220,140)", baseline: "middle" });
+    hashRow(at.hash, 1, y3, leadingZeroHexChars(at.hash), "rgba(255,255,255,0.92)");
+  } else {
+    text("connect your node to see your real submission here", cx, y3, { size: 10, color: "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
   }
 }
 
