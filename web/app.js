@@ -359,7 +359,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.78.0";
+const VERSION = "web v0.79.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -808,15 +808,15 @@ function drawMerkleTree(dr, buildP, showRoot) {
   }
   // label the operation at the level that's hashing up right now
   if (activeL >= 1 && activeL < rows && lvlP(activeL) > 0.05 && lvlP(activeL) < 0.95)
-    text("⊕ SHA-256² — every pair hashes up to the next level", dr.x + dr.w / 2, pos(activeL, 0).y - 24, { size: 9, weight: 600, color: "rgba(255,205,110,0.78)", align: "center", baseline: "middle" });
+    text("⊕ SHA-256² — each parent is the hash of the two below it", dr.x + dr.w / 2, pos(activeL, 0).y - 24, { size: 9, weight: 600, color: "rgba(255,205,110,0.78)", align: "center", baseline: "middle" });
 
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
   const cap = built < rows - 0.3
     ? "every pair of hashes hashes up to the next level — bottom to top"
-    : (Math.floor(frame / 270) % 2 === 0   // during the completed-tree dwell, alternate the summary + 'not frozen'
-      ? "every transaction is a leaf — hashed in pairs up to one root"
-      : "and it re-computes as new transactions arrive — the block isn't frozen while it's mined");
+    : ["every node here is a hash — leaves are txids, the top is the merkle root",   // make explicit the node text is a hash
+       "every transaction is a leaf — hashed in pairs up to one root",
+       "and it re-computes as new transactions arrive — the block isn't frozen while it's mined"][Math.floor(frame / 270) % 3];
   text(cap, dr.x + dr.w / 2, dr.y + dr.h - 18, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
   text(example
     ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
