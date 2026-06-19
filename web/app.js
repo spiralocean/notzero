@@ -322,7 +322,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.49.0";
+const VERSION = "web v0.50.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -487,6 +487,7 @@ function drawHashBuild(r) {
   const ph = phaseAt(t);
   const assembling = ph.name === "assemble";
   const lockedCount = assembling ? Math.min(6, Math.floor(ph.p * 6)) : 6;
+  window.__hb = { phase: ph.name, field: assembling ? Math.min(5, lockedCount) : -1 };
   const rawFrac = assembling ? ph.p * 6 - lockedCount : 1;
   const fillFrac = Math.min(1, rawFrac / 0.6); // fill over the first 60% of each field's slot, then hold — a longer pause between segments
 
@@ -624,36 +625,49 @@ function drawFieldDetail(idx, p, dr, b, tk) {
   }
 }
 
-// The merkle root is the top of a binary tree: every transaction is a leaf, leaves are hashed in pairs
-// up to a single root. Show that structure — leaves at the bottom, pair→parent edges, the root on top —
-// building level by level as buildP rises (0 → just leaves, 1 → complete with the root lit).
+// The merkle root is the top of a binary tree: every transaction is hashed (SHA-256²) into a txid, then
+// txids are hashed together in pairs, level by level, up to one root. Show the HASHING: tx chips emit a
+// txid, then each pair's hashes lock into a parent hash, bottom-up as buildP rises; the root is the real one.
+const _HEX = "0123456789abcdef";
 function drawMerkleTree(dr, buildP, showRoot) {
   const real = model.txCount || 4;
   const n = Math.min(16, Math.max(2, real)); // representative leaves
   const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
   const rows = levels.length, built = buildP * rows;
-  const topY = dr.y + 12, botY = dr.y + dr.h - 30, gap = (botY - topY) / Math.max(1, rows - 1);
+  const topY = dr.y + 20, botY = dr.y + dr.h - 34, gap = (botY - topY) / Math.max(1, rows - 1);
   const pos = (L, k) => ({ x: dr.x + dr.w * (k + 0.5) / levels[L], y: botY - L * gap });
-  // edges: each node links up to its parent (the pair-hash), fading in as the parent level builds
+  const rootHex = (model.block && model.block.merkle_root) || "";
+  // a node's hash fragment, scrambling then locking in as `lockP` rises (root shows the REAL root prefix)
+  const frag = (L, k, len, lockP) => {
+    const lit = Math.ceil(Math.max(0, Math.min(1, lockP)) * len);
+    let s = "";
+    for (let i = 0; i < len; i++) s += i < lit ? (L === rows - 1 && rootHex ? rootHex[i] : _HEX[Math.floor(hrand(L * 31.7 + k * 7.3 + i * 1.9) * 16)]) : churnChar(i + L * 5 + k);
+    return s;
+  };
+  // edges: each node links up to its parent (the pair-hash), fading in as the parent level hashes
   ctx.lineWidth = 1;
   for (let L = 0; L < rows - 1; L++) {
     const e = Math.max(0, Math.min(1, built - (L + 1))); if (e <= 0) continue;
-    ctx.strokeStyle = `rgba(${ACCENT},${0.3 * e})`;
+    ctx.strokeStyle = `rgba(${ACCENT},${0.28 * e})`;
     for (let k = 0; k < levels[L]; k++) { const a = pos(L, k), p = pos(L + 1, k >> 1); ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(p.x, p.y); ctx.stroke(); }
   }
-  // nodes — leaves always present; upper levels light up as they're built; root ringed
+  // nodes + their hashes, locking level by level bottom-up (leaves = tx chips emitting a txid)
   for (let L = 0; L < rows; L++) {
-    const on = L === 0 || L < built, isRoot = L === rows - 1, rad = isRoot ? 6 : 4;
+    const isRoot = L === rows - 1, lvlP = L === 0 ? Math.min(1, built) : Math.max(0, Math.min(1, built - L)), on = L === 0 || lvlP > 0;
+    const fragLen = isRoot ? 6 : levels[L] > 8 ? 4 : 5, fy = L === 0 ? pos(0, 0).y + 13 : pos(L, 0).y - 10;
     for (let k = 0; k < levels[L]; k++) {
-      const p = pos(L, k);
-      ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7);
-      ctx.fillStyle = on ? (isRoot ? `rgb(${ACCENT})` : `rgba(${ACCENT},0.6)`) : "rgba(255,255,255,0.12)"; ctx.fill();
-      if (isRoot && on) { ctx.strokeStyle = `rgba(${ACCENT},0.5)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); }
+      const p = pos(L, k), rad = isRoot ? 6 : 4;
+      if (L === 0) { ctx.fillStyle = `rgba(${ACCENT},${0.25 + 0.35 * lvlP})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill(); }
+      else { ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = on ? (isRoot ? `rgb(${ACCENT})` : `rgba(${ACCENT},0.6)`) : "rgba(255,255,255,0.12)"; ctx.fill(); if (isRoot) { ctx.strokeStyle = `rgba(${ACCENT},0.5)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); } }
+      if (on) text(frag(L, k, fragLen, lvlP) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot ? 11 : 9, weight: isRoot ? 700 : 400, color: isRoot ? "rgb(90,225,140)" : lvlP >= 1 ? "rgba(255,255,255,0.78)" : "rgba(120,165,150,0.7)", align: "center", baseline: "middle", mono: true });
     }
   }
-  text(`${real.toLocaleString()} transactions`, dr.x + dr.w / 2, botY + 14, { size: 11, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
-  text("hashed in pairs, all the way up to one root", dr.x + dr.w / 2, botY + 27, { size: 10, color: "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
-  if (showRoot && built >= rows - 0.01) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 16, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
+  // phase-aware caption — narrates the two hashing steps as they happen
+  const cap2 = built < 1 ? `${real.toLocaleString()} transactions → each hashed (SHA-256²) into its txid`
+    : built < rows - 0.01 ? "each pair of hashes → hashed together into one parent"
+      : `${real.toLocaleString()} transactions → one merkle root`;
+  text(cap2, dr.x + dr.w / 2, dr.y + dr.h - 8, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
+  if (showRoot && built >= rows - 0.01) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
 }
 
 // ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
