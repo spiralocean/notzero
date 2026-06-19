@@ -465,6 +465,14 @@ function drawCloseness(r) {
     ctx.fillStyle = "rgba(90,225,140,0.6)";
     winners.forEach((wb, i) => { const x = Math.max(tkX + 2, Math.min(winX - 1, px(wb) + (rnd(wb * 53 + i * 2.3) - 0.5) * 7)), y = tkY + 4 + rnd(wb * 61 + i * 5.1) * (bandH - 8); ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); });
     ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 3); ctx.lineTo(winX, tkY + bandH + 3); ctx.stroke(); // target = WIN line
+    // #2: highlight the LAST winner (the most recent block) among the winners cloud
+    const lw = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1];
+    if (lw && lw.id) {
+      const lwx = px(256 - BigInt("0x" + lw.id).toString(2).length);
+      ctx.fillStyle = "rgb(90,235,150)"; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.fill();
+      ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
+      text("last win", lwx, tkY - 13, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+    }
     ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + bandH / 2, 3.2, 0, 7); ctx.fill(); // best (◆)
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
@@ -700,8 +708,9 @@ function drawFieldDetail(idx, p, dr, b, tk, height) {
     src("you (the miner) — every other field is fixed by the block, so this is the only knob to vary");
     const seed = machineSeed(), seedShort = seed.length > 24 ? seed.slice(0, 22) + "…" : seed;
     // the nonce is DERIVED: hash "seed:height", take the first 4 bytes → your ticket number for this block
-    text(`SHA-256( "${seedShort} : ${h.toLocaleString()}" )`, cx, dr.y + 48, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
-    text("↓  first 4 bytes", cx, dr.y + 68, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
+    text(`SHA-256( "${seedShort}  :  ${h.toLocaleString()}" )`, cx, dr.y + 44, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
+    text("( machine seed  :  block height )", cx, dr.y + 60, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" }); // #4: label the parts
+    text("↓  first 4 bytes", cx, dr.y + 78, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
     fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 96, 24);
     text("we take ONE deterministic value — a real miner sweeps all ~4 billion of them", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   }
@@ -746,12 +755,19 @@ function drawMerkleTree(dr, buildP, showRoot) {
     const isRoot = L === rows - 1;
     for (let k = 0; k < levels[L]; k++) {
       const a = alphaOf(L, k); if (a <= 0.03) continue;
-      const p = pos(L, k), forming = onSpine(L, k) && a > 0.06 && a < 0.99, rad = (isRoot ? 6 : 4) + (forming ? 1.5 : 0);
-      const fragLen = isRoot ? 6 : forming ? 8 : levels[L] > 8 ? 4 : 5, fy = L === 0 ? p.y + 13 : p.y - 11;
-      if (L === 0) { ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill(); }
-      else { ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? `rgba(90,225,140,${a})` : `rgba(${ACCENT},${0.62 * a})`; ctx.fill(); if (isRoot && a > 0.5) { ctx.strokeStyle = `rgba(${ACCENT},${0.5 * a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, (isRoot ? 6 : 4) + 3, 0, 7); ctx.stroke(); } }
-      // the hash GENERATING: a forming node churns through glyphs (amber, bigger) then locks in left-to-right
-      if (a > 0.3 || forming) text(frag(L, k, fragLen, a) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot || forming ? 11 : 9, weight: isRoot || forming ? 700 : 400, color: forming ? "rgb(255,205,110)" : isRoot ? `rgba(90,225,140,${a})` : `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
+      const p = pos(L, k), fy = L === 0 ? p.y + 13 : p.y - 11;
+      if (L === 0) { // leaves are transaction chips + their txid
+        ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill();
+        if (a > 0.3) text(frag(L, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 9, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
+      } else if (a < 0.9) {
+        // BEING HASHED: the node is a churning glyph (no circle, no hash yet)
+        text(churnChar(L * 11 + k * 5), p.x, p.y, { size: isRoot ? 16 : 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+      } else { // HASHED: settle to a circle, with its hash above
+        const rad = isRoot ? 6 : 4;
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? `rgba(90,225,140,${a})` : `rgba(${ACCENT},${0.62 * a})`; ctx.fill();
+        if (isRoot) { ctx.strokeStyle = `rgba(${ACCENT},${0.5 * a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); }
+        text(frag(L, k, isRoot ? 6 : levels[L] > 8 ? 4 : 5, 1) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot ? 11 : 9, weight: isRoot ? 700 : 400, color: isRoot ? "rgb(90,225,140)" : "rgba(255,255,255,0.78)", align: "center", baseline: "middle", mono: true });
+      }
     }
   }
   // FINGERPRINTING: the two child hashes glow and stream their glyphs UP both edges, converging into the
