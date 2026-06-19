@@ -102,6 +102,23 @@ async function pollNode() {
     // so the elapsed/countdown stays synced with current mining instead of lagging up to REFRESH_MS
     const n = model.node;
     if (n && n.reachable !== false && !n.initialblockdownload && Math.floor(n.blocks || 0) > (model.tipHeight || 0)) refresh();
+    // rebuild the EXACT 80-byte header the daemon hashed → the whole HASH BUILD shows the real block,
+    // and we verify our double-SHA256 reproduces the daemon's submitted hash byte-for-byte
+    const at = n && n.miner && n.miner.attempt;
+    if (at && at.hash && at.version != null && at.timestamp != null && at.prev_hash && at.merkle_root && at.bits != null) {
+      if (!model.liveBuild || model.liveBuild.hash !== at.hash) {
+        const header = serializeHeader({ version: at.version, previousblockhash: at.prev_hash, merkle_root: at.merkle_root, timestamp: at.timestamp, bits: at.bits }, at.nonce);
+        const h1 = await sha256(header), h2 = await sha256(h1), disp = bytesToHex([...h2].reverse());
+        model.liveBuild = {
+          hash: at.hash, height: at.height, version: at.version, prevHash: at.prev_hash, merkleRoot: at.merkle_root,
+          timestamp: at.timestamp, bits: at.bits, nonce: at.nonce, txCount: at.tx_count,
+          hash1Display: bytesToHex([...h1].reverse()), hash2Display: disp,
+          leadingZeroBits: at.leading_zero_bits, target: at.target,
+          below: at.target ? BigInt("0x" + at.hash) <= BigInt("0x" + at.target) : false,
+          verified: disp === at.hash,
+        };
+      }
+    } else model.liveBuild = null;
   } catch { model.node = null; }
 }
 
@@ -334,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.59.0";
+const VERSION = "web v0.60.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -492,8 +509,12 @@ function zeroBits(hex) { return hex ? 256 - BigInt("0x" + hex).toString(2).lengt
 
 function drawHashBuild(r) {
   if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
-  const b = model.block, tk = model.ticket;
-  if (ceremony.height !== model.tipHeight) { ceremony.height = model.tipHeight; ceremony.t = 0; }
+  // when the daemon is live, build the EXACT block it's mining (real, verified); else the in-browser demo
+  const live = model.liveBuild;
+  const b = live ? { version: live.version, previousblockhash: live.prevHash, merkle_root: live.merkleRoot, timestamp: live.timestamp, bits: live.bits } : model.block;
+  const tk = live ? { nonce: live.nonce, hash1Hex: live.hash1Display, hashHex: live.hash2Display, prox: { leadingZeroBits: live.leadingZeroBits, won: live.below } } : model.ticket;
+  const buildHeight = live ? live.height : model.tipHeight;
+  if (ceremony.height !== buildHeight) { ceremony.height = buildHeight; ceremony.t = 0; }
   ceremony.t += 1 / 60;
   const t = ceremony.t % CYCLE_LEN, cyc = Math.floor(ceremony.t / CYCLE_LEN);
   if (cyc !== ceremony.cycle) { ceremony.cycle = cyc; ceremony.order = shuffled(40); }
@@ -506,7 +527,7 @@ function drawHashBuild(r) {
 
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
-  text(`Building your ticket — block #${model.tipHeight.toLocaleString()}`, r.x + r.w / 2, r.y + 20, { size: 14, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
+  text(`${live ? "Hashing your block" : "Building your ticket"} — block #${buildHeight.toLocaleString()}`, r.x + r.w / 2, r.y + 20, { size: 14, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
 
   // byte-proportional, two-row header: column title (row 1) + the data result directly under it (row 2)
   const barX = r.x + 18, barW = r.w - 36, barY = r.y + 32, barH = 22, total = 80;
@@ -547,14 +568,14 @@ function drawHashBuild(r) {
   else if (ph.name === "pack") caption = "the whole string goes into SHA-256";
   else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
   else if (ph.name === "reveal") caption = "the hash forms, left to right…";
-  else caption = (model.node && model.node.miner && model.node.miner.attempt && model.node.miner.attempt.hash) ? "in-browser demo of the process — your node’s live submission is below ↓" : "this is our hash for this block · try again next block";
+  else caption = live ? "the exact block your node is mining — its real hash is below ↓" : "this is our hash for this block · try again next block";
   text(caption, r.x + r.w / 2, concatY + 22, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
 
   // ---- ZONE 3: per-field detail while assembling; the hashing → our submission once the header is done
   const detailTop = concatY + 40;
   const dr = { x: r.x + 24, y: detailTop, w: r.w - 48, h: (r.y + r.h - 10) - detailTop };
-  if (assembling) drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
-  else drawHashMachine(r, ph, detailTop - 4, b, tk);
+  if (assembling) drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk, buildHeight);
+  else drawHashMachine(r, ph, detailTop - 4, b, tk, live, buildHeight);
 }
 
 // the concatenation as a human-readable string, coloured per field, building left-to-right as fields lock
@@ -582,13 +603,14 @@ function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
 }
 
-// PROCESS (demo): concat → 1st SHA-256 → 2nd SHA-256, both rows aligned, forming left-to-right.
-// FINAL HASH: the daemon's ACTUAL submission for the block being mined — the real thing, dwelt on.
-function drawHashMachine(r, ph, headerBottom, b, tk) {
+// concat → 1st SHA-256 → 2nd SHA-256, two aligned rows forming left-to-right. When `live`, these are the
+// REAL block's rounds (display order) and the 2nd row IS your node's submitted block hash — verified.
+function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
   const settleP = grind ? 0 : ph.name === "reveal" ? ph.p : 1;
   const h1 = tk.hash1Hex || "", h2 = tk.hashHex || "";
   const p1 = Math.min(1, settleP * 2), p2 = Math.max(0, settleP * 2 - 1); // 1st forms, then 2nd forms from it
+  const lz2 = live ? leadingZeroHexChars(h2) : 0; // green leading zeros only on the real (display-order) submission
 
   const rowX = r.x + 20, rowW = r.w - 40, sp = rowW / 64; // 64 hex chars, full width — rows line up
   const hashRow = (s, p, y, lead, baseCol) => {
@@ -597,22 +619,20 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
       text(on ? (s[i] || "0") : churnChar(i), rowX + sp * (i + 0.5), y, { size: 13, weight: on && isLead ? 700 : 400, color: on ? (isLead ? "rgb(90,225,140)" : baseCol) : "rgba(120,170,150,0.5)", align: "center", baseline: "middle", mono: true }); }
   };
 
-  const y1 = headerBottom + 22, y2 = headerBottom + 56;
-  text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 13, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
-  hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.6)");
-  text("2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 13, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
-  hashRow(h2, p2, y2, 0, "rgba(255,255,255,0.6)");
-  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  const y1 = headerBottom + 26, y2 = headerBottom + 66;
+  text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
+  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
+  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 22, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 
-  // THE FINAL HASH — your node's ACTUAL submission for the block being mined (real data from the daemon)
-  const at = model.node && model.node.miner && model.node.miner.attempt, y3 = headerBottom + 112;
-  if (at && at.hash) {
-    const az = at.leading_zero_bits != null ? at.leading_zero_bits : zeroBits(at.hash);
-    const below = at.target ? BigInt("0x" + at.hash) <= BigInt("0x" + at.target) : false;
-    text(`⚡ YOUR ACTUAL SUBMISSION · block #${(at.height || 0).toLocaleString()}  ·  ${az} leading zero bit${az === 1 ? "" : "s"}  ·  ${below ? "BELOW target — WIN!" : "above the target"}`, rowX, y3 - 14, { size: 10, weight: 700, color: "rgb(90,220,140)", baseline: "middle" });
-    hashRow(at.hash, 1, y3, leadingZeroHexChars(at.hash), "rgba(255,255,255,0.92)");
+  const y3 = headerBottom + 108;
+  if (live) {
+    const v = model.liveBuild;
+    text(`${v.verified ? "✓ verified" : "⚠ mismatch"} — our double-SHA256 reproduces your node’s submission for block #${(height || 0).toLocaleString()}`, cx, y3, { size: 11, weight: 700, color: v.verified ? "rgb(90,220,140)" : "rgba(255,150,80,0.95)", align: "center", baseline: "middle" });
+    text(`${v.leadingZeroBits} leading zero bit${v.leadingZeroBits === 1 ? "" : "s"}  ·  ${v.below ? "BELOW the target — WIN!" : "above the target (no win this block)"}`, cx, y3 + 18, { size: 11, color: v.below ? "rgb(90,225,140)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
   } else {
-    text("connect your node to see your real submission here", cx, y3, { size: 10, color: "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    text("in-browser demo — connect your node to hash the real block you're mining", cx, y3, { size: 10, color: "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
   }
 }
 
@@ -631,14 +651,14 @@ function fieldValueRow(strV, p, cx, cy, size, lead = 0) {
 }
 
 // each header field's own animation in the pane, shown only while that field is being constructed
-function drawFieldDetail(idx, p, dr, b, tk) {
-  const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2;
+function drawFieldDetail(idx, p, dr, b, tk, height) {
+  const cx = dr.x + dr.w / 2, midY = dr.y + dr.h / 2, h = height || model.tipHeight || 0;
   const cap = (s) => text(s, cx, dr.y + 14, { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (idx === 0) {
     cap("4 bytes — which consensus rules this block follows");
     fieldValueRow("0x" + (b.version >>> 0).toString(16).padStart(8, "0"), p, cx, midY, 26);
   } else if (idx === 1) {
-    cap(`⛓ links back to block #${(model.tipHeight - 1).toLocaleString()} — this is what makes it a chain`);
+    cap(`⛓ links back to block #${(h - 1).toLocaleString()} — this is what makes it a chain`);
     fieldValueRow(b.previousblockhash.slice(0, 40), p, cx, midY, 15);
   } else if (idx === 2) {
     drawMerkleTree(dr, p, true); // the merkle tree, building in step with this field
@@ -655,7 +675,7 @@ function drawFieldDetail(idx, p, dr, b, tk) {
     cap("your lottery number — a deterministic ticket, not a random guess");
     const seed = machineSeed(), seedShort = seed.length > 24 ? seed.slice(0, 22) + "…" : seed;
     // the nonce is DERIVED: hash "seed:height", take the first 4 bytes → your ticket number for this block
-    text(`SHA-256( "${seedShort} : ${(model.tipHeight || 0).toLocaleString()}" )`, cx, dr.y + 42, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
+    text(`SHA-256( "${seedShort} : ${h.toLocaleString()}" )`, cx, dr.y + 42, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
     text("↓  first 4 bytes", cx, dr.y + 64, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
     fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 94, 24);
     text("derived from this machine + this block — reproducible, unique to you, one draw", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
@@ -667,13 +687,13 @@ function drawFieldDetail(idx, p, dr, b, tk) {
 // txid, then each pair's hashes lock into a parent hash, bottom-up as buildP rises; the root is the real one.
 const _HEX = "0123456789abcdef";
 function drawMerkleTree(dr, buildP, showRoot) {
-  const real = model.txCount || 4;
+  const real = (model.liveBuild && model.liveBuild.txCount) || model.txCount || 4;
   const n = Math.min(16, Math.max(2, real)); // representative leaves
   const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
   const rows = levels.length, built = buildP * rows;
   const topY = dr.y + 20, botY = dr.y + dr.h - 34, gap = (botY - topY) / Math.max(1, rows - 1);
   const pos = (L, k) => ({ x: dr.x + dr.w * (k + 0.5) / levels[L], y: botY - L * gap });
-  const rootHex = (model.block && model.block.merkle_root) || "";
+  const rootHex = (model.liveBuild && model.liveBuild.merkleRoot) || (model.block && model.block.merkle_root) || "";
   // a node's hash fragment, scrambling then locking in as `lockP` rises (root shows the REAL root prefix)
   const frag = (L, k, len, lockP) => {
     const lit = Math.ceil(Math.max(0, Math.min(1, lockP)) * len);

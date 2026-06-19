@@ -131,6 +131,13 @@ def build(url, user, pw):
                     "nonce": la.get("nonce"),
                     "won": la.get("won"),
                     "leading_zero_bits": prox.get("leading_zero_bits"),
+                    # full header fields → the dashboard can rebuild the exact 80-byte header we hashed
+                    "version": la.get("version"),
+                    "prev_hash": la.get("prev_hash"),
+                    "merkle_root": la.get("merkle_root_hex"),
+                    "timestamp": la.get("timestamp"),
+                    "bits": la.get("bits"),
+                    "tx_count": la.get("tx_count"),
                 } if la else None,
                 "winner": {
                     "hash": win.get("hash_hex"),

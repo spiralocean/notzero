@@ -71,6 +71,8 @@ class BlockAttempt:
     attempted_at: str = ""
     merkle_root_hex: str = ""
     tx_count: int = 0
+    version: int = 0       # full header field, so the dashboard can rebuild the exact header we hashed
+    timestamp: int = 0
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -758,6 +760,8 @@ def symbolic_attempt(height: int, machine_seed: str) -> BlockAttempt:
         attempted_at=utc_now(),
         merkle_root_hex=block.get("merkle_root", ""),
         tx_count=int(block.get("tx_count", 1) or 1),
+        version=int(block["version"]),
+        timestamp=int(block["timestamp"]),
     )
 
 
@@ -819,6 +823,8 @@ def live_attempt(
         attempted_at=utc_now(),
         merkle_root_hex=merkle_root,
         tx_count=1 + len(mempool_txs),
+        version=int(template["version"]),
+        timestamp=int(template["curtime"]),
     )
 
 
