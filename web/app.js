@@ -351,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.60.0";
+const VERSION = "web v0.61.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -420,7 +420,7 @@ function drawCloseness(r) {
     const winner = (model.block && model.block.id) || "";
     const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
     text("YOUR LIVE ATTEMPT vs THE TARGET & WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-    const rowX = r.x + 16, hx0 = rowX + 58, n = 40, rowW = r.w - 250, sp = rowW / n;
+    const rowX = r.x + 16, hx0 = rowX + 58, n = 64, rowW = r.w - 250, sp = rowW / n; // full 64-hex so it matches the HASH BUILD final hash exactly
     const row = (label, hex, y, lit, sub) => {
       text(label, rowX, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.5)", baseline: "middle" });
       const lead = leadingZeroHexChars(hex), show = hex.slice(0, n);
