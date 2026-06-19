@@ -359,7 +359,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.77.0";
+const VERSION = "web v0.78.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -445,14 +445,20 @@ function drawCloseness(r) {
     const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
-    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24;
-    const px = (b) => tkX + tkW * (1 - Math.min(1, Math.max(0, b / axisMax))); // smaller value (more zeros) → LEFT
+    const tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24, WIN_FRAC = 0.16, BMAX = 256;
+    // plot by leading-zero BITS — the true rarity axis (each extra zero bit = 2× rarer). Two linear scales
+    // meet at the target line: the right 84% is the lose zone (0…target bits, where every attempt lands);
+    // the left 16% is the win zone (target…all-256-zeros), compressed so a real winner — which only just
+    // clears the bar — hugs the line, while a perfect all-zeros hash would sit at the far-left edge.
+    const px = (b) => b <= tBits
+      ? tkX + tkW * (WIN_FRAC + (1 - WIN_FRAC) * (1 - b / Math.max(1, tBits)))
+      : tkX + tkW * WIN_FRAC * (1 - Math.min(1, (b - tBits) / (BMAX - tBits)));
     const winX = px(tBits);
-    text("ODDS MAP — every attempt lands here; you WIN only BELOW the target (left), never above", tkX, r.y + 124, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    text("ODDS MAP — placed by zero-bit count; WIN only LEFT of the target (an all-zeros hash = far-left edge)", tkX, r.y + 124, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
     ctx.fillStyle = "rgba(90,210,140,0.14)"; ctx.fillRect(tkX, tkY, winX - tkX, bandH); // win zone (below target)
     ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
     // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
-    const zhist = mn.zhist || {}, slotW = tkW / axisMax;
+    const zhist = mn.zhist || {};
     let total = 0; for (const k in zhist) total += zhist[k];
     const scale = total > 250 ? 250 / total : 1;
     const rnd = (s) => { const x = Math.sin(s * 127.1) * 43758.5453; return x - Math.floor(x); };
@@ -461,7 +467,7 @@ function drawCloseness(r) {
       const col = `rgba(${Math.round(255 - 165 * t)},${Math.round(190 + 35 * t)},${Math.round(110 + 30 * t)},0.2)`;
       ctx.fillStyle = col;
       for (let i = 0; i < n; i++) {
-        const x = Math.min(tkX + tkW - 2, Math.max(tkX + 2, px(b) + (rnd(b * 97 + i * 1.7) - 0.5) * slotW * 0.85));
+        const x = Math.min(tkX + tkW - 2, Math.max(tkX + 2, px(b) + (rnd(b * 97 + i * 1.7) - 0.5) * 9));
         const y = tkY + 3 + rnd(b * 131 + i * 3.3) * (bandH - 6);
         ctx.beginPath(); ctx.arc(x, y, 1.7, 0, 7); ctx.fill();
       }
@@ -664,7 +670,8 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
     ctx.strokeStyle = "rgba(255,205,110,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, box.y - 12); ctx.lineTo(sx, box.y + 12); ctx.stroke();
     ctx.fillStyle = "rgba(255,205,110,0.18)"; ctx.beginPath(); ctx.arc(sx, box.y, 12, 0, 7); ctx.fill(); // glow
     text(CYBER[(frame >> 2) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
-    ctx.fillStyle = "rgba(255,205,110,0.95)"; ctx.beginPath(); ctx.arc(ex, outY, 2.6, 0, 7); ctx.fill(); // marker at the output edge
+    ctx.fillStyle = "rgba(255,205,110,0.16)"; ctx.beginPath(); ctx.arc(ex, outY, 10, 0, 7); ctx.fill(); // glow at the output edge
+    text(CYBER[((frame >> 2) + 5) % CYBER.length], ex, outY, { size: 15, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true }); // resolving glyph at the output edge (was a dot)
   };
   scan(concatBox, p1, y1);                               // concatenation → 1st hash
   scan({ x: rowX, w: rowW, y: y1 }, p2, y2);             // 1st hash → 2nd hash
@@ -769,7 +776,15 @@ function drawMerkleTree(dr, buildP, showRoot) {
     const pe = lvlP(L + 1); if (pe <= 0.03) continue;       // an edge appears as its PARENT level forms
     const hot = L + 1 === activeL;                          // this whole level is hashing up right now
     ctx.strokeStyle = hot ? "rgba(255,205,110,0.7)" : `rgba(${ACCENT},${0.3 * pe})`; ctx.lineWidth = hot ? 1.6 : 1;
-    for (let k = 0; k < levels[L]; k++) { const A = pos(L, k), P = pos(L + 1, k >> 1); ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(P.x, P.y); ctx.stroke(); }
+    for (let k = 0; k < levels[L]; k++) {
+      const A = pos(L, k), P = pos(L + 1, k >> 1);
+      ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(P.x, P.y); ctx.stroke();
+      if (hot) for (let s = 0; s < 3; s++) {                 // data streams: glyphs flow UP each edge into the parent being hashed
+        const u = (((frame >> 1) + k * 7 + s * 16) % 48) / 48; // 0 (child) → 1 (parent), staggered per edge
+        const gx = A.x + (P.x - A.x) * u, gy = A.y + (P.y - A.y) * u;
+        text(churnChar(k * 5 + s * 3 + frame), gx, gy, { size: 9, weight: 700, color: `rgba(255,225,150,${0.22 + 0.7 * u})`, align: "center", baseline: "middle", mono: true });
+      }
+    }
   }
   for (let L = 0; L < rows; L++) {
     const isRoot = L === rows - 1, a = lvlP(L); if (a <= 0.03) continue;
@@ -779,8 +794,10 @@ function drawMerkleTree(dr, buildP, showRoot) {
       if (L === 0) { // leaves are transaction chips + their txid
         ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill();
         if (a > 0.3) text(frag(0, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 9, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
-      } else if (a < 0.9) { // BEING HASHED: every node at this level is a churning glyph
-        text(churnChar(L * 11 + k * 5 + (frame >> 1)), p.x, p.y, { size: isRoot ? 16 : 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+      } else if (a < 0.9) { // BEING HASHED: every node at this level is a churning glyph (enlarged + glowing while it's the active level)
+        const hotNode = L === activeL;
+        if (hotNode) { ctx.fillStyle = "rgba(255,205,110,0.16)"; ctx.beginPath(); ctx.arc(p.x, p.y, isRoot ? 15 : 12, 0, 7); ctx.fill(); }
+        text(churnChar(L * 11 + k * 5 + (frame >> 1)), p.x, p.y, { size: isRoot ? 22 : hotNode ? 18 : 13, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
       } else { // HASHED: settle to a circle, with its hash
         const rad = isRoot ? 6 : 4;
         ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? "rgb(90,225,140)" : `rgba(${ACCENT},0.62)`; ctx.fill();
