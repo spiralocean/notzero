@@ -331,7 +331,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 216, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
@@ -359,7 +359,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.66.0";
+const VERSION = "web v0.77.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -428,7 +428,7 @@ function drawCloseness(r) {
     const winner = (model.block && model.block.id) || "";
     const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
     text("YOUR LIVE ATTEMPT vs THE TARGET & WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-    const rowX = r.x + 16, hx0 = rowX + 58, n = 64, rowW = r.w - 250, sp = rowW / n; // full 64-hex so it matches the HASH BUILD final hash exactly
+    const rowX = r.x + 16, hx0 = rowX + 58, n = 64, rowW = r.w - 340, sp = rowW / n; // full 64-hex so it matches the HASH BUILD final hash exactly; leave room on the right for the "· N zeros · won by …" sub
     const row = (label, hex, y, lit, sub) => {
       text(label, rowX, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.5)", baseline: "middle" });
       const lead = leadingZeroHexChars(hex), show = hex.slice(0, n);
@@ -445,10 +445,10 @@ function drawCloseness(r) {
     const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
-    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 142, bandH = 24;
+    const axisMax = tBits + 6, tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24;
     const px = (b) => tkX + tkW * (1 - Math.min(1, Math.max(0, b / axisMax))); // smaller value (more zeros) → LEFT
     const winX = px(tBits);
-    text("ODDS MAP — every attempt lands here; you WIN only BELOW the target (left), never above", tkX, r.y + 134, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    text("ODDS MAP — every attempt lands here; you WIN only BELOW the target (left), never above", tkX, r.y + 124, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
     ctx.fillStyle = "rgba(90,210,140,0.14)"; ctx.fillRect(tkX, tkY, winX - tkX, bandH); // win zone (below target)
     ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
     // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
@@ -478,7 +478,7 @@ function drawCloseness(r) {
       const lwx = px(256 - BigInt("0x" + lw.id).toString(2).length);
       ctx.fillStyle = "rgb(90,235,150)"; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
-      text("last win", lwx, tkY - 13, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+      text("last win", lwx, tkY - 10, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
     }
     ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + bandH / 2, 3.2, 0, 7); ctx.fill(); // best (◆)
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
@@ -487,7 +487,7 @@ function drawCloseness(r) {
     ctx.strokeStyle = "rgba(255,140,80,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
     ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.stroke();
-    text("you", yx, tkY - 13, { size: 9, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
+    text("you", yx, tkY - 10, { size: 9, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
@@ -524,7 +524,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 6.8], ["hold", 30.0]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 13.6], ["hold", 30.0]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -663,7 +663,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
     ctx.strokeStyle = "rgba(255,205,110,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(sx, box.y + 11); ctx.lineTo(ex, outY - 11); ctx.stroke(); // connector
     ctx.strokeStyle = "rgba(255,205,110,0.5)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(sx, box.y - 12); ctx.lineTo(sx, box.y + 12); ctx.stroke();
     ctx.fillStyle = "rgba(255,205,110,0.18)"; ctx.beginPath(); ctx.arc(sx, box.y, 12, 0, 7); ctx.fill(); // glow
-    text(CYBER[(frame >> 1) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
+    text(CYBER[(frame >> 2) % CYBER.length], sx, box.y, { size: 18, weight: 700, color: "rgb(255,215,120)", align: "center", baseline: "middle", mono: true });
     ctx.fillStyle = "rgba(255,205,110,0.95)"; ctx.beginPath(); ctx.arc(ex, outY, 2.6, 0, 7); ctx.fill(); // marker at the output edge
   };
   scan(concatBox, p1, y1);                               // concatenation → 1st hash
@@ -750,7 +750,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
   const n = Math.min(16, Math.max(2, real)); // representative leaves
   const levels = []; let c = n; while (true) { levels.push(c); if (c <= 1) break; c = Math.ceil(c / 2); }
   const rows = levels.length;
-  const topY = dr.y + 16, botY = dr.y + dr.h - 44, gap = (botY - topY) / Math.max(1, rows - 1); // extra bottom room for the captions
+  const topY = dr.y + 24, botY = dr.y + dr.h - 44, gap = (botY - topY) / Math.max(1, rows - 1); // root sits a bit lower so its hash label clears the node; extra bottom room for the captions
   const pos = (L, k) => ({ x: dr.x + dr.w * (k + 0.5) / levels[L], y: botY - L * gap });
   const rootHex = (model.block && model.block.merkle_root) || "";
   const frag = (L, k, len, lockP) => {
@@ -773,7 +773,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
   }
   for (let L = 0; L < rows; L++) {
     const isRoot = L === rows - 1, a = lvlP(L); if (a <= 0.03) continue;
-    const fy = L === 0 ? pos(0, 0).y + 13 : pos(L, 0).y - 11;
+    const fy = L === 0 ? pos(0, 0).y + 13 : isRoot ? pos(L, 0).y - 17 : pos(L, 0).y - 11;
     for (let k = 0; k < levels[L]; k++) {
       const p = pos(L, k);
       if (L === 0) { // leaves are transaction chips + their txid
