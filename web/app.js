@@ -351,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.62.0";
+const VERSION = "web v0.63.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -727,11 +727,16 @@ function drawMerkleTree(dr, buildP, showRoot) {
       if (a > 0.35) text(frag(L, k, fragLen, a) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot ? 11 : 9, weight: isRoot ? 700 : 400, color: isRoot ? `rgba(90,225,140,${a})` : `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
     }
   }
+  const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
+  if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
   const cap = climbT < 0.999 ? "hash two together → one parent · climbing the tree, level by level"
     : expandT < 0.5 ? "↑ all the way up to one merkle root"
-      : `${real.toLocaleString()} transactions → one merkle root`;
+      : "every transaction is a leaf — hashed in pairs up to one root";
   text(cap, dr.x + dr.w / 2, dr.y + dr.h - 15, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
-  text(`${real.toLocaleString()} transactions`, dr.x + dr.w / 2, dr.y + dr.h - 3, { size: 9, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  text(example
+    ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
+    : `${real.toLocaleString()} transactions → one merkle root`,
+    dr.x + dr.w / 2, dr.y + dr.h - 3, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   if (showRoot && alphaOf(rows - 1, 0) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
 }
 
