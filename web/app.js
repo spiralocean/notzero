@@ -743,69 +743,53 @@ function drawMerkleTree(dr, buildP, showRoot) {
     return s;
   };
 
-  // NARRATIVE: climb the left spine — two leaves fingerprint into one, that pairs with its sibling, on up
-  // to the single root (buildP 0→0.66); then EXPAND DOWN to reveal every other leaf of the tree (0.66→1).
-  const climbT = Math.min(1, buildP / 0.66), expandT = Math.max(0, (buildP - 0.66) / 0.34);
-  const rl = climbT * (rows - 1);                                   // how far up the spine we've climbed
-  const onSpine = (L, k) => (L === rows - 1 ? k === 0 : k <= 1);    // leftmost path + the sibling it pairs with
-  const alphaOf = (L, k) => onSpine(L, k)
-    ? Math.max(0, Math.min(1, (rl - L) * 1.7 + 1))                  // spine appears bottom→top as we climb
-    : Math.max(0, Math.min(1, expandT * (rows + 1) - (rows - 1 - L))); // rest expands in, top→down to the leaves
+  // build bottom-up, LEVEL BY LEVEL — ALL nodes at a level hash (as churning glyphs) up to the next, together
+  const built = buildP * (rows + 0.7);
+  const lvlP = (L) => Math.max(0, Math.min(1, built - L)); // settle progress for a whole level
+  const activeL = Math.floor(built);                       // the level hashing up into its parents right now
 
   ctx.lineWidth = 1;
-  for (let L = 0; L < rows - 1; L++) for (let k = 0; k < levels[L]; k++) {
-    const e = Math.min(alphaOf(L, k), alphaOf(L + 1, k >> 1)); if (e <= 0.03) continue;
-    const A = pos(L, k), P = pos(L + 1, k >> 1);
-    ctx.strokeStyle = `rgba(${ACCENT},${0.3 * e})`; ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(P.x, P.y); ctx.stroke();
+  for (let L = 0; L < rows - 1; L++) {
+    const pe = lvlP(L + 1); if (pe <= 0.03) continue;       // an edge appears as its PARENT level forms
+    const hot = L + 1 === activeL;                          // this whole level is hashing up right now
+    ctx.strokeStyle = hot ? "rgba(255,205,110,0.7)" : `rgba(${ACCENT},${0.3 * pe})`; ctx.lineWidth = hot ? 1.6 : 1;
+    for (let k = 0; k < levels[L]; k++) { const A = pos(L, k), P = pos(L + 1, k >> 1); ctx.beginPath(); ctx.moveTo(A.x, A.y); ctx.lineTo(P.x, P.y); ctx.stroke(); }
   }
   for (let L = 0; L < rows; L++) {
-    const isRoot = L === rows - 1;
+    const isRoot = L === rows - 1, a = lvlP(L); if (a <= 0.03) continue;
+    const fy = L === 0 ? pos(0, 0).y + 13 : pos(L, 0).y - 11;
     for (let k = 0; k < levels[L]; k++) {
-      const a = alphaOf(L, k); if (a <= 0.03) continue;
-      const p = pos(L, k), fy = L === 0 ? p.y + 13 : p.y - 11;
+      const p = pos(L, k);
       if (L === 0) { // leaves are transaction chips + their txid
         ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill();
-        if (a > 0.3) text(frag(L, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 9, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
-      } else if (a < 0.9) {
-        // BEING HASHED: the node is a churning glyph (no circle, no hash yet)
-        text(churnChar(L * 11 + k * 5), p.x, p.y, { size: isRoot ? 16 : 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
-      } else { // HASHED: settle to a circle, with its hash above
+        if (a > 0.3) text(frag(0, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 9, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
+      } else if (a < 0.9) { // BEING HASHED: every node at this level is a churning glyph
+        text(churnChar(L * 11 + k * 5 + (frame >> 1)), p.x, p.y, { size: isRoot ? 16 : 13, weight: 700, color: "rgb(255,205,110)", align: "center", baseline: "middle", mono: true });
+      } else { // HASHED: settle to a circle, with its hash
         const rad = isRoot ? 6 : 4;
-        ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? `rgba(90,225,140,${a})` : `rgba(${ACCENT},${0.62 * a})`; ctx.fill();
-        if (isRoot) { ctx.strokeStyle = `rgba(${ACCENT},${0.5 * a})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); }
+        ctx.beginPath(); ctx.arc(p.x, p.y, rad, 0, 7); ctx.fillStyle = isRoot ? "rgb(90,225,140)" : `rgba(${ACCENT},0.62)`; ctx.fill();
+        if (isRoot) { ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(p.x, p.y, rad + 3, 0, 7); ctx.stroke(); }
         text(frag(L, k, isRoot ? 6 : levels[L] > 8 ? 4 : 5, 1) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot ? 11 : 9, weight: isRoot ? 700 : 400, color: isRoot ? "rgb(90,225,140)" : "rgba(255,255,255,0.78)", align: "center", baseline: "middle", mono: true });
       }
     }
   }
-  // FINGERPRINTING: the two child hashes glow and stream their glyphs UP both edges, converging into the
-  // parent that's forming — so you see the two hashes literally being combined into one
-  for (let L = 1; L < rows; L++) {
-    const aP = alphaOf(L, 0); if (aP <= 0.1 || aP >= 0.97) continue; // only the parent currently forming
-    const P = pos(L, 0), kids = [pos(L - 1, 0), pos(L - 1, 1)];
-    ctx.strokeStyle = "rgba(255,205,110,0.55)"; ctx.lineWidth = 1.6;
-    ctx.beginPath(); for (const c of kids) { ctx.moveTo(c.x, c.y); ctx.lineTo(P.x, P.y); } ctx.stroke();
-    ctx.font = "700 10px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    kids.forEach((c, ci) => {
-      ctx.strokeStyle = "rgba(255,205,110,0.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, 7); ctx.stroke();
-      for (let s = 0; s < 3; s++) { const pr = (frame * 0.045 + s / 3 + ci * 0.16) % 1, x = c.x + (P.x - c.x) * pr, y = c.y + (P.y - c.y) * pr; ctx.fillStyle = `rgba(255,205,110,${0.85 * (1 - pr) + 0.15})`; ctx.fillText(CYBER[(frame + s * 5 + ci * 9) % CYBER.length], x, y); }
-    });
-    // the node itself is the churning glyph now — here just label the operation at the junction
-    const mx = (kids[0].x + kids[1].x) / 2, my = (kids[0].y + P.y) / 2;
-    text("⊕ SHA-256²", mx, my, { size: 9, weight: 600, color: "rgba(255,205,110,0.72)", align: "center", baseline: "middle" });
-  }
+  // label the operation at the level that's hashing up right now
+  if (activeL >= 1 && activeL < rows && lvlP(activeL) > 0.05 && lvlP(activeL) < 0.95)
+    text("⊕ SHA-256² — every pair hashes up to the next level", dr.x + dr.w / 2, pos(activeL, 0).y - 24, { size: 9, weight: 600, color: "rgba(255,205,110,0.78)", align: "center", baseline: "middle" });
+
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
-  const cap = climbT < 0.999 ? "hash two together → one parent · climbing the tree, level by level"
-    : expandT < 0.5 ? "↑ all the way up to one merkle root"
-      : (Math.floor(frame / 270) % 2 === 0   // during the dwell, alternate the summary with the 'not frozen' note
-        ? "every transaction is a leaf — hashed in pairs up to one root"
-        : "and it re-computes as new transactions arrive — the block isn't frozen while it's mined");
+  const cap = built < rows - 0.3
+    ? "every pair of hashes hashes up to the next level — bottom to top"
+    : (Math.floor(frame / 270) % 2 === 0   // during the completed-tree dwell, alternate the summary + 'not frozen'
+      ? "every transaction is a leaf — hashed in pairs up to one root"
+      : "and it re-computes as new transactions arrive — the block isn't frozen while it's mined");
   text(cap, dr.x + dr.w / 2, dr.y + dr.h - 18, { size: 11, color: `rgba(${ACCENT},0.72)`, align: "center", baseline: "middle" });
   text(example
     ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
     : `${real.toLocaleString()} transactions → one merkle root`,
     dr.x + dr.w / 2, dr.y + dr.h - 5, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-  if (showRoot && alphaOf(rows - 1, 0) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: `rgb(${ACCENT})`, baseline: "middle" }); }
+  if (showRoot && lvlP(rows - 1) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: "rgb(90,225,140)", baseline: "middle" }); }
 }
 
 // ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
