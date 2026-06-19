@@ -208,13 +208,13 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         documentView.addSubview(modeHelpLabel)
 
         machineSeedHelpLabel.stringValue =
-            "Your lottery identity on this Mac. Each block combines seed + height → SHA-256 → one nonce (your single guess). Leave blank to use this computer's name."
+            "Your lucky word. Pick any word, name, or phrase you like — each block combines it with the block height → SHA-256 → your one nonce (your single guess). Leave blank to use this Mac's name."
         machineSeedHelpLabel.font = NSFont.systemFont(ofSize: 14)
         machineSeedHelpLabel.textColor = .secondaryLabelColor
         configureWrapping(machineSeedHelpLabel)
         documentView.addSubview(machineSeedHelpLabel)
 
-        machineSeedField.placeholderString = "Blank = this Mac's hostname"
+        machineSeedField.placeholderString = "a lucky word, your name…  (blank = this Mac's name)"
         machineSeedField.font = NSFont.monospacedSystemFont(ofSize: 14, weight: .regular)
         machineSeedField.target = self
         machineSeedField.action = #selector(machineSeedChanged)
