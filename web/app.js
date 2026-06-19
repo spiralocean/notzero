@@ -374,7 +374,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.81.0";
+const VERSION = "web v0.82.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -564,7 +564,8 @@ function drawHashBuild(r) {
   const tk = live ? { nonce: live.nonce, hash1Hex: live.hash1Display, hashHex: live.hash2Display, prox: { leadingZeroBits: live.leadingZeroBits, won: live.below } } : model.ticket;
   const buildHeight = live ? live.height : model.tipHeight;
   if (ceremony.height !== buildHeight) { ceremony.height = buildHeight; ceremony.t = 0; }
-  ceremony.t += 1 / 60;
+  if (reduceMotion) ceremony.t = CYCLE_LEN - 10; // reduced-motion: hold on the settled result, skip the build/merkle/scan animation
+  else ceremony.t += 1 / 60;
   const t = ceremony.t % CYCLE_LEN, cyc = Math.floor(ceremony.t / CYCLE_LEN);
   if (cyc !== ceremony.cycle) { ceremony.cycle = cyc; ceremony.order = shuffled(40); }
   const ph = phaseAt(t);
@@ -934,7 +935,7 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
 }
 
 function drawSync(r) {
-  syncState.t += 1 / 60;
+  if (!reduceMotion) syncState.t += 1 / 60; // reduced-motion: freeze the sync particle flow / pulse
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
   text("SYNCING THE CHAIN — peers → node → block", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
@@ -1350,7 +1351,10 @@ function render() {
   ctx.save();
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 38, { size: 28, weight: 800, align: "center", baseline: "middle" });
-  text("real Bitcoin solo mining — your node races the whole network for the block reward · astronomically long odds · a lottery ticket, not an investment", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  const _diff = model.difficulty || 0;
+  const _sup = (n) => String(n).replace(/[0-9]/g, (d) => "⁰¹²³⁴⁵⁶⁷⁸⁹"[+d]);
+  const _odds = _diff > 0 ? `~1 in 10${_sup(Math.round(Math.log10(_diff) + 9.633))} each block` : "astronomically long odds";
+  text(`real Bitcoin solo mining · ${_odds} · you'll almost certainly never win — the point is running your own node, not the payout`, W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
@@ -1410,7 +1414,7 @@ function render() {
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
 
-  clock += 0.02; frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session
+  clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
   quoteT += 1 / 60;
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
   else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
