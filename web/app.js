@@ -351,7 +351,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.64.0";
+const VERSION = "web v0.65.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -728,6 +728,19 @@ function drawMerkleTree(dr, buildP, showRoot) {
       // the hash GENERATING: a forming node churns through glyphs (amber, bigger) then locks in left-to-right
       if (a > 0.3 || forming) text(frag(L, k, fragLen, a) + (isRoot ? "…" : ""), p.x, fy, { size: isRoot || forming ? 11 : 9, weight: isRoot || forming ? 700 : 400, color: forming ? "rgb(255,205,110)" : isRoot ? `rgba(90,225,140,${a})` : `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
     }
+  }
+  // FINGERPRINTING: the two child hashes glow and stream their glyphs UP both edges, converging into the
+  // parent that's forming — so you see the two hashes literally being combined into one
+  for (let L = 1; L < rows; L++) {
+    const aP = alphaOf(L, 0); if (aP <= 0.1 || aP >= 0.97) continue; // only the parent currently forming
+    const P = pos(L, 0), kids = [pos(L - 1, 0), pos(L - 1, 1)];
+    ctx.strokeStyle = "rgba(255,205,110,0.55)"; ctx.lineWidth = 1.6;
+    ctx.beginPath(); for (const c of kids) { ctx.moveTo(c.x, c.y); ctx.lineTo(P.x, P.y); } ctx.stroke();
+    ctx.font = "700 10px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    kids.forEach((c, ci) => {
+      ctx.strokeStyle = "rgba(255,205,110,0.7)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(c.x, c.y, 7, 0, 7); ctx.stroke();
+      for (let s = 0; s < 3; s++) { const pr = (frame * 0.045 + s / 3 + ci * 0.16) % 1, x = c.x + (P.x - c.x) * pr, y = c.y + (P.y - c.y) * pr; ctx.fillStyle = `rgba(255,205,110,${0.85 * (1 - pr) + 0.15})`; ctx.fillText(CYBER[(frame + s * 5 + ci * 9) % CYBER.length], x, y); }
+    });
   }
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
   if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
