@@ -8,6 +8,9 @@ const REFRESH_MS = 30_000;
 
 // ---- machine seed (your lottery identity on this device) ----
 function machineSeed() {
+  // when a live daemon is connected, use ITS seed so our ticket nonce matches the daemon's actual nonce
+  const daemonSeed = model.node && model.node.miner && model.node.miner.seed;
+  if (daemonSeed) return daemonSeed;
   let s = localStorage.getItem("bl.seed");
   if (!s) {
     s = "web-" + Math.random().toString(36).slice(2, 8);
@@ -327,7 +330,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.55.0";
+const VERSION = "web v0.56.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -472,7 +475,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 3.6]];
+const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 3.4], ["hold", 7.5]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -583,9 +586,9 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   let h1 = tk.hash1Hex || "", h2 = tk.hashHex || "", lzb2 = tk.prox.leadingZeroBits, settleP = 1, avalanche = false;
   if (grind) settleP = 0;
   else if (ph.name === "reveal") settleP = ph.p;
-  else { // hold: show the hashes, then ~1.6s in, flip one nonce bit and re-hash (both rounds change)
-    const ht = ph.p * 3.4;
-    if (ht >= 1.6 && tk.avalancheHex) { avalanche = true; h1 = tk.avHash1Hex || ""; h2 = tk.avalancheHex; lzb2 = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 1.6) / 0.6); }
+  else { // hold: dwell on the result, then ~4s in, flip one nonce bit and re-hash (both rounds change)
+    const ht = ph.p * 7.5;
+    if (ht >= 4.0 && tk.avalancheHex) { avalanche = true; h1 = tk.avHash1Hex || ""; h2 = tk.avalancheHex; lzb2 = zeroBits(tk.avalancheHex); settleP = Math.min(1, (ht - 4.0) / 0.6); }
   }
   // sequential reveal: the 1st hash forms left-to-right, then the 2nd forms from it
   const p1 = Math.min(1, settleP * 2), p2 = Math.max(0, settleP * 2 - 1), lzHex2 = leadingZeroHexChars(h2);
@@ -600,7 +603,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   const y1 = headerBottom + 30, y2 = headerBottom + 80;
   text(avalanche ? "one bit changed (nonce + 1) → a new 1st SHA-256" : grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 15, { size: 10, weight: 600, color: `rgba(${ACCENT},0.72)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0);
-  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — of the 1st hash · this is our submission", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
+  text(avalanche ? "→ a new 2nd SHA-256 — completely different" : "2nd SHA-256 — hash that result AGAIN → a new value · our submission", rowX, y2 - 15, { size: 10, weight: 600, color: avalanche ? "rgb(90,225,140)" : `rgba(${ACCENT},0.72)`, baseline: "middle" });
   hashRow(h2, p2, y2, lzHex2);
   if (ph.name === "hold") text(avalanche ? "same operation, same input but one flipped bit — every character differs (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${lzb2} leading zero bits — our submission for this block`), cx, y2 + 26, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.6)"), align: "center", baseline: "middle" });
 }

@@ -119,6 +119,7 @@ def build(url, user, pw):
             prox = disp.get("hash_proximity") or {}
             miner = {
                 "mode": st.get("mode", "symbolic"),
+                "seed": st.get("machine_seed", ""),  # so the dashboard derives the SAME nonce the daemon does
                 "live_attempts": stats.get("live_attempts", 0),
                 "total_attempts": stats.get("total_attempts", 0),
                 "live_wins": stats.get("live_wins", 0),
