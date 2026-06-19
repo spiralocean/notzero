@@ -54,8 +54,6 @@ function serializeHeader(blk, nonce) {
     u32le(nonce),
   );
 }
-// byte offsets of each field in the serialized header (for colouring the concatenation)
-const HEADER_BYTE_LENS = [4, 32, 32, 4, 4, 4];
 async function hashBlockHeader(blk, nonce) {
   return bytesToHex(await dsha256(serializeHeader(blk, nonce)));
 }
@@ -118,7 +116,7 @@ async function refresh() {
     const target = bitsToTarget(blk.bits);
     const avNonce = (nonce + 1) >>> 0;
     const avalancheHex = await hashBlockHeader(blk, avNonce); // same header, nonce+1 → a totally different hash (avalanche)
-    model.ticket = { nonce, hashHex, prox: proximity(hashHex, target), avNonce, avalancheHex, headerHex: bytesToHex(serializeHeader(blk, nonce)) };
+    model.ticket = { nonce, hashHex, prox: proximity(hashHex, target), avNonce, avalancheHex };
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
       if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name }));
@@ -299,7 +297,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 216, hashBuild: 300, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, closeness: 216, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
@@ -327,7 +325,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.53.0";
+const VERSION = "web v0.54.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -527,44 +525,63 @@ function drawHashBuild(r) {
     }
     bx += segW;
   });
-  text("80-byte block header — value shown under each field", barX, valY + 18, { size: 11, weight: 600, color: "rgba(255,255,255,0.38)" });
+  text("the 6 header fields, in order", barX, valY + 17, { size: 10, weight: 600, color: "rgba(255,255,255,0.38)" });
 
-  // caption (phase-aware)
+  // ---- ZONE 2: the concatenation, built (human-readable) in the SAME order as the header, as each field locks
+  const concatY = valY + 38;
+  text("concatenated, in order — this string is what we hash:", r.x + r.w / 2, concatY - 13, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, concatY);
+
+  // caption (phase-aware) — narrates the current step
   let caption = "";
   if (assembling) { const f = HEADER_FIELDS[Math.min(5, lockedCount)]; caption = `${f.label} — ${f.explain}`; }
-  else if (ph.name === "pack") caption = "the 6 fields concatenate into one 80-byte string — then hash it";
+  else if (ph.name === "pack") caption = "the whole string goes into SHA-256";
   else if (ph.name === "churn") caption = "SHA-256, applied twice — every bit scrambled";
-  else if (ph.name === "reveal") caption = "the one and only result emerges…";
-  else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this block's hash · try again next block";
-  text(caption, r.x + r.w / 2, valY + 18, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
+  else if (ph.name === "reveal") caption = "the hash forms, left to right…";
+  else caption = tk.prox.won ? "a winning hash — you beat the target!" : "this is our submission · try again next block";
+  text(caption, r.x + r.w / 2, concatY + 22, { size: 13, weight: 500, color: `rgba(${ACCENT},0.88)`, align: "center", baseline: "middle" });
 
-  const detailTop = valY + 34;
+  // ---- ZONE 3: per-field detail while assembling; the hashing → our submission once the header is done
+  const detailTop = concatY + 40;
   const dr = { x: r.x + 24, y: detailTop, w: r.w - 48, h: (r.y + r.h - 10) - detailTop };
-  // each field gets its OWN animation in the pane while it's the one being constructed
   if (assembling) drawFieldDetail(Math.min(5, lockedCount), fillFrac, dr, b, tk);
-  else drawHashMachine(r, ph, detailTop - 6, b, tk);
+  else drawHashMachine(r, ph, detailTop - 4, b, tk);
+}
+
+// the concatenation as a human-readable string, coloured per field, building left-to-right as fields lock
+function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
+  const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
+  const vals = [
+    "0x" + (b.version >>> 0).toString(16).padStart(8, "0"),
+    trunc(b.previousblockhash, 12),
+    trunc(b.merkle_root, 12),
+    new Date(b.timestamp * 1000).toISOString().slice(11, 19),
+    "0x" + b.bits.toString(16),
+    "#" + tk.nonce.toLocaleString(),
+  ];
+  const segs = [];
+  const shown = assembling ? lockedCount : 5;
+  for (let f = 0; f <= shown && f < 6; f++) {
+    if (f > 0) segs.push({ t: "  ‖  ", c: "rgba(255,255,255,0.22)" });
+    let t = vals[f];
+    if (assembling && f === lockedCount && fillFrac < 1) { const lk = Math.ceil(fillFrac * t.length); t = t.split("").map((ch, i) => (i < lk ? ch : churnChar(i + f))).join(""); }
+    segs.push({ t, c: f === 5 ? `rgb(${ACCENT})` : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)" });
+  }
+  ctx.font = "12px ui-monospace, monospace"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
+  let total = 0; for (const s of segs) total += ctx.measureText(s.t).width;
+  let x = r.x + r.w / 2 - total / 2;
+  for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
 }
 
 // the assembled header pours into a SHA-256 ×2 "machine", churns into a 256-bit grid that settles into
 // the hash (leading zeros lit green); in hold, flip one nonce bit to show the avalanche.
 function drawHashMachine(r, ph, headerBottom, b, tk) {
   const cx = r.x + r.w / 2, grind = ph.name === "pack" || ph.name === "churn";
-
-  // ---- the concatenation: the REAL 80-byte header as one hex string, coloured by field, aligned to the bar above
-  const cX = r.x + 18, cW = r.w - 36, ccw = cW / 160, concatY = headerBottom + 4, hh = tk.headerHex || "";
-  if (hh.length >= 160) {
-    let acc = 0; const bnd = HEADER_BYTE_LENS.map((L) => (acc += L * 2)); // end-char index of each field
-    const fieldOf = (i) => { for (let f = 0; f < bnd.length; f++) if (i < bnd[f]) return f; return 5; };
-    ctx.font = "11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let i = 0; i < 160; i++) { const f = fieldOf(i); ctx.fillStyle = f === 5 ? `rgb(${ACCENT})` : f % 2 === 0 ? `rgba(${ACCENT},0.88)` : `rgba(${ACCENT},0.5)`; ctx.fillText(hh[i], cX + ccw * (i + 0.5), concatY); }
-    text("80 bytes, concatenated · version‖prev‖merkle‖time‖bits‖nonce", cX, concatY + 13, { size: 9, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  }
-
-  const boxW = 236, boxH = 26, boxX = cx - boxW / 2, boxY = headerBottom + 34;
-  // the concatenated bytes feed down into the machine while packing/churning
+  const boxW = 236, boxH = 26, boxX = cx - boxW / 2, boxY = headerBottom + 24;
+  // the concatenated string (zone 2, above) feeds down into the machine while packing/churning
   if (grind) {
     ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = concatY + 16 + (boxY - concatY - 18) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.7 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[((frame / 3 | 0) + s * 5) % CYBER.length], xx, yy); }
+    for (let s = 0; s < 9; s++) { const pr = (frame * 0.035 + s / 9) % 1, yy = headerBottom + 2 + (boxY - headerBottom - 4) * pr, xx = cx + (s - 4) * 18; ctx.fillStyle = `rgba(${ACCENT},${0.7 * (1 - pr) + 0.2})`; ctx.fillText(CYBER[((frame / 3 | 0) + s * 5) % CYBER.length], xx, yy); }
   }
   // the machine box
   ctx.fillStyle = grind ? "rgba(255,150,60,0.1)" : "rgba(255,255,255,0.04)"; roundRect(boxX, boxY, boxW, boxH, 5); ctx.fill();
@@ -582,22 +599,22 @@ function drawHashMachine(r, ph, headerBottom, b, tk) {
   }
   const lzHex = leadingZeroHexChars(hashShown);
 
-  // 256-bit grid (16×16): a cell per bit; leading zeros lit green, ones amber, zeros dim
-  const cell = 4, gw = 16 * cell, gx = cx - gw / 2, gy = boxY + boxH + 12;
+  // 256-bit grid — settles LEFT-TO-RIGHT, top-to-bottom (row-major) as the hash forms; leading zeros lit green
+  const cell = 5, gw = 16 * cell, gx = cx - gw / 2, gy = boxY + boxH + 14, settledCells = Math.floor(settleP * 256);
   for (let i = 0; i < 256; i++) {
-    const settled = hrand(i * 7 + 1) < settleP, bit = settled ? bitAt(hashShown, i) : (hrand(i * 3.1 + (frame >> 2)) < 0.5 ? 1 : 0); // unsettled cells churn at ~15Hz, desynced — not a 60Hz strobe
+    const settled = i < settledCells, bit = settled ? bitAt(hashShown, i) : (hrand(i * 3.1 + (frame >> 2)) < 0.5 ? 1 : 0); // unsettled cells churn at ~15Hz, desynced — not a 60Hz strobe
     ctx.fillStyle = (settled && i < lzb) ? "rgba(90,225,140,0.95)" : bit ? `rgba(${ACCENT},0.8)` : "rgba(255,255,255,0.07)";
-    ctx.fillRect(gx + (i % 16) * cell + 0.5, gy + ((i / 16) | 0) * cell + 0.5, cell - 1.2, cell - 1.2);
+    ctx.fillRect(gx + (i % 16) * cell + 0.5, gy + ((i / 16) | 0) * cell + 0.5, cell - 1.4, cell - 1.4);
   }
-  text(avalanche ? `nonce ${tk.avNonce.toLocaleString()} → 256-bit output` : "double-SHA256 → 256-bit output", cx, gy + 16 * cell + 10, { size: 10, color: avalanche ? "rgb(90,225,140)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  text(avalanche ? `nonce ${tk.avNonce.toLocaleString()} → 256-bit output` : "double-SHA256 → our 256-bit submission", cx, gy + 16 * cell + 11, { size: 10, color: avalanche ? "rgb(90,225,140)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
 
-  // readable hash row + result/avalanche caption
-  const hex = hashShown.slice(0, 40), rowY = r.y + r.h - 28, sp = (r.w - 40) / hex.length;
+  // readable hash row — fills in LEFT TO RIGHT; this is our submission for the block
+  const hex = hashShown.slice(0, 40), rowY = r.y + r.h - 28, sp = (r.w - 40) / hex.length, hSet = Math.floor(settleP * hex.length);
   for (let i = 0; i < hex.length; i++) {
-    const settled = hrand(i * 7 + 1) < settleP, isLead = i < lzHex;
+    const settled = i < hSet, isLead = i < lzHex;
     text(settled ? hex[i] : churnChar(i), r.x + 20 + sp * (i + 0.5), rowY, { size: 14, weight: settled && isLead ? 700 : 400, color: settled ? (isLead ? "rgb(90,225,140)" : "rgba(255,255,255,0.72)") : "rgba(120,165,150,0.55)", align: "center", baseline: "middle", mono: true });
   }
-  if (ph.name === "hold") text(avalanche ? "one bit changed → every character is different (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT" : `${tk.prox.leadingZeroBits} leading zero bits — that's your ticket`), cx, r.y + r.h - 11, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle" });
+  if (ph.name === "hold") text(avalanche ? "one bit changed → every character is different (the avalanche effect)" : (tk.prox.won ? "🎉 JACKPOT — submitted to the network" : `${tk.prox.leadingZeroBits} leading zero bits — our submission for this block`), cx, r.y + r.h - 11, { size: 11, weight: 600, color: avalanche ? "rgb(90,225,140)" : (tk.prox.won ? "rgb(70,230,120)" : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle" });
 }
 
 // a row of monospace chars that scramble then lock in left-to-right as p rises (in step with the segment)
