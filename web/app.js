@@ -413,7 +413,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.100.0";
+const VERSION = "web v0.101.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -755,6 +755,19 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  // highlight the finished hash — once the 2nd SHA-256 is fully revealed (end of build → hold), frame the
+  // final hash so the eye lands on it. Fades in as it completes, then breathes gently while it holds.
+  const done = Math.max(0, Math.min(1, (p2 - 0.85) / 0.15));
+  if (done > 0) {
+    const pulse = 0.5 + 0.5 * Math.sin(frame / 22);
+    const hX = rowX - 12, hY = y2 - 11, hW = rowW + 24, hH = 24;
+    ctx.save();
+    ctx.shadowColor = `rgba(${ACCENT},${0.55 * done})`; ctx.shadowBlur = 14 + 6 * pulse; // soft accent glow
+    ctx.fillStyle = `rgba(${ACCENT},${0.10 * done})`; roundRect(hX, hY, hW, hH, 7); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = `rgba(${ACCENT},${done * (0.65 + 0.3 * pulse)})`; ctx.lineWidth = 1.8; roundRect(hX, hY, hW, hH, 7); ctx.stroke();
+    ctx.restore();
+  }
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
   text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   // #6: what makes the hash random
