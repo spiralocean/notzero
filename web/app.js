@@ -413,7 +413,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.101.0";
+const VERSION = "web v0.102.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -672,10 +672,11 @@ function drawHashBuild(r) {
   });
   text("the 6 header fields, in order", barX, valY + 17, { size: 10, weight: 600, color: "rgba(255,255,255,0.38)" });
 
-  // ---- ZONE 2: the concatenation, built (human-readable) in the SAME order as the header, as each field locks
+  // ---- ZONE 2: the REAL 80-byte header — the exact contiguous bytes that get hashed, built in the SAME
+  // order as the fields above, as each one locks
   const concatY = valY + 38;
-  text("concatenated, in order — this string is what we hash:", r.x + r.w / 2, concatY - 13, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
-  drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, concatY);
+  text("packed into the 80-byte header — the exact bytes that get hashed (little-endian):", r.x + r.w / 2, concatY - 13, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, concatY);
 
   // caption (phase-aware) — narrates the current step
   let caption = "";
@@ -693,30 +694,30 @@ function drawHashBuild(r) {
   else drawHashMachine(r, ph, detailTop - 4, b, tk, live, buildHeight);
 }
 
-// the concatenation as a human-readable string, coloured per field, building left-to-right as fields lock
-function drawConcatRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
-  const trunc = (s, n) => (s.length > n ? s.slice(0, n - 1) + "…" : s);
-  const vals = [
-    "0x" + (b.version >>> 0).toString(16).padStart(8, "0"),
-    trunc(b.previousblockhash, 12),
-    trunc(b.merkle_root, 12),
-    new Date(b.timestamp * 1000).toISOString().slice(11, 19),
-    "0x" + b.bits.toString(16),
-    "#" + tk.nonce.toLocaleString(),
-  ];
-  const segs = [];
-  const shown = assembling ? lockedCount : 5;
-  for (let f = 0; f <= shown && f < 6; f++) {
-    if (f > 0) segs.push({ t: "  ‖  ", c: "rgba(255,255,255,0.22)" });
-    let t = vals[f];
-    if (assembling && f === lockedCount && fillFrac < 1) { const lk = Math.ceil(fillFrac * t.length); t = t.split("").map((ch, i) => (i < lk ? ch : churnChar(i + f))).join(""); }
-    segs.push({ t, c: f === 5 ? `rgb(${ACCENT})` : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)" });
+// the real 80-byte header, exactly as it's hashed (from serializeHeader): 160 contiguous hex chars,
+// colour-tinted per field so the six fields are still legible inside the one string, resolving
+// left-to-right in sync with the fields locking above. Little-endian — so prev block / merkle root read
+// byte-reversed vs the human values in zone 1; that's how Bitcoin serializes them.
+const FIELD_HEX = [8, 64, 64, 8, 8, 8];        // version, prev, merkle, time, bits, nonce — bytes × 2
+const FIELD_OFF = [0, 8, 72, 136, 144, 152];   // start offset of each field within the 160-hex string
+const fieldOfChar = (i) => { for (let f = 5; f >= 0; f--) if (i >= FIELD_OFF[f]) return f; return 0; };
+function drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
+  const hex = bytesToHex(serializeHeader(b, tk.nonce)); // exactly the bytes the node hashes (verified)
+  // fit all 160 chars across the panel
+  let fs = 11; ctx.font = `${fs}px ui-monospace, monospace`;
+  let cw = ctx.measureText("0").width; const maxW = r.w - 72;
+  if (cw * 160 > maxW) { fs = Math.max(8, fs * maxW / (cw * 160)); ctx.font = `${fs}px ui-monospace, monospace`; cw = ctx.measureText("0").width; }
+  const totalW = cw * 160, x0 = r.x + r.w / 2 - totalW / 2;
+  // chars resolved so far (rest churn) — in lockstep with the header fields locking above
+  let revealed = 160;
+  if (assembling) { revealed = 0; for (let f = 0; f < lockedCount; f++) revealed += FIELD_HEX[f]; if (lockedCount < 6) revealed += Math.ceil(fillFrac * FIELD_HEX[lockedCount]); }
+  ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  for (let i = 0; i < 160; i++) {
+    const on = i < revealed, f = fieldOfChar(i);
+    ctx.fillStyle = on ? (f === 5 ? `rgb(${ACCENT})` : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)") : "rgba(255,255,255,0.18)";
+    ctx.fillText(on ? hex[i] : churnChar(i), x0 + cw * (i + 0.5), y);
   }
-  ctx.font = "12px ui-monospace, monospace"; ctx.textBaseline = "middle"; ctx.textAlign = "left";
-  let total = 0; for (const s of segs) total += ctx.measureText(s.t).width;
-  let x = r.x + r.w / 2 - total / 2;
-  concatBox = { x, w: total, y }; // remember the extent so the hash machine can sweep a glyph across it
-  for (const s of segs) { ctx.fillStyle = s.c; ctx.fillText(s.t, x, y); x += ctx.measureText(s.t).width; }
+  concatBox = { x: x0, w: totalW, y }; // the hash machine sweeps a glyph across this into the 1st hash
 }
 let concatBox = null;
 
