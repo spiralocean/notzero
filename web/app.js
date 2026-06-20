@@ -412,7 +412,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.96.0";
+const VERSION = "web v0.97.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1414,9 +1414,12 @@ function drawOwnWinStatus(ws) {
   if (!ws || (ws.status !== "pending" && ws.status !== "lost")) return false;
   if (ws.status === "lost" && dismissedLost.has(ws.height)) return false;
   const lost = ws.status === "lost", h = (ws.height || 0).toLocaleString();
+  const confs = ws.confirmations || 0, needs = ws.needs || 6;
   const label = lost
     ? `⛏ you found block #${h} — but another block reached the chain first. a real find, beaten by seconds`
-    : `⛏ you found block #${h} — submitted; waiting for the network to confirm…`;
+    : confs >= 1
+      ? `⛏ you found block #${h} — in the chain, settling… (${confs}/${needs} confirmations before we celebrate)`
+      : `⛏ you found block #${h} — submitted; waiting for the network to confirm…`;
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
   const tw = ctx.measureText(label).width, pw = tw + (lost ? 44 : 28), ph = 28, px = W / 2 - pw / 2, py = H - 46;
   ctx.fillStyle = "rgba(28,18,6,0.96)"; roundRect(px, py, pw, ph, 8); ctx.fill();

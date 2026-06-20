@@ -113,17 +113,17 @@ def scan_lottery_blocks(url, user, pw, depth=12):
     return sorted(_lottery_seen.values(), key=lambda x: x.get("height") or 0, reverse=True)[:10]
 
 
-_win_resolved = {}  # (height, hash) -> "confirmed" | "lost"  (terminal states are cached; "pending" is re-checked)
+WIN_CONFIRMATIONS = 6  # a found block is only CELEBRATED once it's buried this deep — safe from reorgs
+_win_resolved = {}     # (height, hash) -> "confirmed" | "lost"  (terminal states cached; "pending" re-checked)
 
 
-def win_status(url, user, pw, st):
+def win_status(url, user, pw, st, tip_height):
     """Resolve our most recent found-and-submitted block against the actual chain. A found block is NOT a
-    win until it is confirmed in the chain (our submitted hash == the block at that height). Returns
-    {height, hash, status} where status is:
-      pending   — not yet at that height (or our submit is propagating) — keep checking
-      confirmed — our hash IS the block at that height — a real, network-accepted win
+    win until it is buried WIN_CONFIRMATIONS deep. Returns {height, hash, status, confirmations, needs}:
+      pending   — not in the chain yet, or in it but with < WIN_CONFIRMATIONS confirmations (still settling)
+      confirmed — our hash IS the block at that height, buried deep enough — a real, settled win
       lost      — a DIFFERENT block won that height (duplicate / orphaned / beaten by seconds)
-    or None if we have never found a block."""
+    or None if we have never found a block. confirmations lets the dashboard show settling progress."""
     wins = [(h["height"], h["hash_hex"]) for h in [st.get("last_attempt") or {}, *(st.get("history") or [])]
             if h.get("won") and h.get("mode") == "live" and h.get("height") and h.get("hash_hex")]
     if not wins:
@@ -131,14 +131,19 @@ def win_status(url, user, pw, st):
     height, our_hash = max(wins)  # the most recent found block (highest height) is the one that matters
     key = (height, our_hash)
     if key in _win_resolved:
-        return {"height": height, "hash": our_hash, "status": _win_resolved[key]}
+        return {"height": height, "hash": our_hash, "status": _win_resolved[key], "confirmations": WIN_CONFIRMATIONS, "needs": WIN_CONFIRMATIONS}
     try:
         chain_hash = rpc(url, user, pw, "getblockhash", [height])
-    except Exception:  # noqa: BLE001 — height not in the chain yet → still propagating/pending
-        return {"height": height, "hash": our_hash, "status": "pending"}
-    status = "confirmed" if chain_hash == our_hash else "lost"
-    _win_resolved[key] = status  # confirmed/lost are terminal — cache so we don't RPC every poll
-    return {"height": height, "hash": our_hash, "status": status}
+    except Exception:  # noqa: BLE001 — not at that height yet → submitted, awaiting first confirmation
+        return {"height": height, "hash": our_hash, "status": "pending", "confirmations": 0, "needs": WIN_CONFIRMATIONS}
+    if chain_hash != our_hash:
+        _win_resolved[key] = "lost"  # a different block holds this height — ours didn't make it
+        return {"height": height, "hash": our_hash, "status": "lost", "confirmations": 0, "needs": WIN_CONFIRMATIONS}
+    confs = max(0, tip_height - height + 1)
+    if confs >= WIN_CONFIRMATIONS:
+        _win_resolved[key] = "confirmed"  # settled — cache so we don't RPC every poll
+        return {"height": height, "hash": our_hash, "status": "confirmed", "confirmations": confs, "needs": WIN_CONFIRMATIONS}
+    return {"height": height, "hash": our_hash, "status": "pending", "confirmations": confs, "needs": WIN_CONFIRMATIONS}  # in the chain, still settling
 
 
 def build(url, user, pw):
@@ -215,7 +220,7 @@ def build(url, user, pw):
                 } if win.get("hash_hex") else None,
                 "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
                 "zhist": st.get("zhist"),  # leading-zero-bits histogram {bits: count} for the heat map
-                "win_status": win_status(url, user, pw, st),  # {height, hash, status: pending|confirmed|lost}
+                "win_status": win_status(url, user, pw, st, int(chain.get("blocks", 0))),  # {height, hash, status, confirmations, needs}
             }
     except Exception:  # noqa: BLE001
         miner = None
