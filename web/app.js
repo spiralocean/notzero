@@ -356,7 +356,8 @@ let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
-let seenWins = -1, winPreviewHit = null, netWinHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null;
+const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
   Object.assign(celebration, { active: true, t: 0, preview, mode, verified, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
@@ -411,7 +412,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.95.0";
+const VERSION = "web v0.96.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -555,7 +556,7 @@ function drawCloseness(r) {
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
-    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} won & submitted · ◆ best ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
   const p = model.ticket?.prox;
@@ -1406,6 +1407,25 @@ function drawNetWinBadge(wins) {
   text(label, W / 2, H - 34, { size: 12, weight: 700, color: latest.verified ? "rgba(90,228,150,0.92)" : "rgba(255,200,110,0.92)", align: "center", baseline: "middle" });
 }
 
+// YOUR block before it's confirmed: 'pending' (found, awaiting the network) or 'lost' (a different block
+// reached the chain first). Honest about a found block that didn't make it. Returns true if it drew.
+function drawOwnWinStatus(ws) {
+  winStatusHit = null;
+  if (!ws || (ws.status !== "pending" && ws.status !== "lost")) return false;
+  if (ws.status === "lost" && dismissedLost.has(ws.height)) return false;
+  const lost = ws.status === "lost", h = (ws.height || 0).toLocaleString();
+  const label = lost
+    ? `⛏ you found block #${h} — but another block reached the chain first. a real find, beaten by seconds`
+    : `⛏ you found block #${h} — submitted; waiting for the network to confirm…`;
+  ctx.font = "700 12px -apple-system, system-ui, sans-serif";
+  const tw = ctx.measureText(label).width, pw = tw + (lost ? 44 : 28), ph = 28, px = W / 2 - pw / 2, py = H - 46;
+  ctx.fillStyle = "rgba(28,18,6,0.96)"; roundRect(px, py, pw, ph, 8); ctx.fill();
+  ctx.strokeStyle = lost ? "rgba(255,150,90,0.85)" : "rgba(255,205,100,0.85)"; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 8); ctx.stroke();
+  text(label, px + 14 + tw / 2, py + ph / 2, { size: 12, weight: 700, color: lost ? "rgb(255,175,115)" : "rgb(255,215,120)", align: "center", baseline: "middle" });
+  if (lost) { text("✕", px + pw - 15, py + ph / 2, { size: 13, weight: 700, color: "rgba(255,175,115,0.6)", align: "center", baseline: "middle" }); winStatusHit = { x: px, y: py, w: pw, h: ph, height: ws.height }; }
+  return true;
+}
+
 // small "new best" toast (bottom-centre) — slides in, then HOLDS until clicked (you may not be watching
 // when it happens), with a ✕ affordance. Not a takeover.
 function drawBestToast() {
@@ -1543,10 +1563,11 @@ function render() {
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
 
-  // YOUR win → celebration (auto-fires once when live_wins increments during the session)
-  const mnW = node && node.miner, winsNow = mnW ? (mnW.live_wins || 0) : 0;
-  if (seenWins < 0) seenWins = winsNow; // initialise; don't fire for a win that predates this page load
-  else if (winsNow > seenWins) { seenWins = winsNow; fireCelebration({ preview: false, mode: "you", height: mnW.attempt && mnW.attempt.height, hash: mnW.attempt && mnW.attempt.hash }); }
+  // YOUR block → only CELEBRATE once it's confirmed in the chain. ws.status: pending | confirmed | lost.
+  // (a found+submitted block is not a win — it can be a duplicate, rejected, or beaten to the chain.)
+  const mnW = node && node.miner, ws = mnW && mnW.win_status; // {height, hash, status}
+  if (seenConfirmedWin < 0) { if (mnW) seenConfirmedWin = (ws && ws.status === "confirmed") ? ws.height : 0; } // don't celebrate a win that predates this load
+  else if (ws && ws.status === "confirmed" && ws.height > seenConfirmedWin) { seenConfirmedWin = ws.height; fireCelebration({ preview: false, mode: "you", verified: true, height: ws.height, hash: ws.hash }); }
   // NEW BEST → a small toast (mid-tier reward; fires once when the leading-zero record improves this session)
   const bestNow = mnW && mnW.best ? (mnW.best.zero_bits || 0) : 0;
   if (seenBest < 0) { if (mnW && mnW.best) seenBest = bestNow; } // wait for data, then remember the standing record
@@ -1556,7 +1577,7 @@ function render() {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawPreviewTrigger(); drawNetWinBadge(netWins); drawBestToast(); }
+  if (!celebration.active) { drawPreviewTrigger(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
@@ -1576,6 +1597,7 @@ function sectionAt(px, py) {
 const inHit = (h, x, y) => h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
 canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
+  if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
@@ -1587,7 +1609,7 @@ canvas.addEventListener("click", (e) => {
 });
 canvas.addEventListener("mousemove", (e) => {
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
