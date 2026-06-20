@@ -411,7 +411,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.94.0";
+const VERSION = "web v0.95.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -778,6 +778,7 @@ function drawFieldDetail(idx, p, dr, b, tk, height) {
     cap("⛓ the previous block's hash — the literal link that forms the chain");
     src("the current chain tip (block #" + (h - 1).toLocaleString() + ") — copied straight in");
     fieldValueRow(b.previousblockhash.slice(0, 40), p, cx, midY + 8, 15);
+    text("you're mining the next block — if your hash wins, it becomes the chain's newest link, what the block after yours points back to", cx, dr.y + dr.h - 16, { size: 11, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   } else if (idx === 2) {
     drawMerkleTree(dr, p, true); // the merkle tree, building in step with this field
   } else if (idx === 3) {
