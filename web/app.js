@@ -413,7 +413,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.98.0";
+const VERSION = "web v0.99.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -986,6 +986,16 @@ function drawSync(r) {
   text("SYNCING THE CHAIN — peers → node → block", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
 
   const node = model.node;
+  // no REAL node yet (practice/symbolic mode, not set up, or unreachable) — show a call-to-action, not a
+  // fake sync animation. (a real node reports its own headers/blocks; without one we must not pretend.)
+  if (!(node && node.reachable !== false && (node.headers || node.blocks))) {
+    const sym = node && node.miner && node.miner.mode === "symbolic", cx0 = r.x + r.w / 2, cy0 = r.y + r.h / 2;
+    text(sym ? "practice mode — no Bitcoin node yet" : "no node connected", cx0, cy0 - 14, { size: 15, weight: 700, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+    text(sym ? "set up a node (bitcoind) and this fills with the real chain syncing — then you mine for real"
+             : "start bitcoind and this shows the blockchain downloading + verifying, block by block",
+      cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    return;
+  }
   const tip = (node && node.headers) || model.tipHeight || 0;
   const head = node && node.blocks ? node.blocks : (model.tipHeight || 0);
   if (!head) { text("connecting to the network…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "#888", align: "center", baseline: "middle" }); return; }
@@ -1542,8 +1552,10 @@ function render() {
   const prog = node && node.verificationprogress != null ? node.verificationprogress : 0;
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
+  const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
   let fmsg, fcol;
   if (!node) { fmsg = `◷ live demo · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
+  else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (!reachable) { fmsg = `○ node unreachable — check your node · ${VERSION}`; fcol = "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
@@ -1555,6 +1567,9 @@ function render() {
     // public / demo view — nobody is mining here, so DON'T show a payout warning (it reads as "your
     // rewards go to a stranger"). Explain what this is and how to take part.
     text("◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  } else if (symbolic) {
+    // practice mode — real attempts, but no node and no rewards yet, so don't show a payout warning
+    text("◷ practice mode — no rewards yet · set up a node to take a real shot at a block", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else {
     // a real local node IS present — show the actual payout (warn only if unset/invalid, where it matters)
     const pay = node.payout;
