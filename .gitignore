@@ -27,3 +27,4 @@ playwright-report/
 
 # Electron packaged output
 desktop/dist/
+desktop/resources/

@@ -30,6 +30,13 @@
           "!node.json",
           "!*.map"
         ]
+      },
+      {
+        "from": "resources",
+        "to": "engine",
+        "filter": [
+          "**/*"
+        ]
       }
     ],
     "mac": {

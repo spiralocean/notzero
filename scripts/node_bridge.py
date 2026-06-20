@@ -10,6 +10,7 @@ Run alongside the dev server:  python3 scripts/node_bridge.py
 import base64
 import hashlib
 import json
+import os
 import pathlib
 import subprocess
 import sys
@@ -32,7 +33,8 @@ try:
     from lottery_miner import validate_payout_address as _validate_payout
 except Exception:  # noqa: BLE001 — fall back to the format check below if it can't be imported
     _validate_payout = None
-OUT = REPO / "web" / "node.json"
+# where to publish node.json — overridable so the desktop app can write to a writable dir it serves
+OUT = pathlib.Path(os.environ["NODE_BRIDGE_OUT"]) if os.environ.get("NODE_BRIDGE_OUT") else REPO / "web" / "node.json"
 CONFIG = pathlib.Path.home() / "Library/Application Support/BitcoinLottery/config.json"
 POLL_SEC = 4
 # fallback payout when the operator hasn't set their own wallet — must match
