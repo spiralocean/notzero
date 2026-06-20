@@ -14,7 +14,6 @@ struct LotteryConfig: Codable {
     var notifyBlockWon: Bool
     var notifyNodeSynced: Bool
     var notifyNodeOutOfSync: Bool
-    var screensaverView: String
     var showWalletBalance: Bool
 
     enum CodingKeys: String, CodingKey {
@@ -26,7 +25,6 @@ struct LotteryConfig: Codable {
         case machineSeed = "machine_seed"
         case pricePollIntervalMin = "price_poll_interval_min"
         case menuBarDisplay = "menu_bar_display"
-        case screensaverView = "screensaver_view"
         case notificationsEnabled = "notifications_enabled"
         case notifyClosenessAboveZero = "notify_closeness_above_zero"
         case notifyBlockWon = "notify_block_won"
@@ -58,7 +56,6 @@ struct LotteryConfig: Codable {
             pricePollIntervalMin = 15
         }
         menuBarDisplay = try c.decodeIfPresent(String.self, forKey: .menuBarDisplay) ?? "block"
-        screensaverView = try c.decodeIfPresent(String.self, forKey: .screensaverView) ?? "matrix_rain"
         notificationsEnabled = try c.decodeIfPresent(Bool.self, forKey: .notificationsEnabled) ?? true
         notifyClosenessAboveZero = try c.decodeIfPresent(Bool.self, forKey: .notifyClosenessAboveZero) ?? true
         notifyBlockWon = try c.decodeIfPresent(Bool.self, forKey: .notifyBlockWon) ?? true
@@ -88,7 +85,6 @@ struct LotteryConfig: Codable {
             "machine_seed": machineSeed,
             "price_poll_interval_min": pricePollIntervalMin,
             "menu_bar_display": menuBarDisplay,
-            "screensaver_view": screensaverView,
             "notifications_enabled": notificationsEnabled,
             "notify_closeness_above_zero": notifyClosenessAboveZero,
             "notify_block_won": notifyBlockWon,

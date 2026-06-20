@@ -80,7 +80,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         addMenuItem(statusMenu, title: "Lottery… (or right-click ₿)", action: #selector(openLottery), key: "l")
         addMenuItem(statusMenu, title: "Settings…", action: #selector(openDashboard), key: "d")
         addMenuItem(statusMenu, title: BitcoinBrand.format("Bitcoin Core Setup…"), action: #selector(openNodeSetup), key: "b")
-        addMenuItem(statusMenu, title: "Screen Saver Preview…", action: #selector(openPreview), key: "p")
         statusMenu.addItem(.separator())
         let mode = state?.mode ?? config?.mode ?? "symbolic"
         addMenuItem(statusMenu, title: mode == "live" ? "Mode: Live (needs synced node)" : "Mode: Practice (no node needed)", action: nil)
@@ -151,7 +150,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         statusMenu.addItem(.separator())
         addMenuItem(statusMenu, title: "Version \(LotteryVersion.string)", action: nil)
-        addMenuItem(statusMenu, title: "Screen Saver Settings…", action: #selector(openScreenSaverPrefs))
         addMenuItem(statusMenu, title: "Quit", action: #selector(NSApplication.terminate(_:)), key: "q")
     }
 
@@ -219,21 +217,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             NSWorkspace.shared.open(url)
         }
-    }
-
-    @objc private func openPreview() {
-        let paths = [
-            "/Applications/Bitcoin Lottery Preview.app",
-            Bundle.main.bundlePath.replacingOccurrences(of: "Bitcoin Lottery.app", with: "Bitcoin Lottery Preview.app"),
-        ]
-        for path in paths where FileManager.default.fileExists(atPath: path) {
-            NSWorkspace.shared.open(URL(fileURLWithPath: path))
-            return
-        }
-    }
-
-    @objc private func openScreenSaverPrefs() {
-        NSWorkspace.shared.open(URL(string: "x-apple.systempreferences:com.apple.ScreenSaver-Settings.extension")!)
     }
 
 }

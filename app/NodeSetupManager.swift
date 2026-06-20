@@ -244,7 +244,6 @@ enum NodeSetupManager {
             "machine_seed": "",
             "price_poll_interval_min": 15,
             "menu_bar_display": "block",
-            "screensaver_view": "matrix_rain",
             "notifications_enabled": true,
             "notify_closeness_above_zero": true,
             "notify_block_won": true,

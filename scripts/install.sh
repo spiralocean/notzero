@@ -41,5 +41,3 @@ echo "  4. Open ₿itcoin Lottery → set payout wallet → switch to Live → S
 echo ""
 echo "Apps (optional):"
 echo "  $ROOT/scripts/install-app.sh"
-echo "  $ROOT/scripts/install-screensaver.sh"
-echo "  $ROOT/scripts/install-preview.sh"

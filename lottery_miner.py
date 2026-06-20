@@ -37,9 +37,6 @@ def brand(text: str) -> str:
 DIFFICULTY_1_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
 APP_SUPPORT = Path.home() / "Library" / "Application Support" / "BitcoinLottery"
 STATE_FILE = APP_SUPPORT / "state.json"
-SAVER_STATE_FILE = (
-    Path.home() / "Library" / "Screen Savers" / "bitcoin-lottery-state.json"
-)
 CONFIG_FILE = APP_SUPPORT / "config.json"
 LOG_FILE = APP_SUPPORT / "daemon.log"
 DEFAULT_CONFIG_FILE = Path(__file__).resolve().parent / "config.default.json"
@@ -119,7 +116,6 @@ def load_config() -> dict:
     config.setdefault("notify_block_won", True)
     config.setdefault("notify_node_synced", True)
     config.setdefault("notify_node_out_of_sync", True)
-    config.setdefault("screensaver_view", "matrix_rain")
     return config
 
 
@@ -202,7 +198,6 @@ def save_state(state: dict) -> None:
         json.dump(state, f, indent=2)
     tmp.replace(STATE_FILE)
     os.chmod(STATE_FILE, 0o600)
-    _save_state_saver_mirror(state)
 
 
 def save_winning_block(height: int, block_hex: str) -> Path:
@@ -216,19 +211,6 @@ def save_winning_block(height: int, block_hex: str) -> Path:
     except OSError:
         pass
     return path
-
-
-def _save_state_saver_mirror(state: dict) -> None:
-    # Mirror for screen saver (sandbox may block Application Support reads)
-    try:
-        SAVER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
-        saver_tmp = SAVER_STATE_FILE.with_suffix(".tmp")
-        with saver_tmp.open("w") as f:
-            json.dump(state, f, indent=2)
-        saver_tmp.replace(SAVER_STATE_FILE)
-        os.chmod(SAVER_STATE_FILE, 0o600)
-    except OSError:
-        pass
 
 
 def log_daemon(message: str) -> None:
@@ -1095,7 +1077,6 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                 state["payout_address"] = (
                     mask_address(settings["payout_address"]) if settings["payout_address"] else ""
                 )
-                state["screensaver_view"] = config.get("screensaver_view", "matrix_rain")
 
             height = get_tip_height()
             state["current_tip_height"] = height
@@ -1207,7 +1188,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=brand("1 hash per Bitcoin block — true lottery mining"))
     parser.add_argument("--mode", choices=["symbolic", "live"], default=None)
     parser.add_argument("--once", action="store_true", help="Hash once for current tip, then exit")
-    parser.add_argument("--daemon", action="store_true", help="Run continuously, write shared state for screensaver")
+    parser.add_argument("--daemon", action="store_true", help="Run continuously, write shared state")
     parser.add_argument("--status", action="store_true", help="Print shared state JSON")
     parser.add_argument("--config", action="store_true", help="Print config JSON")
     parser.add_argument("--init-config", action="store_true", help="Create default config.json")

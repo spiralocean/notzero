@@ -15,7 +15,6 @@ private struct SettingsSnapshot {
     let notifyBlockWon: Bool
     let notifyNodeSynced: Bool
     let notifyNodeOutOfSync: Bool
-    let screensaverView: String
     let showWalletBalance: Bool
 }
 
@@ -50,8 +49,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
     private var halvingLabel = NSTextField(labelWithString: "—")
     private var priceIntervalField = NSTextField()
     private var menuBarDisplayControl = NSSegmentedControl(labels: ["Block", "Price", "Closeness"], trackingMode: .selectOne, target: nil, action: nil)
-    private var screensaverViewControl = NSSegmentedControl(labels: ["Matrix rain", "Winner contrast", "Matrix + winner"], trackingMode: .selectOne, target: nil, action: nil)
-    private var screensaverViewHelp = NSTextField(labelWithString: "")
     private var notificationsEnabledBox = NSButton()
     private var notifyClosenessBox = NSButton()
     private var notifyJackpotBox = NSButton()
@@ -79,7 +76,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
     private var sectionStatsLabel = NSTextField(labelWithString: "")
     private var sectionPriceLabel = NSTextField(labelWithString: "")
     private var sectionMenuBarLabel = NSTextField(labelWithString: "")
-    private var sectionScreensaverLabel = NSTextField(labelWithString: "")
     private var sectionNotifyLabel = NSTextField(labelWithString: "")
     private var sectionNodeLabel = NSTextField(labelWithString: "")
     private var sectionDaemonLabel = NSTextField(labelWithString: "")
@@ -178,7 +174,7 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
 
         introLabel.stringValue =
             "Works out of the box in Practice mode — no blockchain download. Live mode is optional and uses a space-efficient pruned node (~15 GB disk, not 600 GB).\n\n"
-            + "Click the ₿ icon in the menu bar for settings and options. Right-click it for the screen saver preview."
+            + "Click the ₿ icon in the menu bar for settings and options."
         introLabel.font = NSFont.systemFont(ofSize: 14)
         introLabel.textColor = .secondaryLabelColor
         configureWrapping(introLabel)
@@ -271,16 +267,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
 
         menuBarDisplayControl.selectedSegment = 0
         documentView.addSubview(menuBarDisplayControl)
-
-        screensaverViewHelp.font = NSFont.systemFont(ofSize: 14)
-        screensaverViewHelp.textColor = .secondaryLabelColor
-        configureWrapping(screensaverViewHelp)
-        documentView.addSubview(screensaverViewHelp)
-
-        screensaverViewControl.selectedSegment = 0
-        screensaverViewControl.target = self
-        screensaverViewControl.action = #selector(screensaverViewChanged)
-        documentView.addSubview(screensaverViewControl)
 
         notifyHelpLabel.stringValue =
             "macOS alerts for notable lottery and node events. Closeness uses the same 4-decimal display as the menu bar. "
@@ -379,7 +365,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         sectionStatsLabel = makeSectionLabel("Stats")
         sectionPriceLabel = makeSectionLabel("Bitcoin price")
         sectionMenuBarLabel = makeSectionLabel("Menu bar display")
-        sectionScreensaverLabel = makeSectionLabel("Lottery & screen saver view")
         sectionNotifyLabel = makeSectionLabel("Notifications")
         sectionNodeLabel = makeSectionLabel("Bitcoin Core — live mode only (optional)")
         sectionDaemonLabel = makeSectionLabel("Background mining daemon")
@@ -513,11 +498,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         menuBarDisplayControl.frame = NSRect(x: pad, y: y, width: min(360, w), height: 28)
         y += 38 + Self.sectionGap
 
-        placeSectionLabel(sectionScreensaverLabel, x: pad, y: &y, width: w)
-        placeWrapping(screensaverViewHelp, x: pad, y: &y, width: w)
-        screensaverViewControl.frame = NSRect(x: pad, y: y, width: min(w, 480), height: 28)
-        y += 38 + Self.sectionGap
-
         placeSectionLabel(sectionNotifyLabel, x: pad, y: &y, width: w)
         placeWrapping(notifyHelpLabel, x: pad, y: &y, width: w)
         placeCheckbox(notificationsEnabledBox, x: pad, y: &y, width: w)
@@ -587,30 +567,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         relayoutDocument()
     }
 
-    @objc private func screensaverViewChanged() {
-        updateScreensaverViewHelp()
-        relayoutDocument()
-    }
-
-    private func updateScreensaverViewHelp() {
-        let views = ScreensaverView.allCases
-        let index = screensaverViewControl.selectedSegment
-        guard views.indices.contains(index) else { return }
-        let view = views[index]
-        screensaverViewHelp.stringValue = view.label + " — " + helpText(for: view)
-    }
-
-    private func helpText(for view: ScreensaverView) -> String {
-        switch view {
-        case .matrixRain:
-            return "Falling hex from your real ticket hashes."
-        case .winnerContrast:
-            return "Live network winner vs your ticket, fetched from mempool.space each block."
-        case .matrixWinner:
-            return "Matrix rain plus a winner-vs-you comparison panel."
-        }
-    }
-
     private func updateModeHelp() {
         if modeControl.selectedSegment == 1 {
             modeHelpLabel.stringValue = brand(
@@ -662,9 +618,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
             priceIntervalField.stringValue = "\(config.pricePollIntervalMin)"
             let display = MenuBarDisplay.from(config: config)
             menuBarDisplayControl.selectedSegment = MenuBarDisplay.allCases.firstIndex(of: display) ?? 0
-            let saverView = ScreensaverView.from(raw: config.screensaverView)
-            screensaverViewControl.selectedSegment = ScreensaverView.allCases.firstIndex(of: saverView) ?? 0
-            updateScreensaverViewHelp()
             notificationsEnabledBox.state = config.notificationsEnabled ? .on : .off
             notifyClosenessBox.state = config.notifyClosenessAboveZero ? .on : .off
             notifyJackpotBox.state = config.notifyBlockWon ? .on : .off
@@ -1082,8 +1035,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
 
         let displayIndex = menuBarDisplayControl.selectedSegment
         let displays = MenuBarDisplay.allCases
-        let saverViews = ScreensaverView.allCases
-        let saverIndex = screensaverViewControl.selectedSegment
         let snapshot = SettingsSnapshot(
             payoutAddress: address,
             machineSeed: machineSeedField.stringValue.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1097,9 +1048,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
             notifyBlockWon: notifyJackpotBox.state == .on,
             notifyNodeSynced: notifyNodeSyncedBox.state == .on,
             notifyNodeOutOfSync: notifyNodeOutOfSyncBox.state == .on,
-            screensaverView: saverViews.indices.contains(saverIndex)
-                ? saverViews[saverIndex].rawValue
-                : ScreensaverView.matrixRain.rawValue,
             showWalletBalance: showWalletBalanceBox.state == .on
         )
 
@@ -1131,7 +1079,6 @@ final class DashboardWindowController: NSWindowController, NSWindowDelegate {
         config.notifyBlockWon = snapshot.notifyBlockWon
         config.notifyNodeSynced = snapshot.notifyNodeSynced
         config.notifyNodeOutOfSync = snapshot.notifyNodeOutOfSync
-        config.screensaverView = snapshot.screensaverView
         config.showWalletBalance = snapshot.showWalletBalance
 
         do {
