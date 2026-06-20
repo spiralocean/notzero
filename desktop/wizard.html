@@ -62,10 +62,10 @@
         <label>RPC URL</label>
         <input id="rpc_url" type="text" value="http://127.0.0.1:8332" spellcheck="false" />
         <div class="row">
-          <div><label>RPC username</label><input id="rpc_user" type="text" autocomplete="off" spellcheck="false" /></div>
-          <div><label>RPC password</label><input id="rpc_pass" type="password" autocomplete="off" /></div>
+          <div><label>RPC username <span style="opacity:.6">(optional)</span></label><input id="rpc_user" type="text" autocomplete="off" spellcheck="false" /></div>
+          <div><label>RPC password <span style="opacity:.6">(optional)</span></label><input id="rpc_pass" type="password" autocomplete="off" /></div>
         </div>
-        <div class="hint" style="margin-top:10px">These are the <code>rpcuser</code> / <code>rpcpassword</code> from your <code>bitcoin.conf</code>. They stay on this machine.</div>
+        <div class="hint" style="margin-top:10px">The <code>rpcuser</code> / <code>rpcpassword</code> from your <code>bitcoin.conf</code> — copy them <b>exactly</b>. They stay on this machine.<br/><b>Leave both blank</b> if your node doesn't set them — we'll use its automatic cookie login. We test the connection before saving.</div>
       </div>
     </div>
 
@@ -82,14 +82,16 @@
 
     async function submit(payload) {
       $("err").textContent = "";
+      const label = $("start").textContent;
       $("start").disabled = true;
+      $("start").textContent = "Testing connection…";
       try {
         const res = await fetch("/setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
         const body = await res.json();
-        if (!res.ok || !body.ok) { $("err").textContent = body.error || "Couldn't save settings."; $("start").disabled = false; return; }
-        window.location = "/"; // → the dashboard
+        if (!res.ok || !body.ok) { $("err").textContent = body.error || "Couldn't save settings."; $("start").disabled = false; $("start").textContent = label; return; }
+        window.location = "/"; // → the dashboard (connection already verified)
       } catch (e) {
-        $("err").textContent = "Something went wrong saving settings."; $("start").disabled = false;
+        $("err").textContent = "Something went wrong saving settings."; $("start").disabled = false; $("start").textContent = label;
       }
     }
 

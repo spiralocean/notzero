@@ -109,6 +109,7 @@ def load_config() -> dict:
     config.setdefault("rpc_url", "http://127.0.0.1:8332")
     config.setdefault("rpc_user", "")
     config.setdefault("rpc_pass", "")
+    config.setdefault("rpc_cookie", "")  # path to bitcoind's .cookie — used when user/pass are blank
     config.setdefault("machine_seed", "")
     config.setdefault("price_poll_interval_min", DEFAULT_PRICE_POLL_MIN)
     config.setdefault("menu_bar_display", "block")
@@ -273,12 +274,12 @@ def http_get(url: str, timeout: int = 30) -> dict | list | str:
         return body.strip()
 
 
-def rpc_call(url: str, user: str, password: str, method: str, params: list | None = None) -> dict:
+def rpc_call(url: str, user: str, password: str, method: str, params: list | None = None, cookie: str = "") -> dict:
     payload = json.dumps({"jsonrpc": "1.0", "id": "lottery", "method": method, "params": params or []}).encode()
     req = urllib.request.Request(
         url,
         data=payload,
-        headers={"Content-Type": "application/json", "Authorization": _basic_auth(user, password)},
+        headers={"Content-Type": "application/json", "Authorization": _auth_header(user, password, cookie)},
     )
     with urllib.request.urlopen(req, timeout=60) as resp:
         body = json.loads(resp.read().decode())
@@ -287,11 +288,19 @@ def rpc_call(url: str, user: str, password: str, method: str, params: list | Non
     return body["result"]
 
 
-def _basic_auth(user: str, password: str) -> str:
+def _auth_header(user: str, password: str, cookie: str = "") -> str:
     import base64
 
-    token = base64.b64encode(f"{user}:{password}".encode()).decode()
-    return f"Basic {token}"
+    # No user/pass set → use bitcoind's auto-generated cookie. It rotates every restart, so read it
+    # fresh on each call. The file holds "__cookie__:<random>" — already the user:pass we need.
+    if not user and cookie:
+        try:
+            creds = Path(cookie).read_text().strip()
+        except OSError:
+            creds = f"{user}:{password}"
+    else:
+        creds = f"{user}:{password}"
+    return "Basic " + base64.b64encode(creds.encode()).decode()
 
 
 def _base58_decode(value: str) -> bytes:
@@ -778,6 +787,7 @@ def live_attempt(
     rpc_pass: str,
     machine_seed: str,
     payout_address: str,
+    rpc_cookie: str = "",
 ) -> BlockAttempt:
     """Real solo attempt via Bitcoin Core getblocktemplate + submitblock."""
     payout_address = validate_payout_address(payout_address)
@@ -788,6 +798,7 @@ def live_attempt(
         rpc_pass,
         "getblocktemplate",
         [{"rules": ["segwit"], "capabilities": ["coinbasevalue", "workid", "longpoll", "proposal"]}],
+        cookie=rpc_cookie,
     )
     height = template["height"]
     bits = int(template["bits"], 16)
@@ -816,7 +827,7 @@ def live_attempt(
         block_hex = _assemble_block_hex(template, coinbase_tx, nonce)
         saved = save_winning_block(height, block_hex)  # persist FIRST — a found block must survive any submit error
         try:
-            result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex])
+            result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex], cookie=rpc_cookie)
         except Exception as exc:  # noqa: BLE001 — never let a winning block vanish into a stack trace
             result = f"error: {exc}"
         submitted = not result  # submitblock returns null on accept, a reason string otherwise (e.g. "duplicate")
@@ -899,12 +910,13 @@ def format_attempt(a: BlockAttempt) -> str:
 
 def validate_live_config(config: dict) -> None:
     validate_payout_address(config.get("payout_address", ""))
-    if not config.get("rpc_user") or not config.get("rpc_pass"):
-        raise ValueError("Live mode requires rpc_user and rpc_pass in config.json")
+    has_userpass = config.get("rpc_user") and config.get("rpc_pass")
+    if not has_userpass and not config.get("rpc_cookie"):
+        raise ValueError("Live mode needs either rpc_user + rpc_pass or an rpc_cookie path in config.json")
 
 
-def get_node_status(rpc_url: str, rpc_user: str, rpc_pass: str) -> dict:
-    info = rpc_call(rpc_url, rpc_user, rpc_pass, "getblockchaininfo", [])
+def get_node_status(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str = "") -> dict:
+    info = rpc_call(rpc_url, rpc_user, rpc_pass, "getblockchaininfo", [], cookie=rpc_cookie)
     progress = float(info.get("verificationprogress", 0))
     syncing = bool(info.get("initialblockdownload", True))
     ready = (not syncing) and progress >= 0.99999 and info.get("blocks", 0) > 0
@@ -926,7 +938,8 @@ def get_node_status(rpc_url: str, rpc_user: str, rpc_pass: str) -> dict:
 def refresh_node_status(state: dict, settings: dict) -> dict:
     rpc_user = settings.get("rpc_user", "")
     rpc_pass = settings.get("rpc_pass", "")
-    if not rpc_user or not rpc_pass:
+    rpc_cookie = settings.get("rpc_cookie", "")
+    if not ((rpc_user and rpc_pass) or rpc_cookie):
         state["node"] = {
             "reachable": False,
             "ready": False,
@@ -936,7 +949,7 @@ def refresh_node_status(state: dict, settings: dict) -> dict:
         return state
     try:
         state["node"] = get_node_status(
-            settings["rpc_url"], rpc_user, rpc_pass
+            settings["rpc_url"], rpc_user, rpc_pass, rpc_cookie
         )
     except (urllib.error.URLError, RuntimeError, KeyError) as exc:
         state["node"] = {
@@ -973,12 +986,12 @@ def print_check_node() -> int:
     config = load_config()
     print(brand("Bitcoin Lottery — node readiness check\n"))
 
-    if not config.get("rpc_user") or not config.get("rpc_pass"):
+    if not ((config.get("rpc_user") and config.get("rpc_pass")) or config.get("rpc_cookie")):
         print("RPC not configured. Run: ./scripts/setup-bitcoind.sh")
         return 1
 
     try:
-        node = get_node_status(config["rpc_url"], config["rpc_user"], config["rpc_pass"])
+        node = get_node_status(config["rpc_url"], config["rpc_user"], config["rpc_pass"], config.get("rpc_cookie", ""))
     except (urllib.error.URLError, RuntimeError) as exc:
         print(brand(f"Cannot reach Bitcoin Core at {config['rpc_url']}"))
         print(f"  {exc}")
@@ -1031,6 +1044,7 @@ def resolve_runtime_settings(
         "rpc_url": rpc_url or config.get("rpc_url", "http://127.0.0.1:8332"),
         "rpc_user": rpc_user or config.get("rpc_user", ""),
         "rpc_pass": rpc_pass or config.get("rpc_pass", ""),
+        "rpc_cookie": config.get("rpc_cookie", ""),
         # default seed is a HASH of the hostname, not the hostname itself — it's published in node.json
         # (which is web-served) and shown in the nonce pane, so a raw hostname would leak the device name.
         # Deterministic (stable nonce per host) and identical on daemon + dashboard. A user-set seed wins.
@@ -1108,6 +1122,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                         settings["rpc_pass"],
                         settings["machine_seed"],
                         settings["payout_address"],
+                        settings.get("rpc_cookie", ""),
                     )
                 else:
                     attempt = symbolic_attempt(height, settings["machine_seed"])
@@ -1246,6 +1261,7 @@ def main() -> None:
                 settings["rpc_pass"],
                 settings["machine_seed"],
                 settings["payout_address"],
+                settings.get("rpc_cookie", ""),
             )
             if settings["mode"] == "live"
             else symbolic_attempt(height, settings["machine_seed"])

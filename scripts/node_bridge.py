@@ -75,7 +75,7 @@ def valid_btc_address(a):
 
 def load_rpc():
     c = json.load(CONFIG.open()) if CONFIG.exists() else {}
-    return (c.get("rpc_url", "http://127.0.0.1:8332"), c.get("rpc_user", ""), c.get("rpc_pass", ""))
+    return (c.get("rpc_url", "http://127.0.0.1:8332"), c.get("rpc_user", ""), c.get("rpc_pass", ""), c.get("rpc_cookie", ""))
 
 
 def rpc(url, user, pw, method, params=None):
@@ -150,7 +150,14 @@ def win_status(url, user, pw, st, tip_height):
     return {"height": height, "hash": our_hash, "status": "pending", "confirmations": confs, "needs": WIN_CONFIRMATIONS}  # in the chain, still settling
 
 
-def build(url, user, pw):
+def build(url, user, pw, cookie=""):
+    # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
+    # poll, since the cookie rotates on each bitcoind restart).
+    if not user and cookie:
+        try:
+            user, pw = pathlib.Path(cookie).read_text().strip().split(":", 1)
+        except (OSError, ValueError):
+            pass
     # the node may be unreachable (not set up yet / starting / down) — still publish the miner + payout
     # so the dashboard works during setup/sync, just with reachable=False.
     node_ok = True
@@ -270,11 +277,12 @@ def write(obj):
 
 
 def main():
-    url, user, pw = load_rpc()
-    print(f"node bridge → {OUT}  (rpc {url}, every {POLL_SEC}s)")
+    url0, _, _, _ = load_rpc()
+    print(f"node bridge → {OUT}  (rpc {url0}, every {POLL_SEC}s)")
     while True:
         try:
-            write(build(url, user, pw))
+            url, user, pw, cookie = load_rpc()  # re-read each poll so wizard edits + cookie rotation are picked up live
+            write(build(url, user, pw, cookie))
         except Exception as e:  # noqa: BLE001 — keep running through transient RPC errors
             # generic message in the web-served file; the detail (which can carry the RPC host/port) goes to stderr only
             print(f"bridge: node unreachable — {str(e)[:200]}", file=sys.stderr)

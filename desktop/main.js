@@ -13,6 +13,7 @@ const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
+const os = require("node:os");
 
 const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
 const ICON = path.join(__dirname, "assets", "icon.png");
@@ -47,22 +48,76 @@ function startEngines() { if (enginesStarted) return; enginesStarted = true; sta
 function restartEngines() { for (const n of Object.keys(procs)) { try { procs[n].kill(); } catch (_) {} } } // exit handlers respawn with new config
 function stopEngines() { stopping = true; for (const p of Object.values(procs)) { try { p.kill(); } catch (_) {} } }
 
+// ---- RPC auth + a real connection test, so setup fails loudly here instead of silently later ----
+// bitcoind's default cookie location per platform; "" if there's no cookie (explicit rpcuser is set).
+function defaultCookiePath() {
+  const home = os.homedir();
+  const p = process.platform === "darwin" ? path.join(home, "Library", "Application Support", "Bitcoin", ".cookie")
+    : process.platform === "win32" ? path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "Bitcoin", ".cookie")
+    : path.join(home, ".bitcoin", ".cookie");
+  return fs.existsSync(p) ? p : "";
+}
+function rpcAuthHeader({ user, pass, cookiePath }) {
+  let creds;
+  if (user && pass) creds = `${user}:${pass}`;
+  else if (cookiePath) { try { creds = fs.readFileSync(cookiePath, "utf8").trim(); } catch (_) { return null; } } // "__cookie__:<random>"
+  else return null;
+  return "Basic " + Buffer.from(creds).toString("base64");
+}
+// Try getblockchaininfo and translate the failure into something a human can act on.
+function testRpc(rpcUrl, authHeader) {
+  return new Promise((resolve) => {
+    let u; try { u = new URL(rpcUrl); } catch (_) { return resolve({ ok: false, error: "That RPC URL doesn't look right (expected something like http://127.0.0.1:8332)." }); }
+    const payload = JSON.stringify({ jsonrpc: "1.0", id: "setup", method: "getblockchaininfo", params: [] });
+    const req = http.request({
+      hostname: u.hostname, port: u.port || 8332, path: u.pathname || "/", method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": authHeader, "Content-Length": Buffer.byteLength(payload) }, timeout: 8000,
+    }, (res) => {
+      let data = ""; res.on("data", (c) => (data += c));
+      res.on("end", () => {
+        if (res.statusCode === 401) return resolve({ ok: false, error: "Your node rejected those credentials (401). Check the RPC username and password — they must match rpcuser/rpcpassword in your bitcoin.conf exactly." });
+        if (res.statusCode !== 200) return resolve({ ok: false, error: `Your node returned HTTP ${res.statusCode}.` });
+        try { const j = JSON.parse(data); if (j.error) return resolve({ ok: false, error: "Node error: " + (j.error.message || String(j.error)) }); return resolve({ ok: true, info: j.result }); }
+        catch (_) { return resolve({ ok: false, error: "Got an unreadable response from the node." }); }
+      });
+    });
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "Your node didn't respond in time. Is it running, and is the RPC URL/port right?" }); });
+    req.on("error", (e) => {
+      if (e.code === "ECONNREFUSED") return resolve({ ok: false, error: `Couldn't connect to ${u.host}. Is bitcoind running with server=1?` });
+      resolve({ ok: false, error: `Couldn't reach your node (${e.code || e.message}).` });
+    });
+    req.write(payload); req.end();
+  });
+}
+
 // ---- write config from the wizard, then (re)start the engine ----
 function handleSetup(req, res) {
   let body = "";
   req.on("data", (c) => { body += c; if (body.length > 100000) req.destroy(); });
-  req.on("end", () => {
+  req.on("end", async () => {
     const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     let p;
     try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
-    if (!p.rpc_user || !p.rpc_pass) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf)." });
+    const rpcUrl = (p.rpc_url || "http://127.0.0.1:8332").trim();
+    const user = (p.rpc_user || "").trim();
+    const pass = p.rpc_pass || "";
+    const usingCookie = !(user && pass); // blank creds → fall back to the node's auto-generated cookie
+    const cookiePath = usingCookie ? defaultCookiePath() : "";
+    if (usingCookie && !cookiePath) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf). We couldn't find a cookie file to log in automatically." });
+    const authHeader = rpcAuthHeader({ user, pass, cookiePath });
+    if (!authHeader) return json(200, { ok: false, error: "Enter your node's RPC username and password." });
+
+    const test = await testRpc(rpcUrl, authHeader); // verify BEFORE saving — no more silent "unreachable" later
+    if (!test.ok) return json(200, { ok: false, error: test.error });
+
     const cfg = {
       version: 1,
       mode: "live", // the desktop app is live-only — practice/demo lives on the web
       payout_address: (p.payout_address || "").trim(),
-      rpc_url: (p.rpc_url || "http://127.0.0.1:8332").trim(),
-      rpc_user: (p.rpc_user || "").trim(),
-      rpc_pass: p.rpc_pass || "",
+      rpc_url: rpcUrl,
+      rpc_user: usingCookie ? "" : user,
+      rpc_pass: usingCookie ? "" : pass,
+      rpc_cookie: usingCookie ? cookiePath : "",
       machine_seed: "",
       price_poll_interval_min: 15,
       notifications_enabled: true,
@@ -72,7 +127,7 @@ function handleSetup(req, res) {
       fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
     } catch (_) { return json(200, { ok: false, error: "Couldn't save settings." }); }
     if (enginesStarted) restartEngines(); else startEngines();
-    json(200, { ok: true });
+    json(200, { ok: true, synced: test.info ? !test.info.initialblockdownload : undefined });
   });
 }
 
