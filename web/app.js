@@ -413,7 +413,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.99.0";
+const VERSION = "web v0.100.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -560,6 +560,15 @@ function drawCloseness(r) {
     text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
+  // a node is configured (the desktop app) but there's no live attempt yet — syncing/connecting, not a demo
+  if (model.node) {
+    const syncing = model.node.reachable !== false && (model.node.initialblockdownload || (model.node.headers || 0) > (model.node.blocks || 0));
+    text(syncing ? "your node is syncing — your real closeness shows here once it's caught up and mining"
+                 : "connecting to your node — your real closeness shows here once you're mining",
+      r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+    return;
+  }
+  // no node at all (the public web demo) — show the educational draw
   const p = model.ticket?.prox;
   if (!p) { text("waiting for a draw…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
   const bw = Math.min(440, r.w * 0.8), bx = r.x + r.w / 2 - bw / 2, by = r.y + 12;
@@ -604,6 +613,14 @@ function drawHashBuild(r) {
   if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
   // when the daemon is live, build the EXACT block it's mining (real, verified); else the in-browser demo
   const live = model.liveBuild;
+  // a node is configured (desktop) but no live block yet — syncing/connecting, not a demo with a fake prev block
+  if (model.node && !live) {
+    const syncing = model.node.reachable !== false && (model.node.initialblockdownload || (model.node.headers || 0) > (model.node.blocks || 0));
+    text(syncing ? "your node is syncing — the real block you're mining is built here once it's caught up"
+                 : "connecting to your node — the block you're mining is built here once you're live",
+      r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+    return;
+  }
   const b = live ? { version: live.version, previousblockhash: live.prevHash, merkle_root: live.merkleRoot, timestamp: live.timestamp, bits: live.bits } : model.block;
   const tk = live ? { nonce: live.nonce, hash1Hex: live.hash1Display, hashHex: live.hash2Display, prox: { leadingZeroBits: live.leadingZeroBits, won: live.below } } : model.ticket;
   const buildHeight = live ? live.height : model.tipHeight;

@@ -47,7 +47,7 @@
 
     <div class="section">
       <h2>Where do your winnings go?</h2>
-      <div class="hint">Your Bitcoin <b>receive</b> address. If you ever win a block, the reward goes here — nowhere else. Leave blank to just practice (no real mining).</div>
+      <div class="hint">Your Bitcoin <b>receive</b> address. If you ever win a block, the reward goes here — nowhere else. Set yours; if you leave it blank, a win temporarily goes to the project (you can change it anytime).</div>
       <input id="payout" type="text" placeholder="bc1q… (your wallet address)" autocomplete="off" spellcheck="false" />
     </div>
 
@@ -71,7 +71,6 @@
 
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
-      <button class="ghost" id="practice">Skip — just practice (no node)</button>
     </div>
     <div class="err" id="err"></div>
     <div class="foot">Open source · non-custodial · this never holds your keys, only a receive address.<br/>You can change any of this later.</div>
@@ -79,8 +78,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    let mode = "live";
-    $("opt-existing").onclick = () => { mode = "live"; $("opt-existing").classList.add("sel"); $("rpc").classList.add("show"); };
+    $("opt-existing").onclick = () => { $("opt-existing").classList.add("sel"); $("rpc").classList.add("show"); };
 
     async function submit(payload) {
       $("err").textContent = "";
@@ -96,13 +94,11 @@
     }
 
     $("start").onclick = () => submit({
-      mode: "live",
       payout_address: $("payout").value.trim(),
       rpc_url: $("rpc_url").value.trim(),
       rpc_user: $("rpc_user").value.trim(),
       rpc_pass: $("rpc_pass").value,
     });
-    $("practice").onclick = () => submit({ mode: "symbolic", payout_address: $("payout").value.trim() });
   </script>
 </body>
 </html>

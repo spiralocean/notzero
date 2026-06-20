@@ -55,11 +55,10 @@ function handleSetup(req, res) {
     const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     let p;
     try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
-    const live = p.mode === "live";
-    if (live && (!p.rpc_user || !p.rpc_pass)) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf)." });
+    if (!p.rpc_user || !p.rpc_pass) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf)." });
     const cfg = {
       version: 1,
-      mode: live ? "live" : "symbolic",
+      mode: "live", // the desktop app is live-only — practice/demo lives on the web
       payout_address: (p.payout_address || "").trim(),
       rpc_url: (p.rpc_url || "http://127.0.0.1:8332").trim(),
       rpc_user: (p.rpc_user || "").trim(),
