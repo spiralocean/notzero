@@ -410,7 +410,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.91.0";
+const VERSION = "web v0.92.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1517,7 +1517,7 @@ function render() {
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
   let fmsg, fcol;
-  if (!node) { fmsg = `○ no node connected · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
+  if (!node) { fmsg = `◷ live demo · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (!reachable) { fmsg = `○ node unreachable — check your node · ${VERSION}`; fcol = "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
@@ -1525,9 +1525,13 @@ function render() {
   text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  } else if (!node) {
+    // public / demo view — nobody is mining here, so DON'T show a payout warning (it reads as "your
+    // rewards go to a stranger"). Explain what this is and how to take part.
+    text("◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else {
-    // payout address — falls back to the dashboard owner's wallet when the operator hasn't set their own
-    const pay = model.node && model.node.payout;
+    // a real local node IS present — show the actual payout (warn only if unset/invalid, where it matters)
+    const pay = node.payout;
     const masked = (pay && pay.masked) || DEFAULT_PAYOUT_MASKED;
     const isDefault = pay ? pay.is_default : true;
     const status = pay ? (pay.status || (pay.valid ? "ok" : "invalid")) : "ok";
