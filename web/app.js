@@ -358,9 +358,9 @@ function fireCelebration({ preview = false, mode = "you", height = 0, hash = "",
 }
 // new-best toast: a small, non-intrusive reward when the miner beats its own leading-zero record
 // (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
-let seenBest = -1;
+let seenBest = -1, bestToastHit = null;
 const bestToast = { t: 0, active: false, bits: 0 };
-function fireBestToast(bits) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; }
+function fireBestToast(bits) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; } // persists until clicked
 // --- network-win detection: the win announces itself ON-CHAIN via the coinbase tag the miner already
 // writes (/BitcoinLottery/…). No server, no phone-home — we just read the public coinbase. ---
 const LOTTERY_TAG = "/BitcoinLottery/";
@@ -404,7 +404,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.89.0";
+const VERSION = "web v0.90.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1397,21 +1397,22 @@ function drawNetWinBadge(wins) {
   text(label, W / 2, H - 34, { size: 12, weight: 700, color: "rgba(90,228,150,0.92)", align: "center", baseline: "middle" });
 }
 
-// small "new best" toast (bottom-centre) — a brief, auto-dismissing pill, not a takeover
+// small "new best" toast (bottom-centre) — slides in, then HOLDS until clicked (you may not be watching
+// when it happens), with a ✕ affordance. Not a takeover.
 function drawBestToast() {
-  if (!bestToast.active) return;
+  if (!bestToast.active) { bestToastHit = null; return; }
   bestToast.t += 1 / 60;
-  const DUR = 4.5, t = bestToast.t;
-  if (t > DUR) { bestToast.active = false; return; }
-  const inP = Math.min(1, t / 0.3), alpha = Math.min(inP, t > DUR - 0.8 ? (DUR - t) / 0.8 : 1);
+  const t = bestToast.t, inP = Math.min(1, t / 0.3);
   const label = `🎯 new best · ${bestToast.bits} zero bits`;
   ctx.font = "700 13px -apple-system, system-ui, sans-serif";
-  const pw = ctx.measureText(label).width + 30, ph = 30, slide = reduceMotion ? 0 : (1 - inP) * 18;
-  const px = W / 2 - pw / 2, py = H - 72 + slide;
-  ctx.globalAlpha = alpha;
+  const tw = ctx.measureText(label).width, pw = tw + 50, ph = 30, slide = reduceMotion ? 0 : (1 - inP) * 18;
+  const px = W / 2 - pw / 2, py = H - 78 + slide;
+  bestToastHit = { x: px, y: py, w: pw, h: ph };
+  ctx.globalAlpha = inP; // fade in, then hold at full
   ctx.fillStyle = "rgba(22,17,8,0.94)"; roundRect(px, py, pw, ph, 9); ctx.fill();
   ctx.strokeStyle = "rgba(255,215,90,0.75)"; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 9); ctx.stroke();
-  text(label, W / 2, py + ph / 2, { size: 13, weight: 700, color: "rgb(255,228,130)", align: "center", baseline: "middle" });
+  text(label, px + 15 + tw / 2, py + ph / 2, { size: 13, weight: 700, color: "rgb(255,228,130)", align: "center", baseline: "middle" });
+  text("✕", px + pw - 15, py + ph / 2, { size: 13, weight: 700, color: "rgba(255,228,130,0.55)", align: "center", baseline: "middle" });
   if (!reduceMotion && t < 1.2) for (let i = 0; i < 8; i++) { // a brief spark on appearance
     const a = (i / 8) * Math.PI * 2, rr = 14 + t * 42;
     ctx.fillStyle = `rgba(255,215,90,${0.5 * (1 - t / 1.2)})`;
@@ -1561,6 +1562,7 @@ function sectionAt(px, py) {
 const inHit = (h, x, y) => h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
 canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
+  if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
@@ -1571,7 +1573,7 @@ canvas.addEventListener("click", (e) => {
 });
 canvas.addEventListener("mousemove", (e) => {
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
