@@ -35,7 +35,8 @@ def brand(text: str) -> str:
     text = text.replace("BITCOIN", "₿ITCOIN")
     return re.sub(r"(?<![/.-])Bitcoin(?![-]|Lottery|lottery)", "₿itcoin", text)
 DIFFICULTY_1_TARGET = 0x00000000FFFF0000000000000000000000000000000000000000000000000000
-APP_SUPPORT = Path.home() / "Library" / "Application Support" / "BitcoinLottery"
+# data dir (config + state + logs) — overridable so the desktop app runs an isolated instance
+APP_SUPPORT = Path(os.environ["LOTTERY_DATA_DIR"]) if os.environ.get("LOTTERY_DATA_DIR") else Path.home() / "Library" / "Application Support" / "BitcoinLottery"
 STATE_FILE = APP_SUPPORT / "state.json"
 CONFIG_FILE = APP_SUPPORT / "config.json"
 LOG_FILE = APP_SUPPORT / "daemon.log"

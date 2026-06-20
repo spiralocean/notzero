@@ -35,7 +35,9 @@ except Exception:  # noqa: BLE001 — fall back to the format check below if it 
     _validate_payout = None
 # where to publish node.json — overridable so the desktop app can write to a writable dir it serves
 OUT = pathlib.Path(os.environ["NODE_BRIDGE_OUT"]) if os.environ.get("NODE_BRIDGE_OUT") else REPO / "web" / "node.json"
-CONFIG = pathlib.Path.home() / "Library/Application Support/BitcoinLottery/config.json"
+# data dir (config + state) — overridable to match the miner's LOTTERY_DATA_DIR (isolated desktop instance)
+_DATA_DIR = pathlib.Path(os.environ["LOTTERY_DATA_DIR"]) if os.environ.get("LOTTERY_DATA_DIR") else pathlib.Path.home() / "Library/Application Support/BitcoinLottery"
+CONFIG = _DATA_DIR / "config.json"
 POLL_SEC = 4
 # fallback payout when the operator hasn't set their own wallet — must match
 # DEFAULT_PAYOUT_ADDRESS in lottery_miner.py (rewards go to the project owner until a wallet is set).
@@ -149,22 +151,30 @@ def win_status(url, user, pw, st, tip_height):
 
 
 def build(url, user, pw):
-    chain = rpc(url, user, pw, "getblockchaininfo")
-    peers_raw = rpc(url, user, pw, "getpeerinfo")
-    # mempool: transactions flowing in while the next block is mined (the "data coming in")
+    # the node may be unreachable (not set up yet / starting / down) — still publish the miner + payout
+    # so the dashboard works during setup/sync, just with reachable=False.
+    node_ok = True
+    chain, peers_raw, mempool = {}, [], None
     try:
-        mp = rpc(url, user, pw, "getmempoolinfo")
-        mp_count = int(mp.get("size", 0))
-        mp_prev = _prev_recv.get("__mp", mp_count)
-        _prev_recv["__mp"] = mp_count
-        # localrelay=False means blocksonly: the node receives whole blocks but no loose transactions
-        try:
-            relay = bool(rpc(url, user, pw, "getnetworkinfo").get("localrelay", True))
-        except Exception:  # noqa: BLE001
-            relay = True
-        mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2), "relay": relay}
+        chain = rpc(url, user, pw, "getblockchaininfo")
+        peers_raw = rpc(url, user, pw, "getpeerinfo")
     except Exception:  # noqa: BLE001
-        mempool = None
+        node_ok = False
+    if node_ok:
+        # mempool: transactions flowing in while the next block is mined (the "data coming in")
+        try:
+            mp = rpc(url, user, pw, "getmempoolinfo")
+            mp_count = int(mp.get("size", 0))
+            mp_prev = _prev_recv.get("__mp", mp_count)
+            _prev_recv["__mp"] = mp_count
+            # localrelay=False means blocksonly: the node receives whole blocks but no loose transactions
+            try:
+                relay = bool(rpc(url, user, pw, "getnetworkinfo").get("localrelay", True))
+            except Exception:  # noqa: BLE001
+                relay = True
+            mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2), "relay": relay}
+        except Exception:  # noqa: BLE001
+            mempool = None
     peers = []
     for p in peers_raw:
         addr = p.get("addr", "?")
@@ -237,7 +247,7 @@ def build(url, user, pw):
     payout = {"masked": mask_addr(effective), "is_default": not cfg_payout, "valid": status == "ok", "status": status}
     return {
         "ts": int(time.time()),
-        "reachable": True,
+        "reachable": node_ok,
         "blocks": chain.get("blocks", 0),
         "headers": chain.get("headers", 0),
         "verificationprogress": chain.get("verificationprogress", 0.0),

@@ -1,9 +1,10 @@
-// Phase 1 — a self-contained desktop app: it runs its OWN node bridge and renders the dashboard.
+// Phase 2a — a self-contained miner: the app runs its OWN miner + bridge in an isolated data dir and
+// renders the dashboard. Out of the box it mines in symbolic mode (no node required) so it works the
+// instant it's installed; the dashboard shows the live attempts. (Phase 2b: bitcoind + live mode + the
+// first-run wizard for the payout address.)
 //
-// The dashboard (../web) is reused unchanged, served over a tiny loopback HTTP server so app.js's
-// fetches run from a normal http origin. The app spawns the bridge (a standalone PyInstaller binary
-// when packaged — no Python needed; the script via python3 in dev) which publishes node.json to a
-// writable location the server serves at /node.json. (Phase 2 adds bitcoind + the miner + setup wizard.)
+// The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
+// or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
 const { app, BrowserWindow } = require("electron");
 const { spawn } = require("node:child_process");
@@ -13,7 +14,6 @@ const path = require("node:path");
 
 const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
 const ICON = path.join(__dirname, "assets", "icon.png");
-const NODE_JSON = path.join(app.getPath("userData"), "node.json"); // writable; the bridge publishes here
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -24,36 +24,38 @@ const MIME = {
   ".ico": "image/x-icon",
 };
 
-// ---- the bridge: publishes node.json the dashboard reads ----
-let bridgeProc = null;
+// ---- the engine: our own miner + bridge, in an isolated data dir ----
+let DATA_DIR, NODE_JSON, ENGINE_ENV;
+const procs = {};
 let stopping = false;
 
-function bridgeCommand() {
-  // packaged: the bundled standalone binary (no Python on the user's machine). dev: the script via python3.
-  return app.isPackaged
-    ? { cmd: path.join(process.resourcesPath, "engine", "bridge"), args: [] }
-    : { cmd: "python3", args: [path.join(__dirname, "..", "scripts", "node_bridge.py")] };
+function engineCmd(name) {
+  const minerArgs = name === "miner" ? ["--daemon"] : [];
+  if (app.isPackaged) return { cmd: path.join(process.resourcesPath, "engine", name), args: minerArgs }; // bundled binary, no Python
+  const script = name === "bridge" ? path.join(__dirname, "..", "scripts", "node_bridge.py") : path.join(__dirname, "..", "lottery_miner.py");
+  return { cmd: "python3", args: [script, ...minerArgs] };
 }
 
-function startBridge() {
+function startEngine(name) {
   if (stopping) return;
-  const { cmd, args } = bridgeCommand();
-  bridgeProc = spawn(cmd, args, { env: { ...process.env, NODE_BRIDGE_OUT: NODE_JSON }, stdio: "ignore" });
-  bridgeProc.on("error", () => { bridgeProc = null; });                         // e.g. binary missing
-  bridgeProc.on("exit", () => { bridgeProc = null; if (!stopping) setTimeout(startBridge, 2000); }); // restart on crash
+  const { cmd, args } = engineCmd(name);
+  const p = spawn(cmd, args, { env: ENGINE_ENV, stdio: "ignore" });
+  procs[name] = p;
+  p.on("error", () => { delete procs[name]; });                                       // e.g. binary missing
+  p.on("exit", () => { delete procs[name]; if (!stopping) setTimeout(() => startEngine(name), 2000); }); // restart on crash
 }
 
-function stopBridge() {
+function stopEngines() {
   stopping = true;
-  if (bridgeProc) { try { bridgeProc.kill(); } catch (_) {} bridgeProc = null; }
+  for (const p of Object.values(procs)) { try { p.kill(); } catch (_) {} }
 }
 
-// ---- static server for the dashboard (+ the live node.json from the bridge's writable output) ----
+// ---- static server for the dashboard (+ the live node.json the bridge publishes) ----
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
-      if (urlPath === "/node.json") { // live data from the bridge, not the read-only bundle
+      if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
         fs.readFile(NODE_JSON, (err, data) => {
           if (err) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); return; }
           res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" });
@@ -92,7 +94,15 @@ async function createWindow() {
   win.loadURL(`http://127.0.0.1:${port}/`);
 }
 
-app.whenReady().then(() => { startBridge(); createWindow(); });
+app.whenReady().then(() => {
+  DATA_DIR = app.getPath("userData"); // the app's own isolated config/state/node.json (no clash with any existing daemon)
+  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+  NODE_JSON = path.join(DATA_DIR, "node.json");
+  ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
+  startEngine("miner");   // mines (symbolic until a node is set up)
+  startEngine("bridge");  // publishes node.json the dashboard reads
+  createWindow();
+});
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-app.on("before-quit", stopBridge);
-app.on("window-all-closed", () => { stopBridge(); if (process.platform !== "darwin") app.quit(); });
+app.on("before-quit", stopEngines);
+app.on("window-all-closed", () => { stopEngines(); if (process.platform !== "darwin") app.quit(); });
