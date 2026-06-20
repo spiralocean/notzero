@@ -22,7 +22,11 @@ Most people watch. The committed few mine for real. Both are honest about what t
 
 ## The honest odds
 
-Winning a block solo is roughly **1 in 10²³ per block** — you are likelier to win Powerball several times in a row. You will, in all probability, never win. So why do it?
+Winning a block solo is roughly **1 in 10²³ per block.** To put that in perspective:
+
+> **You are far more likely to win the Powerball jackpot several times in a row than to win a single block this way.**
+
+You will, in all probability, never win. So why do it?
 
 - **It isn't zero.** A ticket moves you from *impossible* to *possible*. Zero is what you get if you never play.
 - **You learn how Bitcoin actually works** — headers, hashing, difficulty, the merkle tree — by watching your own node do it.
@@ -43,6 +47,17 @@ The dashboard is a single HTML5 canvas, no dependencies. It reflects your real n
 - **The reward ladder** — *new best* (you beat your own record) → *a lottery miner wins* (detected on-chain via the coinbase tag) → **you win** (the full celebration). Each tier of "not zero" gets a moment.
 
   ![Win celebration](docs/celebration.png)
+
+## Is it safe to run?
+
+When people hear "Bitcoin miner," two fears come up: a machine screaming at 100% with a huge power bill, or malware quietly hijacking your computer to mine for someone else. **This is neither — and you don't have to take my word for it, because the code is open.**
+
+- **It barely touches your computer.** A solo lottery ticket is *one* hash per block — about one calculation every ten minutes, not the trillions-per-second of a mining rig. In practice the miner sits at **~0% CPU and a few MB of RAM** (the dashboard shows the live numbers). Your laptop fan won't even notice. It is the *opposite* of cryptojacking malware, which exists precisely to max out your CPU.
+- **It can't touch your coins.** It's non-custodial: it never sees a private key or wallet. You give it a *receive* address — the only place a reward could ever go — and nothing else. (Set your own; by default it goes to the project, clearly flagged in the app.)
+- **It doesn't phone home.** It talks only to *your own* Bitcoin node and the public mempool.space API. No accounts, no telemetry, no hidden servers.
+- **You can read every line.** That's the entire reason it's open source — you, or anyone you trust, can verify exactly what it does before running it. *Don't trust, verify.*
+
+The one real cost is bitcoind's **first blockchain sync** (bandwidth + time, one time) — pruning keeps the disk footprint small. After that it's a quiet background hum, not a furnace.
 
 ## How it's built
 
