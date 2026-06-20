@@ -15,7 +15,12 @@ data/
 # Python
 __pycache__/
 *.pyc
-.venv/web/node.json
+.venv/
+
+# Local runtime state (written by the node bridge)
+/web/node.json
 
 # dev tooling
 node_modules/
+test-results/
+playwright-report/

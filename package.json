@@ -5,9 +5,12 @@
   "description": "Dev tooling for the Bitcoin Lottery dashboard (headless probe). The web app itself is dependency-free vanilla JS.",
   "scripts": {
     "probe": "node scripts/probe.mjs",
-    "probe:watch": "node scripts/probe.mjs --watch"
+    "probe:watch": "node scripts/probe.mjs --watch",
+    "test": "playwright test",
+    "test:update": "playwright test --update-snapshots"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.0",
     "playwright": "^1.49.0"
   }
 }

@@ -399,7 +399,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.87.0";
+const VERSION = "web v0.88.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1433,6 +1433,7 @@ function render() {
   drawRain(); // fixed background
 
   const { frames, total } = layoutSections();
+  window.__frames = Object.fromEntries(frames.filter((f) => f.content).map((f) => [f.section, f.content])); // expose panel rects (for snapshot tests to clip exactly)
   maxScroll = Math.max(0, total + 24 - H);
   if (scrollY > maxScroll) scrollY = maxScroll;
 
