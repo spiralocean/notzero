@@ -348,6 +348,14 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
+// --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
+// demand via the top-right control (you would otherwise never get to see it). ---
+const celebration = { active: false, t: 0, preview: false, height: 0, hash: "", reward: 3.125 };
+let seenWins = -1, winPreviewHit = null;
+const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
+function fireCelebration({ preview = false, height = 0, hash = "", reward } = {}) {
+  Object.assign(celebration, { active: true, t: 0, preview, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
+}
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
 const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
@@ -374,7 +382,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.83.0";
+const VERSION = "web v0.84.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1340,6 +1348,52 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---- render loop ----
+// the subtle "preview a win" affordance (top-right, fixed) — registers a hit-region for the click handler
+function drawPreviewTrigger() {
+  const label = "▶ preview a win";
+  ctx.font = "700 12px -apple-system, system-ui, sans-serif";
+  const tw = ctx.measureText(label).width;
+  winPreviewHit = { x: W - PAD - tw, y: 10, w: tw, h: 22 };
+  const pulse = 0.5 + 0.18 * Math.sin(clock * 2);
+  text(label, W - PAD, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
+}
+
+// full-canvas win celebration — the emotional payoff: the 1-in-10^24 actually landed
+function drawCelebration() {
+  if (!celebration.active) return;
+  if (reduceMotion) celebration.t = 1.2; else celebration.t += 1 / 60; // reduced-motion: show the settled card, no motion
+  const t = celebration.t, cx = W / 2, cy = H / 2, scrim = Math.min(0.9, t * 1.8);
+  ctx.fillStyle = `rgba(10,7,2,${scrim})`; ctx.fillRect(0, 0, W, H);
+  if (!reduceMotion) {
+    ctx.save(); ctx.translate(cx, cy); ctx.rotate(t * 0.12); const R = Math.max(W, H); // slow gold rays
+    for (let i = 0; i < 20; i++) { ctx.rotate(Math.PI * 2 / 20); ctx.fillStyle = `rgba(255,190,70,${0.045 * scrim})`; ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(46, -R); ctx.lineTo(-46, -R); ctx.closePath(); ctx.fill(); }
+    ctx.restore();
+    for (let i = 0; i < 80; i++) { // gold/green confetti
+      const x = hrand(i * 1.7) * W + Math.sin(t * 0.6 + i) * 22;
+      const y = ((t * (60 + (i % 6) * 22) + hrand(i * 3.1) * H) % (H + 30)) - 15;
+      ctx.save(); ctx.translate(x, y); ctx.rotate(t * 3 + i);
+      ctx.fillStyle = i % 3 === 0 ? `rgba(90,225,140,${0.85 * scrim})` : `rgba(255,195,80,${0.9 * scrim})`;
+      ctx.fillRect(-2.4, -2.4, 4.8, 4.8); ctx.restore();
+    }
+  }
+  const a = Math.min(1, t * 1.6); // content fade-in
+  if (celebration.preview) text("PREVIEW — illustrative; this is what winning looks like", cx, cy - 124, { size: 12, weight: 700, color: `rgba(255,180,80,${0.9 * a})`, align: "center", baseline: "middle" });
+  text("★  YOU FOUND A BLOCK  ★", cx, cy - 92, { size: 38, weight: 800, color: `rgba(255,200,70,${a})`, align: "center", baseline: "middle" });
+  const h = celebration.height || 0;
+  text(h ? `block #${h.toLocaleString()} is yours` : "a block is yours", cx, cy - 56, { size: 15, weight: 600, color: `rgba(255,255,255,${0.7 * a})`, align: "center", baseline: "middle" });
+  const hash = celebration.hash || "";
+  if (hash) {
+    const show = hash.slice(0, 48), lead = leadingZeroHexChars(hash);
+    ctx.font = "800 14px ui-monospace, monospace"; const cw = ctx.measureText("0").width, x0 = cx - (show.length * cw) / 2 + cw / 2;
+    for (let i = 0; i < show.length; i++) { const z = i < lead; text(show[i], x0 + i * cw, cy - 18, { size: 14, weight: z ? 800 : 500, color: z ? `rgba(90,235,150,${a})` : `rgba(255,255,255,${0.5 * a})`, align: "center", baseline: "middle", mono: true }); }
+    text(`${lead} leading zeros — below the target`, cx, cy + 4, { size: 11, color: `rgba(90,225,140,${0.85 * a})`, align: "center", baseline: "middle" });
+  }
+  text(`${celebration.reward.toFixed(3)} BTC`, cx, cy + 40, { size: 30, weight: 800, color: `rgba(90,230,150,${a})`, align: "center", baseline: "middle" });
+  text("it was never zero — and it just landed on you", cx, cy + 74, { size: 14, weight: 600, color: `rgba(255,210,90,${a})`, align: "center", baseline: "middle" });
+  text("any computer, no data center, no fee — this is what a non-zero chance looks like", cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
+  text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
+}
+
 function render() {
   if (syncDemo) model.node = demoNode(); // override with the simulated IBD node for preview
   drawRain(); // fixed background
@@ -1411,6 +1465,13 @@ function render() {
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
 
+  // win detection → celebration (auto-fires once when live_wins increments during the session)
+  const mnW = node && node.miner, winsNow = mnW ? (mnW.live_wins || 0) : 0;
+  if (seenWins < 0) seenWins = winsNow; // initialise; don't fire for a win that predates this page load
+  else if (winsNow > seenWins) { seenWins = winsNow; fireCelebration({ preview: false, height: mnW.attempt && mnW.attempt.height, hash: mnW.attempt && mnW.attempt.hash }); }
+  if (!celebration.active) drawPreviewTrigger();
+  drawCelebration(); // on top of everything
+
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
   quoteT += 1 / 60;
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
@@ -1425,13 +1486,19 @@ function sectionAt(px, py) {
   for (const f of headerHits) { const r = f.header; if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return f.section; }
   return null;
 }
+const overTrigger = (x, y) => winPreviewHit && x >= winPreviewHit.x && x <= winPreviewHit.x + winPreviewHit.w && y >= winPreviewHit.y && y <= winPreviewHit.y + winPreviewHit.h;
 canvas.addEventListener("click", (e) => {
+  if (celebration.active) { celebration.active = false; return; } // dismiss
+  if (overTrigger(e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
+    fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
+    return;
+  }
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
 canvas.addEventListener("mousemove", (e) => {
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection);
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || overTrigger(e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
