@@ -356,6 +356,11 @@ const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", height = 0, hash = "", reward } = {}) {
   Object.assign(celebration, { active: true, t: 0, preview, mode, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
 }
+// new-best toast: a small, non-intrusive reward when the miner beats its own leading-zero record
+// (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
+let seenBest = -1;
+const bestToast = { t: 0, active: false, bits: 0 };
+function fireBestToast(bits) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; }
 // --- network-win detection: the win announces itself ON-CHAIN via the coinbase tag the miner already
 // writes (/BitcoinLottery/…). No server, no phone-home — we just read the public coinbase. ---
 const LOTTERY_TAG = "/BitcoinLottery/";
@@ -399,7 +404,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.88.0";
+const VERSION = "web v0.89.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1392,6 +1397,29 @@ function drawNetWinBadge(wins) {
   text(label, W / 2, H - 34, { size: 12, weight: 700, color: "rgba(90,228,150,0.92)", align: "center", baseline: "middle" });
 }
 
+// small "new best" toast (bottom-centre) — a brief, auto-dismissing pill, not a takeover
+function drawBestToast() {
+  if (!bestToast.active) return;
+  bestToast.t += 1 / 60;
+  const DUR = 4.5, t = bestToast.t;
+  if (t > DUR) { bestToast.active = false; return; }
+  const inP = Math.min(1, t / 0.3), alpha = Math.min(inP, t > DUR - 0.8 ? (DUR - t) / 0.8 : 1);
+  const label = `🎯 new best · ${bestToast.bits} zero bits`;
+  ctx.font = "700 13px -apple-system, system-ui, sans-serif";
+  const pw = ctx.measureText(label).width + 30, ph = 30, slide = reduceMotion ? 0 : (1 - inP) * 18;
+  const px = W / 2 - pw / 2, py = H - 72 + slide;
+  ctx.globalAlpha = alpha;
+  ctx.fillStyle = "rgba(22,17,8,0.94)"; roundRect(px, py, pw, ph, 9); ctx.fill();
+  ctx.strokeStyle = "rgba(255,215,90,0.75)"; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 9); ctx.stroke();
+  text(label, W / 2, py + ph / 2, { size: 13, weight: 700, color: "rgb(255,228,130)", align: "center", baseline: "middle" });
+  if (!reduceMotion && t < 1.2) for (let i = 0; i < 8; i++) { // a brief spark on appearance
+    const a = (i / 8) * Math.PI * 2, rr = 14 + t * 42;
+    ctx.fillStyle = `rgba(255,215,90,${0.5 * (1 - t / 1.2)})`;
+    ctx.beginPath(); ctx.arc(px + pw / 2 + Math.cos(a) * rr, py + ph / 2 + Math.sin(a) * rr * 0.55, 1.8, 0, 7); ctx.fill();
+  }
+  ctx.globalAlpha = 1;
+}
+
 // full-canvas win celebration — the emotional payoff: the 1-in-10^24 actually landed
 function drawCelebration() {
   if (!celebration.active) return;
@@ -1504,12 +1532,16 @@ function render() {
   const mnW = node && node.miner, winsNow = mnW ? (mnW.live_wins || 0) : 0;
   if (seenWins < 0) seenWins = winsNow; // initialise; don't fire for a win that predates this page load
   else if (winsNow > seenWins) { seenWins = winsNow; fireCelebration({ preview: false, mode: "you", height: mnW.attempt && mnW.attempt.height, hash: mnW.attempt && mnW.attempt.hash }); }
+  // NEW BEST → a small toast (mid-tier reward; fires once when the leading-zero record improves this session)
+  const bestNow = mnW && mnW.best ? (mnW.best.zero_bits || 0) : 0;
+  if (seenBest < 0) { if (mnW && mnW.best) seenBest = bestNow; } // wait for data, then remember the standing record
+  else if (bestNow > seenBest) { seenBest = bestNow; if (!celebration.active) fireBestToast(bestNow); }
   // NETWORK wins → everyone running this learns of it from the on-chain coinbase tag (no server)
   const netWins = lotteryWins();
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (!celebration.active) fireCelebration({ mode: "network", height: w.height, hash: w.hash }); }
-  if (!celebration.active) { drawPreviewTrigger(); drawNetWinBadge(netWins); }
+  if (!celebration.active) { drawPreviewTrigger(); drawNetWinBadge(netWins); drawBestToast(); }
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
