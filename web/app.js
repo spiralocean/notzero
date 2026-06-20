@@ -292,6 +292,7 @@ const QUOTES = [
   "Trust the math. Play the dream.",
   { q: "Never tell me the odds.", src: "Han Solo, Star Wars" },
   { q: "May the odds be ever in your favor.", src: "Effie Trinket, The Hunger Games" },
+  { q: "So you're telling me there's a chance!", src: "Lloyd Christmas, Dumb and Dumber" },
   { q: "Hope is a good thing, maybe the best of things.", src: "Andy Dufresne, The Shawshank Redemption" },
   { q: "If you build it, it will come.", src: "the Voice, Field of Dreams" },
   { q: "Life is like a box of chocolates.", src: "Forrest Gump" },
@@ -410,7 +411,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.92.0";
+const VERSION = "web v0.93.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
