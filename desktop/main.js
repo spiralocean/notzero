@@ -23,8 +23,9 @@ const MIME = {
   ".svg": "image/svg+xml", ".png": "image/png", ".css": "text/css; charset=utf-8", ".ico": "image/x-icon",
 };
 
-let DATA_DIR, NODE_JSON, ENGINE_ENV;
+let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null;
 const configPath = () => path.join(DATA_DIR, "config.json");
+async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
 
 // ---- engine: our own miner + bridge, in an isolated data dir ----
 const procs = {};
@@ -158,7 +159,7 @@ function startServer() {
 
 async function createWindow() {
   if (!app.isPackaged && process.platform === "darwin" && app.dock) app.dock.setIcon(ICON);
-  const port = await startServer();
+  const port = await ensureServer();
   const win = new BrowserWindow({
     width: 1280, height: 880, minWidth: 900, minHeight: 600,
     backgroundColor: "#05040a", title: "Bitcoin Lottery", icon: ICON, autoHideMenuBar: true,
@@ -175,6 +176,8 @@ app.whenReady().then(() => {
   if (fs.existsSync(configPath())) startEngines(); // configured already → mine; otherwise the wizard sets it up
   createWindow();
 });
-app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
-app.on("before-quit", stopEngines);
-app.on("window-all-closed", () => { stopEngines(); if (process.platform !== "darwin") app.quit(); });
+app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
+app.on("before-quit", stopEngines); // ⌘Q / real quit → stop mining
+// On macOS, closing the window keeps the miner running in the background (app stays in the dock; reopen
+// from the dock). Only ⌘Q stops it. On Windows/Linux, closing the last window quits the app.
+app.on("window-all-closed", () => { if (process.platform !== "darwin") { stopEngines(); app.quit(); } });
