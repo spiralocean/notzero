@@ -399,7 +399,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.86.0";
+const VERSION = "web v0.87.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -528,7 +528,10 @@ function drawCloseness(r) {
       ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
       text("last win", lwx, tkY - 10, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
     }
-    ctx.fillStyle = "rgba(255,215,90,1)"; ctx.beginPath(); ctx.arc(px(bestBits), tkY + bandH / 2, 3.2, 0, 7); ctx.fill(); // best (◆)
+    // best = a DIAMOND (◆, matching the legend) so it's told apart from the round winner/you dots by SHAPE, not just colour
+    const bX = px(bestBits), bY = tkY + bandH / 2, bd = 4.4;
+    ctx.fillStyle = "rgba(255,215,90,1)"; ctx.strokeStyle = "rgba(10,8,4,0.7)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(bX, bY - bd); ctx.lineTo(bX + bd, bY); ctx.lineTo(bX, bY + bd); ctx.lineTo(bX - bd, bY); ctx.closePath(); ctx.fill(); ctx.stroke();
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
     ctx.strokeStyle = "rgba(10,8,4,0.75)"; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
@@ -1480,7 +1483,7 @@ function render() {
   else if (!reachable) { fmsg = `○ node unreachable — check your node · ${VERSION}`; fcol = "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
-  else { fmsg = `● LIVE solo mining — submits a block if it wins · ${VERSION}`; fcol = "rgba(90,220,140,0.95)"; }
+  else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${VERSION}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
