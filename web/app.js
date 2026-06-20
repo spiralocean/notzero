@@ -311,6 +311,7 @@ const QUOTES = [
   "The network can't tell if a human or a warehouse found the nonce.",
   // more — philosophical
   "Every block resets the odds — the past owes you nothing.",
+  "The odds on any one block never improve — but your odds of ever winning do, one ticket at a time.",
   "Vanishingly small is still larger than zero.",
   "The chain rewards luck and work alike.",
   "Hope is the cheapest hash you'll ever compute.",
@@ -412,7 +413,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.97.0";
+const VERSION = "web v0.98.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
