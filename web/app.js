@@ -66,8 +66,12 @@ function bitsToTarget(bits) {
   return exp <= 3 ? mant >> BigInt(8 * (3 - exp)) : mant << BigInt(8 * (exp - 3));
 }
 
+// untrusted hex (from mempool.space or node.json) → BigInt without ever throwing (a bad value used to
+// freeze the whole render loop). Returns 0n for anything that isn't 1–64 hex chars.
+const HEX64 = /^[0-9a-fA-F]{1,64}$/;
+const bigHex = (h) => (typeof h === "string" && HEX64.test(h)) ? BigInt("0x" + h) : 0n;
 function proximity(hashHex, target) {
-  const hashInt = BigInt("0x" + hashHex);
+  const hashInt = bigHex(hashHex);
   if (hashInt <= target) return { won: true, percent: 100, leadingZeroBits: 256, label: "JACKPOT" };
   const leading = 256 - hashInt.toString(2).length;
   const ratio = Number(target) / Number(hashInt);
@@ -121,7 +125,7 @@ async function pollNode() {
           timestamp: at.timestamp, bits: at.bits, nonce: at.nonce, txCount: at.tx_count,
           hash1Display: bytesToHex([...h1].reverse()), hash2Display: disp,
           leadingZeroBits: at.leading_zero_bits, target: at.target,
-          below: at.target ? BigInt("0x" + at.hash) <= BigInt("0x" + at.target) : false,
+          below: at.target ? bigHex(at.hash) <= bigHex(at.target) : false,
           verified: disp === at.hash,
         };
       }
@@ -350,11 +354,11 @@ const CONTENT_H = { nextBlock: 150, closeness: 234, hashBuild: 340, network: 180
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
-const celebration = { active: false, t: 0, preview: false, mode: "you", height: 0, hash: "", reward: 3.125 };
+const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
 let seenWins = -1, winPreviewHit = null, netWinHit = null;
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
-function fireCelebration({ preview = false, mode = "you", height = 0, hash = "", reward } = {}) {
-  Object.assign(celebration, { active: true, t: 0, preview, mode, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
+function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
+  Object.assign(celebration, { active: true, t: 0, preview, mode, verified, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
 }
 // new-best toast: a small, non-intrusive reward when the miner beats its own leading-zero record
 // (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
@@ -366,16 +370,18 @@ function fireBestToast(bits) { bestToast.active = true; bestToast.t = 0; bestToa
 const LOTTERY_TAG = "/BitcoinLottery/";
 function coinbaseHasLotteryTag(coinbaseRaw) {
   if (!coinbaseRaw || typeof coinbaseRaw !== "string") return false;
-  let s = ""; for (let i = 0; i + 1 < coinbaseRaw.length; i += 2) s += String.fromCharCode(parseInt(coinbaseRaw.substr(i, 2), 16));
+  const hex = coinbaseRaw.slice(0, 400); // coinbase scriptSig ≤ 100 bytes (200 hex) — cap untrusted input
+  let s = ""; for (let i = 0; i + 1 < hex.length; i += 2) s += String.fromCharCode(parseInt(hex.substr(i, 2), 16));
   return s.includes(LOTTERY_TAG);
 }
 let seenLottery = null; // Set of heights seen this session (null until first observation, so we don't fire on load)
-// merge lottery-tagged blocks from the bridge (trustless local node) + mempool.space, newest first, deduped
+// merge lottery-tagged blocks from the bridge (your local node = trustless/verified) + mempool.space
+// (third party = unverified; could be spoofed by anyone's coinbase or a MITM). newest first, deduped.
 function lotteryWins() {
   const out = new Map();
   const bridge = (model.node && model.node.lottery_blocks) || [];
-  for (const b of bridge) if (b && b.height != null) out.set(b.height, { height: b.height, hash: b.hash || "" });
-  for (const b of (model.recentBlocks || [])) if (b && b.lottery && b.height != null && !out.has(b.height)) out.set(b.height, { height: b.height, hash: b.id || "" });
+  for (const b of bridge) if (b && b.height != null) out.set(b.height, { height: b.height, hash: b.hash || "", verified: true });
+  for (const b of (model.recentBlocks || [])) if (b && b.lottery && b.height != null && !out.has(b.height)) out.set(b.height, { height: b.height, hash: b.id || "", verified: false });
   return [...out.values()].sort((a, b) => b.height - a.height);
 }
 let scrollY = 0, maxScroll = 0;
@@ -404,7 +410,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.90.0";
+const VERSION = "web v0.91.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -487,8 +493,8 @@ function drawCloseness(r) {
     const best = mn.best;
     if (best && best.hash) { const bz = leadingZeroHexChars(best.hash); row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} (${best.zero_bits} bits)`); }
     // ---- ODDS MAP HEAT MAP — every attempt plotted by leading-zero-bits (reversed: WIN = BELOW target = LEFT) ----
-    const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
-    const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
+    const tBits = at.target ? 256 - bigHex(at.target).toString(2).length : 76;
+    const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - bigHex(at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
     const tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24, WIN_FRAC = 0.09, BMAX = 256;
     // plot by leading-zero BITS — the true rarity axis (each extra zero bit = 2× rarer). Two linear scales
@@ -521,14 +527,14 @@ function drawCloseness(r) {
     }
     // #15: past WINNERS — recent winning blocks by their leading-zero bits; they land LEFT of the target
     // (most barely beat it; a lucky few reach much further left)
-    const winners = (model.recentBlocks || []).filter((w) => w.id).map((w) => 256 - BigInt("0x" + w.id).toString(2).length);
+    const winners = (model.recentBlocks || []).filter((w) => w.id).map((w) => 256 - bigHex(w.id).toString(2).length);
     ctx.fillStyle = "rgba(90,225,140,0.6)";
     winners.forEach((wb, i) => { const x = Math.max(tkX + 2, Math.min(winX - 1, px(wb) + (rnd(wb * 53 + i * 2.3) - 0.5) * 7)), y = tkY + 4 + rnd(wb * 61 + i * 5.1) * (bandH - 8); ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); });
     ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 3); ctx.lineTo(winX, tkY + bandH + 3); ctx.stroke(); // target = WIN line
     // #2: highlight the LAST winner (the most recent block) among the winners cloud
     const lw = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1];
     if (lw && lw.id) {
-      const lwx = px(256 - BigInt("0x" + lw.id).toString(2).length);
+      const lwx = px(256 - bigHex(lw.id).toString(2).length);
       ctx.fillStyle = "rgb(90,235,150)"; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
       text("last win", lwx, tkY - 10, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
@@ -589,7 +595,7 @@ function shuffled(n) { const a = [...Array(n).keys()]; for (let i = n - 1; i > 0
 function churnChar(i) { return CYBER[(frame + i * 7) % CYBER.length]; }
 const hrand = (s) => { const x = Math.sin(s * 91.7) * 47453.13; return x - Math.floor(x); }; // deterministic 0..1
 function bitAt(hex, i) { return (parseInt(hex[i >> 2] || "0", 16) >> (3 - (i & 3))) & 1; } // bit i of a hex string (256-bit)
-function zeroBits(hex) { return hex ? 256 - BigInt("0x" + hex).toString(2).length : 0; }
+function zeroBits(hex) { return hex ? 256 - bigHex(hex).toString(2).length : 0; }
 
 function drawHashBuild(r) {
   if (!model.block || !model.ticket) { text("waiting for chain data…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
@@ -1390,11 +1396,12 @@ function drawNetWinBadge(wins) {
   netWinHit = null;
   if (!wins.length) return;
   const latest = wins[0];
-  const label = `🎉 a lottery miner won block #${latest.height.toLocaleString()}${wins.length > 1 ? ` (${wins.length} total)` : ""} — solo, on-chain · click to celebrate`;
+  const tag = latest.verified ? "solo, verified on your node" : "tagged on a public explorer — unverified";
+  const label = `🎉 a lottery miner won block #${latest.height.toLocaleString()}${wins.length > 1 ? ` (${wins.length} total)` : ""} — ${tag} · click to celebrate`;
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
   const tw = ctx.measureText(label).width;
   netWinHit = { x: W / 2 - tw / 2, y: H - 44, w: tw, h: 20, win: latest };
-  text(label, W / 2, H - 34, { size: 12, weight: 700, color: "rgba(90,228,150,0.92)", align: "center", baseline: "middle" });
+  text(label, W / 2, H - 34, { size: 12, weight: 700, color: latest.verified ? "rgba(90,228,150,0.92)" : "rgba(255,200,110,0.92)", align: "center", baseline: "middle" });
 }
 
 // small "new best" toast (bottom-centre) — slides in, then HOLDS until clicked (you may not be watching
@@ -1453,7 +1460,7 @@ function drawCelebration() {
   }
   text(`${celebration.reward.toFixed(3)} BTC`, cx, cy + 40, { size: 30, weight: 800, color: `rgba(90,230,150,${a})`, align: "center", baseline: "middle" });
   text(you ? "it was never zero — and it just landed on you" : "it was never zero — and it just landed on one of us", cx, cy + 74, { size: 14, weight: 600, color: `rgba(255,210,90,${a})`, align: "center", baseline: "middle" });
-  text(you ? "any computer, no data center, no fee — this is what a non-zero chance looks like" : "a solo miner on a regular computer just beat the data centers — verified on-chain", cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
+  text(you ? "any computer, no data center, no fee — this is what a non-zero chance looks like" : (celebration.verified ? "a solo miner on a regular computer just beat the data centers — verified on your node" : "a block carries the /BitcoinLottery/ tag (seen on a public explorer — not verified by your node)"), cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
   text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
 }
 
@@ -1489,7 +1496,8 @@ function render() {
       const hov = hoverSection === f.section;
       drawHeader(f.section, f.header, !!f.content, hov);
       headerHits.push(f);
-      if (f.content) drawContent(f.section, f.content);
+      // never let one panel (e.g. a malformed hash from an untrusted source) freeze the whole loop
+      if (f.content) try { drawContent(f.section, f.content); } catch (err) { text("— this panel hit an error —", f.content.x + f.content.w / 2, f.content.y + f.content.h / 2, { size: 13, color: "rgba(255,140,90,0.8)", align: "center", baseline: "middle" }); }
     }
   }
   ctx.restore();
@@ -1541,7 +1549,7 @@ function render() {
   const netWins = lotteryWins();
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
-  else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (!celebration.active) fireCelebration({ mode: "network", height: w.height, hash: w.hash }); }
+  else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
   if (!celebration.active) { drawPreviewTrigger(); drawNetWinBadge(netWins); drawBestToast(); }
   drawCelebration(); // on top of everything
 
@@ -1563,7 +1571,7 @@ const inHit = (h, x, y) => h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h
 canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
-  if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", height: w.height, hash: w.hash }); return; }
+  if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
