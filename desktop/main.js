@@ -10,7 +10,9 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 
-const WEB_DIR = path.join(__dirname, "..", "web");
+// dev: the dashboard lives at ../web. packaged: it's copied into the app's Resources (see extraResources).
+const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
+const ICON = path.join(__dirname, "assets", "icon.png");
 const MIME = {
   ".html": "text/html; charset=utf-8",
   ".js": "text/javascript; charset=utf-8",
@@ -41,6 +43,8 @@ function startServer() {
 }
 
 async function createWindow() {
+  // dev: give the dock/taskbar a real icon (packaged apps get theirs from the bundle automatically)
+  if (!app.isPackaged && process.platform === "darwin" && app.dock) app.dock.setIcon(ICON);
   const port = await startServer();
   const win = new BrowserWindow({
     width: 1280,
@@ -49,6 +53,7 @@ async function createWindow() {
     minHeight: 600,
     backgroundColor: "#05040a",
     title: "Bitcoin Lottery",
+    icon: ICON,
     autoHideMenuBar: true,
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });

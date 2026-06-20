@@ -5,9 +5,50 @@
   "description": "Desktop app (Electron) for the Bitcoin Lottery — wraps the dashboard and (in later phases) downloads/manages bitcoind + runs the miner, so non-technical users never touch a terminal.",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "dist": "electron-builder",
+    "dist:mac": "electron-builder --mac dir"
+  },
+  "build": {
+    "appId": "com.spiralocean.bitcoinlottery",
+    "productName": "Bitcoin Lottery",
+    "directories": {
+      "buildResources": "assets",
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "package.json",
+      "assets/icon.png"
+    ],
+    "extraResources": [
+      {
+        "from": "../web",
+        "to": "web",
+        "filter": [
+          "**/*",
+          "!node.json",
+          "!*.map"
+        ]
+      }
+    ],
+    "mac": {
+      "target": "dir",
+      "category": "public.app-category.finance",
+      "icon": "assets/icon.png"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Finance",
+      "icon": "assets/icon.png"
+    }
   },
   "devDependencies": {
-    "electron": "^42.4.1"
+    "electron": "^42.4.1",
+    "electron-builder": "^26.15.3"
   }
 }
