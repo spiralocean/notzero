@@ -400,20 +400,19 @@ function nextQuoteIdx(curr) {
   return quoteBag.pop();
 }
 // render a quote mid-transition: the target resolves left-to-right out of scrambling matrix glyphs
-function drawDecodeQuote(to, p, alpha) {
+function drawDecodeQuote(to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const total = to.length, charW = ctx.measureText("0").width, startX = W / 2 - (total * charW) / 2 + charW / 2;
-  const reveal = p * (total + 5); // resolve front sweeps across (and a little past the end)
   for (let i = 0; i < total; i++) {
     if (to[i] === " ") continue;
-    const x = startX + i * charW;
-    if (i < reveal - 1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 80); }                                   // resolved
-    else if (i < reveal + 1) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 80); } // decoding front
+    const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char resolves at its own moment → scattered, not left-to-right
+    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 80); }                                    // resolved
+    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 80); }        // decoding now
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.102.0";
+const VERSION = "web v0.103.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -598,7 +597,7 @@ const HEADER_FIELDS = [
   { label: "bits", bytes: 4, explain: "the difficulty target — how hard it is to win", val: (b) => "0x" + b.bits.toString(16) },
   { label: "NONCE", bytes: 4, explain: "your lottery number for this block", val: (b, t) => "#" + t.nonce.toLocaleString(), you: true },
 ];
-const PHASES = [["assemble", 86.4], ["pack", 1.2], ["churn", 3.0], ["reveal", 13.6], ["hold", 30.0]];
+const PHASES = [["assemble", 86.4], ["pack", 1.0], ["churn", 2.0], ["reveal", 7.0], ["hold", 30.0]];
 const CYCLE_LEN = PHASES.reduce((s, p) => s + p[1], 0);
 const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
 const ceremony = { height: null, t: 0, cycle: -1, order: [] };
@@ -606,6 +605,9 @@ function phaseAt(t) { let acc = 0; for (const [name, dur] of PHASES) { if (t < a
 function shuffled(n) { const a = [...Array(n).keys()]; for (let i = n - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; } return a; }
 function churnChar(i) { return CYBER[(frame + i * 7) % CYBER.length]; }
 const hrand = (s) => { const x = Math.sin(s * 91.7) * 47453.13; return x - Math.floor(x); }; // deterministic 0..1
+// random-order reveal: each char i has its own (deterministic) threshold; it resolves once progress passes
+// it — so a string decodes in scattered order instead of strictly left-to-right. Capped <1 so all finish.
+const revealThresh = (seed, i) => 0.82 * hrand(seed * 53.7 + i * 7.13 + 0.5);
 function bitAt(hex, i) { return (parseInt(hex[i >> 2] || "0", 16) >> (3 - (i & 3))) & 1; } // bit i of a hex string (256-bit)
 function zeroBits(hex) { return hex ? 256 - bigHex(hex).toString(2).length : 0; }
 
@@ -638,18 +640,21 @@ function drawHashBuild(r) {
   while (lockedCount < 6 && pp >= wAcc + W[lockedCount]) { wAcc += W[lockedCount]; lockedCount++; }
   window.__hb = { phase: ph.name, field: assembling ? Math.min(5, lockedCount) : -1 };
   const rawFrac = lockedCount < 6 ? (pp - wAcc) / W[lockedCount] : 1;
-  const fillFrac = Math.min(1, rawFrac / 0.6); // fill over the first 60% of each field's slot, then hold
+  const fillFrac = Math.min(1, rawFrac / 0.45); // fill over the first ~45% of each field's slot, then hold
 
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
   text(`${live ? "Hashing your block" : "Building your ticket"} — block #${buildHeight.toLocaleString()}`, r.x + r.w / 2, r.y + 20, { size: 14, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
 
-  // byte-proportional, two-row header: column title (row 1) + the data result directly under it (row 2)
-  const barX = r.x + 18, barW = r.w - 36, barY = r.y + 32, barH = 22, total = 80;
+  // two-row header: column title (row 1) + the data result directly under it (row 2). Widths track byte
+  // size, but the small 4-byte fields get a floor so their values (esp. the long decimal nonce) aren't
+  // truncated — shaved from prev/merkle, which stay clearly dominant.
+  const barX = r.x + 18, barW = r.w - 36, barY = r.y + 32, barH = 22;
+  const segWts = HEADER_FIELDS.map((f) => Math.max(f.bytes, 11)), wTotal = segWts.reduce((a, c) => a + c, 0);
   const valY = barY + barH + 13; // row 2 — the value sits under its column
   let bx = barX;
   HEADER_FIELDS.forEach((f, i) => {
-    const segW = barW * f.bytes / total;
+    const segW = barW * segWts[i] / wTotal;
     const locked = i < lockedCount, filling = assembling && i === lockedCount;
     let fill = "rgba(255,255,255,0.05)";
     if (f.you && (locked || filling)) fill = `rgba(${ACCENT},0.30)`;
@@ -665,7 +670,7 @@ function drawHashBuild(r) {
       const cw = ctx.measureText("0").width, maxC = Math.max(4, Math.floor((segW - 8) / cw));
       const vv = full.length > maxC ? full.slice(0, maxC - 1) + "…" : full;
       let s = vv;
-      if (filling) { const lk = Math.ceil(fillFrac * vv.length); s = ""; for (let c = 0; c < vv.length; c++) s += c < lk ? vv[c] : churnChar(c); } // lock in step with the segment bar + merkle build
+      if (filling) { s = ""; for (let c = 0; c < vv.length; c++) s += fillFrac > revealThresh(i + 1, c) ? vv[c] : churnChar(c); } // decode in random order as the field fills
       ctx.fillStyle = f.you ? `rgba(${ACCENT},0.95)` : "rgba(255,255,255,0.8)"; ctx.fillText(s, bx + segW / 2, valY);
     }
     bx += segW;
@@ -714,7 +719,7 @@ function drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let i = 0; i < 160; i++) {
     const on = i < revealed, f = fieldOfChar(i);
-    ctx.fillStyle = on ? (f === 5 ? `rgb(${ACCENT})` : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)") : "rgba(255,255,255,0.18)";
+    ctx.fillStyle = on ? (f === 5 ? "rgb(255,206,84)" : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)") : "rgba(255,255,255,0.18)"; // nonce = distinct gold (the field you control), not the bits' accent
     ctx.fillText(on ? hex[i] : churnChar(i), x0 + cw * (i + 0.5), y);
   }
   concatBox = { x: x0, w: totalW, y }; // the hash machine sweeps a glyph across this into the 1st hash
@@ -1546,7 +1551,7 @@ function render() {
   text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
-  drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha);
+  drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha, quotePhase === "hold" ? quoteIdx : quoteNext);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
