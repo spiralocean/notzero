@@ -84,6 +84,34 @@ def rpc(url, user, pw, method, params=None):
     return body["result"]
 
 
+LOTTERY_TAG = b"/BitcoinLottery/"  # the marker the miner writes into its coinbase scriptSig
+_lottery_seen = {}      # height -> {"height", "hash"} for tagged blocks (the on-chain "someone won" signal)
+_lottery_scanned = set()  # block hashes already checked, so we only do work when a new block arrives
+
+
+def scan_lottery_blocks(url, user, pw, depth=12):
+    """Read recent blocks' coinbase scriptSig for the lottery tag — purely from the local chain, no
+    server, no phone-home. The win announces itself on-chain; we just read it."""
+    try:
+        h = rpc(url, user, pw, "getbestblockhash")
+    except Exception:  # noqa: BLE001
+        return sorted(_lottery_seen.values(), key=lambda x: x.get("height") or 0, reverse=True)[:10]
+    for _ in range(depth):
+        if not h or h in _lottery_scanned:
+            break
+        try:
+            blk = rpc(url, user, pw, "getblock", [h, 1])  # txids only (light payload)
+            cbtx = rpc(url, user, pw, "getrawtransaction", [blk["tx"][0], True, h])
+            cb = bytes.fromhex(cbtx["vin"][0].get("coinbase", ""))
+        except Exception:  # noqa: BLE001 — pruned past this block / RPC hiccup; stop walking back
+            break
+        _lottery_scanned.add(h)
+        if LOTTERY_TAG in cb:
+            _lottery_seen[blk.get("height")] = {"height": blk.get("height"), "hash": h}
+        h = blk.get("previousblockhash")
+    return sorted(_lottery_seen.values(), key=lambda x: x.get("height") or 0, reverse=True)[:10]
+
+
 def build(url, user, pw):
     chain = rpc(url, user, pw, "getblockchaininfo")
     peers_raw = rpc(url, user, pw, "getpeerinfo")
@@ -180,6 +208,7 @@ def build(url, user, pw):
         "mempool": mempool,
         "miner": miner,
         "miner_proc": miner_proc_stats(),  # CPU%/RAM the miner daemon uses — calms 'is this a mining rig?' fears
+        "lottery_blocks": scan_lottery_blocks(url, user, pw),  # recent blocks carrying the /BitcoinLottery/ coinbase tag
         "payout": payout,
         "peers": peers,
     }

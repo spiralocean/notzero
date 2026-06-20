@@ -152,7 +152,7 @@ async function refresh() {
     }
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
-      if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name }));
+      if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name, lottery: coinbaseHasLotteryTag(b.extras?.coinbaseRaw) }));
     }).catch(() => {});
     fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
     fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
@@ -350,11 +350,28 @@ const CONTENT_H = { nextBlock: 150, closeness: 234, hashBuild: 340, network: 180
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
-const celebration = { active: false, t: 0, preview: false, height: 0, hash: "", reward: 3.125 };
-let seenWins = -1, winPreviewHit = null;
+const celebration = { active: false, t: 0, preview: false, mode: "you", height: 0, hash: "", reward: 3.125 };
+let seenWins = -1, winPreviewHit = null, netWinHit = null;
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
-function fireCelebration({ preview = false, height = 0, hash = "", reward } = {}) {
-  Object.assign(celebration, { active: true, t: 0, preview, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
+function fireCelebration({ preview = false, mode = "you", height = 0, hash = "", reward } = {}) {
+  Object.assign(celebration, { active: true, t: 0, preview, mode, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
+}
+// --- network-win detection: the win announces itself ON-CHAIN via the coinbase tag the miner already
+// writes (/BitcoinLottery/…). No server, no phone-home — we just read the public coinbase. ---
+const LOTTERY_TAG = "/BitcoinLottery/";
+function coinbaseHasLotteryTag(coinbaseRaw) {
+  if (!coinbaseRaw || typeof coinbaseRaw !== "string") return false;
+  let s = ""; for (let i = 0; i + 1 < coinbaseRaw.length; i += 2) s += String.fromCharCode(parseInt(coinbaseRaw.substr(i, 2), 16));
+  return s.includes(LOTTERY_TAG);
+}
+let seenLottery = null; // Set of heights seen this session (null until first observation, so we don't fire on load)
+// merge lottery-tagged blocks from the bridge (trustless local node) + mempool.space, newest first, deduped
+function lotteryWins() {
+  const out = new Map();
+  const bridge = (model.node && model.node.lottery_blocks) || [];
+  for (const b of bridge) if (b && b.height != null) out.set(b.height, { height: b.height, hash: b.hash || "" });
+  for (const b of (model.recentBlocks || [])) if (b && b.lottery && b.height != null && !out.has(b.height)) out.set(b.height, { height: b.height, hash: b.id || "" });
+  return [...out.values()].sort((a, b) => b.height - a.height);
 }
 let scrollY = 0, maxScroll = 0;
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
@@ -382,7 +399,7 @@ function drawDecodeQuote(to, p, alpha) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.84.0";
+const VERSION = "web v0.85.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -468,17 +485,19 @@ function drawCloseness(r) {
     const tBits = at.target ? 256 - BigInt("0x" + at.target).toString(2).length : 76;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - BigInt("0x" + at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
-    const tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24, WIN_FRAC = 0.16, BMAX = 256;
+    const tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24, WIN_FRAC = 0.09, BMAX = 256;
     // plot by leading-zero BITS — the true rarity axis (each extra zero bit = 2× rarer). Two linear scales
-    // meet at the target line: the right 84% is the lose zone (0…target bits, where every attempt lands);
-    // the left 16% is the win zone (target…all-256-zeros), compressed so a real winner — which only just
-    // clears the bar — hugs the line, while a perfect all-zeros hash would sit at the far-left edge.
+    // meet at the target line: the right ~91% is the lose zone (0…target bits, where every attempt lands);
+    // the left ~9% is the win zone (target…all-256-zeros) — kept deliberately THIN so it never looks like
+    // there's much room to win. Compressed so a real winner (which only just clears the bar) hugs the line.
     const px = (b) => b <= tBits
       ? tkX + tkW * (WIN_FRAC + (1 - WIN_FRAC) * (1 - b / Math.max(1, tBits)))
       : tkX + tkW * WIN_FRAC * (1 - Math.min(1, (b - tBits) / (BMAX - tBits)));
     const winX = px(tBits);
     text("ODDS MAP — placed by zero-bit count; WIN only LEFT of the target (an all-zeros hash = far-left edge)", tkX, r.y + 124, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-    ctx.fillStyle = "rgba(90,210,140,0.14)"; ctx.fillRect(tkX, tkY, winX - tkX, bandH); // win zone (below target)
+    const wzg = ctx.createLinearGradient(tkX, 0, winX, 0); // win zone — fade to nothing leftward so it reads as a thin sliver at the line, not winnable space
+    wzg.addColorStop(0, "rgba(90,210,140,0.015)"); wzg.addColorStop(1, "rgba(90,210,140,0.2)");
+    ctx.fillStyle = wzg; ctx.fillRect(tkX, tkY, winX - tkX, bandH);
     ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
     // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
     const zhist = mn.zhist || {}, loseSlot = tkW * (1 - WIN_FRAC) / Math.max(1, tBits); // px between adjacent zero-bit columns; jitter by ~this so the heat blends into a cloud instead of hard bands
@@ -1358,6 +1377,18 @@ function drawPreviewTrigger() {
   text(label, W - PAD, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
 }
 
+// persistent network-win notice (fixed, above the footer) — so you know even if you missed the moment
+function drawNetWinBadge(wins) {
+  netWinHit = null;
+  if (!wins.length) return;
+  const latest = wins[0];
+  const label = `🎉 a lottery miner won block #${latest.height.toLocaleString()}${wins.length > 1 ? ` (${wins.length} total)` : ""} — solo, on-chain · click to celebrate`;
+  ctx.font = "700 12px -apple-system, system-ui, sans-serif";
+  const tw = ctx.measureText(label).width;
+  netWinHit = { x: W / 2 - tw / 2, y: H - 44, w: tw, h: 20, win: latest };
+  text(label, W / 2, H - 34, { size: 12, weight: 700, color: "rgba(90,228,150,0.92)", align: "center", baseline: "middle" });
+}
+
 // full-canvas win celebration — the emotional payoff: the 1-in-10^24 actually landed
 function drawCelebration() {
   if (!celebration.active) return;
@@ -1376,11 +1407,11 @@ function drawCelebration() {
       ctx.fillRect(-2.4, -2.4, 4.8, 4.8); ctx.restore();
     }
   }
-  const a = Math.min(1, t * 1.6); // content fade-in
+  const a = Math.min(1, t * 1.6), you = celebration.mode !== "network"; // content fade-in
   if (celebration.preview) text("PREVIEW — illustrative; this is what winning looks like", cx, cy - 124, { size: 12, weight: 700, color: `rgba(255,180,80,${0.9 * a})`, align: "center", baseline: "middle" });
-  text("★  YOU FOUND A BLOCK  ★", cx, cy - 92, { size: 38, weight: 800, color: `rgba(255,200,70,${a})`, align: "center", baseline: "middle" });
+  text(you ? "★  YOU FOUND A BLOCK  ★" : "★  A LOTTERY MINER WON  ★", cx, cy - 92, { size: 38, weight: 800, color: `rgba(255,200,70,${a})`, align: "center", baseline: "middle" });
   const h = celebration.height || 0;
-  text(h ? `block #${h.toLocaleString()} is yours` : "a block is yours", cx, cy - 56, { size: 15, weight: 600, color: `rgba(255,255,255,${0.7 * a})`, align: "center", baseline: "middle" });
+  text(you ? (h ? `block #${h.toLocaleString()} is yours` : "a block is yours") : (h ? `block #${h.toLocaleString()} — found by someone running this` : "found by someone running this software"), cx, cy - 56, { size: 15, weight: 600, color: `rgba(255,255,255,${0.7 * a})`, align: "center", baseline: "middle" });
   const hash = celebration.hash || "";
   if (hash) {
     const show = hash.slice(0, 48), lead = leadingZeroHexChars(hash);
@@ -1389,8 +1420,8 @@ function drawCelebration() {
     text(`${lead} leading zeros — below the target`, cx, cy + 4, { size: 11, color: `rgba(90,225,140,${0.85 * a})`, align: "center", baseline: "middle" });
   }
   text(`${celebration.reward.toFixed(3)} BTC`, cx, cy + 40, { size: 30, weight: 800, color: `rgba(90,230,150,${a})`, align: "center", baseline: "middle" });
-  text("it was never zero — and it just landed on you", cx, cy + 74, { size: 14, weight: 600, color: `rgba(255,210,90,${a})`, align: "center", baseline: "middle" });
-  text("any computer, no data center, no fee — this is what a non-zero chance looks like", cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
+  text(you ? "it was never zero — and it just landed on you" : "it was never zero — and it just landed on one of us", cx, cy + 74, { size: 14, weight: 600, color: `rgba(255,210,90,${a})`, align: "center", baseline: "middle" });
+  text(you ? "any computer, no data center, no fee — this is what a non-zero chance looks like" : "a solo miner on a regular computer just beat the data centers — verified on-chain", cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
   text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
 }
 
@@ -1465,11 +1496,16 @@ function render() {
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
 
-  // win detection → celebration (auto-fires once when live_wins increments during the session)
+  // YOUR win → celebration (auto-fires once when live_wins increments during the session)
   const mnW = node && node.miner, winsNow = mnW ? (mnW.live_wins || 0) : 0;
   if (seenWins < 0) seenWins = winsNow; // initialise; don't fire for a win that predates this page load
-  else if (winsNow > seenWins) { seenWins = winsNow; fireCelebration({ preview: false, height: mnW.attempt && mnW.attempt.height, hash: mnW.attempt && mnW.attempt.hash }); }
-  if (!celebration.active) drawPreviewTrigger();
+  else if (winsNow > seenWins) { seenWins = winsNow; fireCelebration({ preview: false, mode: "you", height: mnW.attempt && mnW.attempt.height, hash: mnW.attempt && mnW.attempt.hash }); }
+  // NETWORK wins → everyone running this learns of it from the on-chain coinbase tag (no server)
+  const netWins = lotteryWins();
+  const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
+  if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
+  else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (!celebration.active) fireCelebration({ mode: "network", height: w.height, hash: w.hash }); }
+  if (!celebration.active) { drawPreviewTrigger(); drawNetWinBadge(netWins); }
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
@@ -1486,10 +1522,11 @@ function sectionAt(px, py) {
   for (const f of headerHits) { const r = f.header; if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return f.section; }
   return null;
 }
-const overTrigger = (x, y) => winPreviewHit && x >= winPreviewHit.x && x <= winPreviewHit.x + winPreviewHit.w && y >= winPreviewHit.y && y <= winPreviewHit.y + winPreviewHit.h;
+const inHit = (h, x, y) => h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
 canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
-  if (overTrigger(e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
+  if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", height: w.height, hash: w.hash }); return; }
+  if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
   }
@@ -1498,7 +1535,7 @@ canvas.addEventListener("click", (e) => {
 });
 canvas.addEventListener("mousemove", (e) => {
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || overTrigger(e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
