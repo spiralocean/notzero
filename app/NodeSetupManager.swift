@@ -179,6 +179,7 @@ enum NodeSetupManager {
         }
 
         try content.write(to: confURL, atomically: true, encoding: .utf8)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: confURL.path) // bitcoin.conf holds rpcpassword — owner-only
         try updateLotteryRPC(user: user, pass: pass)
         return SetupResult(
             confPath: confURL.path,
@@ -229,6 +230,7 @@ enum NodeSetupManager {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(at: LotteryConfig.appSupport, withIntermediateDirectories: true)
         try data.write(to: LotteryConfig.configURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: LotteryConfig.configURL.path) // holds rpc_pass — owner-only
     }
 
     private static func defaultLotteryConfig() -> [String: Any] {

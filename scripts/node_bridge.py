@@ -8,6 +8,7 @@ read real peers / sync progress / disk usage same-origin. No external services.
 Run alongside the dev server:  python3 scripts/node_bridge.py
 """
 import base64
+import hashlib
 import json
 import pathlib
 import subprocess
@@ -138,7 +139,9 @@ def build(url, user, pw):
         rate = max(0, (recv - prev) / POLL_SEC)  # bytes/sec received from this peer
         downloading = bool(p.get("inflight")) or rate > 8_000
         peers.append({
-            "addr": addr,
+            # opaque, stable per-peer id — the dashboard only needs a key, never the real IP. Publishing
+            # raw peer IPs in a web-served file is a privacy/topology leak (deanonymization / eclipse aid).
+            "addr": "peer-" + hashlib.sha256(addr.encode()).hexdigest()[:10],
             "inbound": bool(p.get("inbound", False)),
             "downloading": downloading,
             "rate": round(rate),
@@ -227,7 +230,9 @@ def main():
         try:
             write(build(url, user, pw))
         except Exception as e:  # noqa: BLE001 — keep running through transient RPC errors
-            write({"ts": int(time.time()), "reachable": False, "error": str(e)[:200], "peers": []})
+            # generic message in the web-served file; the detail (which can carry the RPC host/port) goes to stderr only
+            print(f"bridge: node unreachable — {str(e)[:200]}", file=sys.stderr)
+            write({"ts": int(time.time()), "reachable": False, "error": "node unreachable", "peers": []})
         time.sleep(POLL_SEC)
 
 

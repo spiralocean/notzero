@@ -99,6 +99,7 @@ struct LotteryConfig: Codable {
         let data = try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
         try FileManager.default.createDirectory(at: Self.appSupport, withIntermediateDirectories: true)
         try data.write(to: Self.configURL, options: .atomic)
+        try? FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: Self.configURL.path) // holds rpc_pass — owner-only
     }
 }
 

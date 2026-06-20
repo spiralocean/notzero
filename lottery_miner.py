@@ -73,6 +73,7 @@ class BlockAttempt:
     tx_count: int = 0
     version: int = 0       # full header field, so the dashboard can rebuild the exact header we hashed
     timestamp: int = 0
+    submitted: bool = False  # for a won block: did submitblock accept it (vs duplicate / error)?
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -133,6 +134,7 @@ def save_config(config: dict) -> None:
     with tmp.open("w") as f:
         json.dump(config, f, indent=2)
     tmp.replace(CONFIG_FILE)
+    os.chmod(CONFIG_FILE, 0o600)  # holds rpc_pass — owner-only, not world-readable
 
 
 def mask_address(address: str) -> str:
@@ -199,6 +201,24 @@ def save_state(state: dict) -> None:
     with tmp.open("w") as f:
         json.dump(state, f, indent=2)
     tmp.replace(STATE_FILE)
+    os.chmod(STATE_FILE, 0o600)
+    _save_state_saver_mirror(state)
+
+
+def save_winning_block(height: int, block_hex: str) -> Path:
+    """Persist a found block to disk BEFORE submitting, so a transient RPC/network error can never lose
+    the one event the whole program exists for. The hex can be re-submitted manually."""
+    ensure_app_support()
+    path = APP_SUPPORT / f"won_block_{height}.hex"
+    path.write_text(block_hex)
+    try:
+        os.chmod(path, 0o600)
+    except OSError:
+        pass
+    return path
+
+
+def _save_state_saver_mirror(state: dict) -> None:
     # Mirror for screen saver (sandbox may block Application Support reads)
     try:
         SAVER_STATE_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -206,6 +226,7 @@ def save_state(state: dict) -> None:
         with saver_tmp.open("w") as f:
             json.dump(state, f, indent=2)
         saver_tmp.replace(SAVER_STATE_FILE)
+        os.chmod(SAVER_STATE_FILE, 0o600)
     except OSError:
         pass
 
@@ -407,6 +428,9 @@ def build_coinbase_transaction(
     payout_script: bytes,
     witness_commitment_hex: Optional[str] = None,
 ) -> bytes:
+    coinbase_value = int(coinbase_value)
+    if not 0 <= coinbase_value < (1 << 64):  # guard struct.pack("<Q") — a bad template value must not crash us
+        raise ValueError(f"coinbasevalue out of range: {coinbase_value}")
     script_sig = _encode_height(height) + b"/BitcoinLottery/0.1/"
     tx = struct.pack("<I", 2)
     tx += _serialize_varint(1)
@@ -804,11 +828,20 @@ def live_attempt(
         nonce=nonce,
     )
     won = check_win(hash_bytes, target)
+    submitted = False
     if won:
         block_hex = _assemble_block_hex(template, coinbase_tx, nonce)
-        result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex])
-        if result:
-            raise RuntimeError(f"submitblock rejected: {result}")
+        saved = save_winning_block(height, block_hex)  # persist FIRST — a found block must survive any submit error
+        try:
+            result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex])
+        except Exception as exc:  # noqa: BLE001 — never let a winning block vanish into a stack trace
+            result = f"error: {exc}"
+        submitted = not result  # submitblock returns null on accept, a reason string otherwise (e.g. "duplicate")
+        print(
+            f"🎉 WON and submitted block #{height}!" if submitted
+            else f"⚠ WON block #{height} but submitblock returned '{result}' — saved {saved} for manual resubmit.",
+            file=sys.stderr,
+        )
 
     mempool_txs = template.get("transactions", [])
     return BlockAttempt(
@@ -825,6 +858,7 @@ def live_attempt(
         tx_count=1 + len(mempool_txs),
         version=int(template["version"]),
         timestamp=int(template["curtime"]),
+        submitted=submitted,
     )
 
 
@@ -1014,7 +1048,10 @@ def resolve_runtime_settings(
         "rpc_url": rpc_url or config.get("rpc_url", "http://127.0.0.1:8332"),
         "rpc_user": rpc_user or config.get("rpc_user", ""),
         "rpc_pass": rpc_pass or config.get("rpc_pass", ""),
-        "machine_seed": seed or config.get("machine_seed") or os.uname().nodename,
+        # default seed is a HASH of the hostname, not the hostname itself — it's published in node.json
+        # (which is web-served) and shown in the nonce pane, so a raw hostname would leak the device name.
+        # Deterministic (stable nonce per host) and identical on daemon + dashboard. A user-set seed wins.
+        "machine_seed": seed or config.get("machine_seed") or hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:16],
         "payout_address": payout_address if payout_address is not None else config.get("payout_address", ""),
     }
     # default to the owner's address when no wallet is set, so live mode mines to a valid address
@@ -1101,7 +1138,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                 last_height = height
                 if once:
                     return
-        except (urllib.error.URLError, RuntimeError, KeyError, ValueError) as exc:
+        except (urllib.error.URLError, RuntimeError, KeyError, ValueError, struct.error) as exc:
             msg = f"Error: {exc}"
             if daemon:
                 log_daemon(msg)
