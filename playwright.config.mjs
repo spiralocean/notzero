@@ -17,9 +17,12 @@ export default defineConfig({
   },
   expect: { toHaveScreenshot: { maxDiffPixelRatio: 0.015 } },
   webServer: {
-    command: "python3 -m http.server 8799 --directory web",
+    // free-port.mjs first kills only OUR stale server on 8799 (never another app's), then we always
+    // start a fresh server (reuseExistingServer: false) so a stale process can't serve outdated app.js —
+    // the bug that silently kept old snapshots passing.
+    command: "node tests/free-port.mjs && python3 -m http.server 8799 --directory web",
     url: "http://localhost:8799",
-    reuseExistingServer: !process.env.CI,
+    reuseExistingServer: false,
     timeout: 20_000,
   },
 });
