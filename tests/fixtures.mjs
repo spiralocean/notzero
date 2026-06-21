@@ -92,6 +92,7 @@ export async function installMocks(page) {
   await page.route("**/node.json*", (r) => json(r, NODE));
   await page.route("**/api/mempool", (r) => json(r, MEMPOOL));
   await page.route("**/api/mempool/recent", (r) => json(r, RECENT_TXS));
+  await page.route("**/api/v1/fees/recommended", (r) => json(r, { fastestFee: 9, halfHourFee: 5, hourFee: 3, economyFee: 2, minimumFee: 1 }));
   await page.route("**/api/v1/fees/mempool-blocks", (r) => json(r, MEMPOOL_BLOCKS));
   await page.route("**/api/blocks/tip/hash", (r) => r.fulfill({ status: 200, contentType: "text/plain", body: TIP_HASH }));
   await page.route("**/api/block/*", (r) => json(r, BLOCK));

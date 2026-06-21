@@ -81,7 +81,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [], recentTxs: [] };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [], recentTxs: [], fees: null };
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
@@ -177,6 +177,7 @@ async function refresh() {
     }).catch(() => {});
     // the actual most-recent transactions — real fee/size/value, used to spawn the live particles + spotlight whales
     fetch(`${API}/mempool/recent`).then((r) => r.json()).then((txs) => { if (Array.isArray(txs)) model.recentTxs = txs.filter((t) => t && t.vsize); }).catch(() => {});
+    fetch(`${API}/v1/fees/recommended`).then((r) => r.json()).then((f) => { if (f && f.fastestFee != null) model.fees = f; }).catch(() => {}); // next-block fee → "fee weather"
     model.error = null;
   } catch (e) {
     model.error = "Couldn't reach mempool.space — retrying…";
@@ -442,7 +443,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.111.0";
+const VERSION = "web v0.112.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -529,8 +530,16 @@ function sampleFee(hist) { // a fee rate weighted by the mempool's real vsize di
   for (const b of hist) { x -= b[1]; if (x <= 0) return b[0]; }
   return hist[hist.length - 1][0];
 }
-let mpTip = null, mpShip = 0;
+let mpTip = null, mpShip = 0, mpHarvest = [], mpHarvestT = 0, mpHarvestTip = 0, mpHarvestTx = 0;
 let mpFlow = [], mpFlowAcc = 0, mpFlowIdx = 0;
+// fee "weather" — congestion mood from the next-block fee rate (sat/vB)
+function feeWeather(f) {
+  if (f <= 2) return { mood: "calm", note: "cheap to transact", col: "90,210,140" };
+  if (f <= 8) return { mood: "steady", note: "normal fees", col: "150,205,110" };
+  if (f <= 25) return { mood: "busy", note: "fees rising", col: "230,200,80" };
+  if (f <= 70) return { mood: "congested", note: "fees high", col: "240,150,70" };
+  return { mood: "jammed", note: "fees very high", col: "230,90,70" };
+}
 function drawMempool(r) {
   const mp = model.mempool;
   if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
@@ -547,7 +556,22 @@ function drawMempool(r) {
   const SIZE_REF = 2.6e6; // a typical full SegWit block in bytes → the reference for "full height"
   const sizeH = (b) => Math.max(0.34, Math.min(1, (b.blockSize || b.blockVSize || 0) / SIZE_REF)); // block height = its DATA (bytes)
 
-  if (!reduceMotion) { if (mpTip !== null && model.tipHeight !== mpTip) mpShip = 1; mpTip = model.tipHeight; if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.5); }
+  // #6 fee weather — congestion mood + the next-block fee (top-left), green→red by how busy the network is
+  if (model.fees) { const w = feeWeather(model.fees.fastestFee); ctx.fillStyle = `rgba(${w.col},0.95)`; ctx.beginPath(); ctx.arc(r.x + padX + 4, r.y + 18, 4, 0, 7); ctx.fill(); text(`${w.mood} · ${model.fees.fastestFee} sat/vB`, r.x + padX + 13, r.y + 18, { size: 11, weight: 700, color: `rgba(${w.col},0.95)`, baseline: "middle" }); }
+
+  // #2 harvest — when a real block is mined, the next block's txs fly off (confirmed) + a toast
+  if (!reduceMotion) {
+    if (mpTip !== null && model.tipHeight !== mpTip) {
+      mpShip = 1; mpHarvestT = 1; mpHarvestTip = model.tipHeight; mpHarvestTx = shown[0] ? shown[0].nTx : 0;
+      const b0 = shown[0], fr0 = (b0 && b0.feeRange) || [1], bh0 = Math.max(22, maxBH * sizeH(b0)), by0 = bot - bh0;
+      for (let k = 0; k < 40; k++) mpHarvest.push({ x: r.x + padX + Math.random() * bw, y: by0 + Math.random() * bh0, vx: -(20 + Math.random() * 70), vy: -(30 + Math.random() * 80), fee: fr0[Math.floor(Math.random() * fr0.length)], life: 1 });
+    }
+    mpTip = model.tipHeight;
+    if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.5);
+    if (mpHarvestT > 0) mpHarvestT = Math.max(0, mpHarvestT - (1 / 60) / 2.4);
+    for (const h of mpHarvest) { h.x += h.vx * (1 / 60); h.y += h.vy * (1 / 60); h.vy += 70 * (1 / 60); h.life -= (1 / 60) * 1.3; }
+    mpHarvest = mpHarvest.filter((h) => h.life > 0);
+  }
   const slide = mpShip > 0 ? -mpShip * (bw + gap) : 0;
 
   // incoming txs: spawn at the RIGHT edge, drift LEFT toward the next block, merge into the deepest block
@@ -589,6 +613,9 @@ function drawMempool(r) {
     else { ctx.fillStyle = feeColor(p.fee, 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
   }
   if (depth > nShow) text(`⋯ +${(depth - nShow).toLocaleString()} blocks of backlog · new txs ▸`, r.x + r.w - padX, top - 8, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  // #2 harvest — confirmed txs flying off + the "mined" toast
+  for (const h of mpHarvest) { ctx.fillStyle = feeColor(h.fee, h.life * 0.9); ctx.fillRect(h.x - 2, h.y - 2, 4.2, 4.2); }
+  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 37, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
 
   // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
   const lt = model.recentTxs && model.recentTxs[0], ltVal = lt ? (lt.value || 0) / 1e8 : 0, whaleLt = ltVal >= 1;
