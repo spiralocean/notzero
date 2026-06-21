@@ -388,6 +388,7 @@ function lotteryWins() {
   return [...out.values()].sort((a, b) => b.height - a.height);
 }
 let scrollY = 0, maxScroll = 0;
+const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
 const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
 // shuffle-bag: random order, but every quote is shown once before any repeats
@@ -412,7 +413,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.103.0";
+const VERSION = "web v0.104.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -466,11 +467,14 @@ function drawNextBlock(r) {
   ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeStyle = over ? "rgba(255,180,80,0.95)" : `rgba(${ACCENT}, 0.9)`; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke(); ctx.lineCap = "butt";
   const disp = over ? elapsed - 600 : 600 - elapsed;
-  text(`${over ? "+" : ""}${Math.floor(disp / 60)}:${String(disp % 60).padStart(2, "0")}`, cx, cy, { size: 20, weight: 700, color: over ? "rgba(255,190,90,1)" : "#fff", align: "center", baseline: "middle", mono: true });
+  const ringTxt = `${over ? "+" : ""}${Math.floor(disp / 60)}:${String(disp % 60).padStart(2, "0")}`;
+  let ringSize = 22; ctx.font = `700 ${ringSize}px ui-monospace, monospace`; // fit inside the ring for unusually long intervals
+  while (ctx.measureText(ringTxt).width > rad * 1.7 && ringSize > 12) { ringSize--; ctx.font = `700 ${ringSize}px ui-monospace, monospace`; }
+  text(ringTxt, cx, cy, { size: ringSize, weight: 700, color: over ? "rgba(255,190,90,1)" : "#fff", align: "center", baseline: "middle", mono: true });
   text(over ? "over ~10 min est" : "next block (est)", cx, cy + rad + 16, { size: 14, color: over ? "rgba(255,180,80,0.8)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
   const rows = [["Elapsed", `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`], ["Avg block", "~10:00"], ["Last block", "#" + model.tipHeight.toLocaleString()]];
-  let sy = cy - 36;
-  for (const [l, v] of rows) { text(l, r.x + 192, sy, { size: 14, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 320, sy, { size: 14, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 30; }
+  let sy = cy - 38;
+  for (const [l, v] of rows) { text(l, r.x + 200, sy, { size: 15, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 340, sy, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 32; }
   if (over) text("long blocks are normal — ~37% run past 10 min, ~5% past 30", r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
 }
 
@@ -539,7 +543,7 @@ function drawCloseness(r) {
       const lwx = px(256 - bigHex(lw.id).toString(2).length);
       ctx.fillStyle = "rgb(90,235,150)"; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
-      text("last win", lwx, tkY - 10, { size: 9, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+      text("last win", lwx, tkY - 10, { size: 10, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
     }
     // best = a DIAMOND (◆, matching the legend) so it's told apart from the round winner/you dots by SHAPE, not just colour
     const bX = px(bestBits), bY = tkY + bandH / 2, bd = 4.4;
@@ -551,10 +555,10 @@ function drawCloseness(r) {
     ctx.strokeStyle = "rgba(255,140,80,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
     ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.stroke();
-    text("you", yx, tkY - 10, { size: 9, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
+    text("you", yx, tkY - 10, { size: 10, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
-    text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 9, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
     text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
@@ -761,9 +765,9 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
-  // highlight the finished hash — once the 2nd SHA-256 is fully revealed (end of build → hold), frame the
-  // final hash so the eye lands on it. Fades in as it completes, then breathes gently while it holds.
-  const done = Math.max(0, Math.min(1, (p2 - 0.85) / 0.15));
+  // highlight the finished hash — ONLY once the 2nd SHA-256 has fully completed (the hold phase, after the
+  // reveal finishes), never during the reveal. Fades in over the first moment of hold, then breathes.
+  const done = ph.name === "hold" ? Math.min(1, ph.p / 0.04) : 0;
   if (done > 0) {
     const pulse = 0.5 + 0.5 * Math.sin(frame / 22);
     const hX = rowX - 12, hY = y2 - 11, hW = rowW + 24, hH = 24;
@@ -879,7 +883,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
       if (hot) for (let s = 0; s < 3; s++) {                 // data streams: glyphs flow UP each edge into the parent being hashed
         const u = (((frame >> 1) + k * 7 + s * 16) % 48) / 48; // 0 (child) → 1 (parent), staggered per edge
         const gx = A.x + (P.x - A.x) * u, gy = A.y + (P.y - A.y) * u;
-        text(churnChar(k * 5 + s * 3 + frame), gx, gy, { size: 9, weight: 700, color: `rgba(255,225,150,${0.22 + 0.7 * u})`, align: "center", baseline: "middle", mono: true });
+        text(churnChar(k * 5 + s * 3 + frame), gx, gy, { size: 10, weight: 700, color: `rgba(255,225,150,${0.22 + 0.7 * u})`, align: "center", baseline: "middle", mono: true });
       }
     }
   }
@@ -890,7 +894,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
       const p = pos(L, k);
       if (L === 0) { // leaves are transaction chips + their txid
         ctx.fillStyle = `rgba(${ACCENT},${(0.3 + 0.35 * a) * a})`; roundRect(p.x - 7, p.y - 5, 14, 10, 2); ctx.fill();
-        if (a > 0.3) text(frag(0, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 9, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
+        if (a > 0.3) text(frag(0, k, levels[0] > 8 ? 4 : 5, a), p.x, fy, { size: 10, color: `rgba(255,255,255,${0.78 * a})`, align: "center", baseline: "middle", mono: true });
       } else if (a < 0.9) { // BEING HASHED: every node at this level is a churning glyph (enlarged + glowing while it's the active level)
         const hotNode = L === activeL;
         if (hotNode) { ctx.fillStyle = "rgba(255,205,110,0.16)"; ctx.beginPath(); ctx.arc(p.x, p.y, isRoot ? 15 : 12, 0, 7); ctx.fill(); }
@@ -905,10 +909,10 @@ function drawMerkleTree(dr, buildP, showRoot) {
   }
   // label the operation at the level that's hashing up right now
   if (activeL >= 1 && activeL < rows && lvlP(activeL) > 0.05 && lvlP(activeL) < 0.95)
-    text("⊕ SHA-256² — each parent is the hash of the two below it", dr.x + dr.w / 2, pos(activeL, 0).y - 24, { size: 9, weight: 600, color: "rgba(255,205,110,0.78)", align: "center", baseline: "middle" });
+    text("⊕ SHA-256² — each parent is the hash of the two below it", dr.x + dr.w / 2, pos(activeL, 0).y - 24, { size: 10, weight: 600, color: "rgba(255,205,110,0.78)", align: "center", baseline: "middle" });
 
   const liveTx = model.liveBuild ? model.liveBuild.txCount : null, example = liveTx != null;
-  if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 9, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
+  if (example) text("EXAMPLE — illustrative tree (not your live block)", dr.x, dr.y + 6, { size: 10, weight: 700, color: "rgba(255,180,80,0.85)", baseline: "middle" });
   const cap = built < rows - 0.3
     ? "every pair of hashes hashes up to the next level — bottom to top"
     : ["every node here is a hash — leaves are txids, the top is the merkle root",   // make explicit the node text is a hash
@@ -918,7 +922,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
   text(example
     ? `a full block (~${real.toLocaleString()} tx) builds its root like this — your block being mined has ${liveTx.toLocaleString()} tx${liveTx === 1 ? " (coinbase only, so its root IS that hash)" : ""}`
     : `${real.toLocaleString()} transactions → one merkle root`,
-    dr.x + dr.w / 2, dr.y + dr.h - 5, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    dr.x + dr.w / 2, dr.y + dr.h - 5, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   if (showRoot && lvlP(rows - 1) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: "rgb(90,225,140)", baseline: "middle" }); }
 }
 
@@ -999,7 +1003,7 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
   ctx.strokeStyle = (verified && highlight) ? "rgba(120,235,150,0.95)" : verified ? "rgba(90,200,130,0.45)" : "rgba(255,255,255,0.3)";
   ctx.lineWidth = (verified && highlight) ? 1.9 : verified ? 1.1 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
   if (height) text("#" + (height % 100000), x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
-  if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (verified) text("✓", x + bw - 11, y + 11, { size: 13, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
   // pruning: cover the block with churning matrix glyphs — digesting/dissolving it as it fades
   if (fade > 0.02) {
@@ -1132,7 +1136,7 @@ function drawSync(r) {
   text(`synced #${Math.floor(head).toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
   text(`mining #${mining.toLocaleString()}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
-  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 9, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
@@ -1191,7 +1195,7 @@ function drawSync(r) {
   // ---- pruner at the far left ----
   const prX = leftExit - 2, pruning = syncState.phase === "prune";
   for (let g = 0; g < 4; g++) { const a = (pruning ? 0.6 : 0.3) + 0.4 * Math.abs(Math.sin(frame * (pruning ? 0.3 : 0.12) + g * 0.9)); ctx.font = "700 13px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(255,150,60,${a})`; ctx.fillText(CYBER[(frame + g * 7) % CYBER.length], prX, cy - 20 + g * 13); }
-  text(pruning ? "pruning ♻" : "prune ♻", prX, cy + 40, { size: 9, weight: pruning ? 700 : 400, color: `rgba(255,150,60,${pruning ? 0.95 : 0.7})`, align: "center", baseline: "middle" });
+  text(pruning ? "pruning ♻" : "prune ♻", prX, cy + 40, { size: 10, weight: pruning ? 700 : 400, color: `rgba(255,150,60,${pruning ? 0.95 : 0.7})`, align: "center", baseline: "middle" });
 
   // ---- conveyor: blocks born at center, step left, prune at far left ----
   // persistent empty slot directly under the node — kept neutral so the next-to-fill block isn't highlighted
@@ -1215,9 +1219,9 @@ function drawSync(r) {
   text("← prune", leftExit, cy + bh / 2 + 16, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   if (downloading) {
     const lbl = arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : (!flowing ? "⏸ waiting for data — block held partial" : "");
-    if (lbl) text(lbl, cx, cy - bh / 2 - 8, { size: 9, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+    if (lbl) text(lbl, cx, cy - bh / 2 - 8, { size: 10, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
   }
-  if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 9, color: "#0f0", baseline: "alphabetic", mono: true });
+  if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 10, color: "#0f0", baseline: "alphabetic", mono: true });
 
   // ---- right side: distance from my sync frontier to the block being mined scales with `behind` ----
   // Synced (behind ≈ 0): head+1 == tip+1, so the block being mined IS the center slot — they sit together.
@@ -1233,18 +1237,18 @@ function drawSync(r) {
     while (fx + bw <= lastX - spacing * 0.8) {
       ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // neutral: future blocks aren't confirmed
       ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
-      text("#" + (fh % 100000), fx + bw / 2, cy, { size: 9, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
+      text("#" + (fh % 100000), fx + bw / 2, cy, { size: 10, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
       lastRight = fx + bw; fx += spacing; fh += 1;
     }
-    text("upcoming →", birthX + spacing + 2, my - 8, { size: 9, color: "rgba(255,255,255,0.35)", baseline: "middle" });
+    text("upcoming →", birthX + spacing + 2, my - 8, { size: 10, color: "rgba(255,255,255,0.35)", baseline: "middle" });
     // dashed gap: the blocks between my synced block and the tip (what's left to download)
     ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.setLineDash([2, 5]); ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(lastX, cy); ctx.stroke(); ctx.setLineDash([]); // neutral gap, not confirmed-orange
-    text(`⋯ ${behind.toLocaleString()} blocks to the tip ⋯`, (lastRight + lastX) / 2, cy - 11, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    text(`⋯ ${behind.toLocaleString()} blocks to the tip ⋯`, (lastRight + lastX) / 2, cy - 11, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
     // the latest already-mined block (the current tip)
     const lastInfo = (model.recentBlocks && model.recentBlocks.length) ? model.recentBlocks[model.recentBlocks.length - 1] : null;
     drawConveyorBlock(lastX, cy, bw, bh, tip, lastInfo, 1, 0);
-    text("last mined", lastCx, my - 8, { size: 9, weight: 700, color: "rgba(90,210,140,0.9)", align: "center", baseline: "middle" });
-    text("#" + (tip || 0).toLocaleString(), lastCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    text("last mined", lastCx, my - 8, { size: 10, weight: 700, color: "rgba(90,210,140,0.9)", align: "center", baseline: "middle" });
+    text("#" + (tip || 0).toLocaleString(), lastCx, cy + bh / 2 + 14, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
     ctx.strokeStyle = `rgba(${ACCENT},0.6)`; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lastX + bw, cy); ctx.lineTo(mineX, cy); ctx.stroke(); // solid link: tip → tip+1
   }
 
@@ -1273,12 +1277,12 @@ function drawSync(r) {
     }
     // dashed pulsing border — "being mined by the network", the only orange block
     ctx.strokeStyle = `rgba(255,150,60,${0.4 + 0.45 * pulse})`; ctx.lineWidth = 1.6; ctx.setLineDash([5, 4]); ctx.lineDashOffset = -frame * 0.4; roundRect(mineX, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); ctx.lineDashOffset = 0;
-    text(`⛏ network mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 9, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
-    text("#" + ((tip || 0) + 1).toLocaleString() + " · all miners", mineCx, cy + bh / 2 + 14, { size: 9, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    text(`⛏ network mining · ~${Math.round(mineProg * 100)}%`, mineCx, my - 8, { size: 10, weight: 700, color: "rgba(255,150,60,0.9)", align: "center", baseline: "middle" });
+    text("#" + ((tip || 0) + 1).toLocaleString() + " · all miners", mineCx, cy + bh / 2 + 14, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
     // readout: a relaying node shows its mempool filling; a blocksonly node receives whole blocks, no tx stream
     if (synced) {
       const note = relaying ? `mempool ${mp.count.toLocaleString()} tx${mp.rate > 0 ? ` · +${mp.rate}/s` : ""}` : "blocksonly · receives whole blocks";
-      text(note, mineCx, cy + bh / 2 + 26, { size: 9, color: relaying ? "rgba(90,210,140,0.85)" : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+      text(note, mineCx, cy + bh / 2 + 26, { size: 10, color: relaying ? "rgba(90,210,140,0.85)" : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     }
     // (no node → mining-block stream: your node doesn't fill the block being mined — the network does,
     //  and your node receives the found block FROM peers. The peer heartbeats above show that inflow.)
@@ -1357,10 +1361,12 @@ function drawMiningChart(b) {
   ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(nowX, b.y); ctx.lineTo(nowX, b.y + b.h); ctx.stroke();
   ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(rx, b.y); ctx.lineTo(rx, b.y + b.h); ctx.stroke(); ctx.setLineDash([]);
   // labels
-  text("● mining power", b.x + 2, b.y + 7, { size: 9, weight: 600, color: "rgba(255,180,90,0.95)", baseline: "middle" });
-  text("● difficulty", b.x + 2, b.y + 19, { size: 9, weight: 600, color: "rgba(96,165,235,0.95)", baseline: "middle" });
-  if (da) text(`retarget ~${(da.remainingTime / 86400000).toFixed(1)}d`, rx - 4, b.y + 7, { size: 9, color: "rgba(255,255,255,0.6)", align: "right", baseline: "middle" });
-  text(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, nowX + 5, Y((curHash + curDiffV) / 2), { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", baseline: "middle" });
+  text("● mining power", b.x + 2, b.y + 7, { size: 10, weight: 600, color: "rgba(255,180,90,0.95)", baseline: "middle" });
+  text("● difficulty", b.x + 2, b.y + 19, { size: 10, weight: 600, color: "rgba(96,165,235,0.95)", baseline: "middle" });
+  if (da) text(`retarget ~${(da.remainingTime / 86400000).toFixed(1)}d`, rx - 4, b.y + 7, { size: 10, color: "rgba(255,255,255,0.6)", align: "right", baseline: "middle" });
+  // keep the % badge inside the chart: when "now" sits near the right edge, flip it to the left of the line
+  const chgRight = nowX > b.x + b.w * 0.7;
+  text(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, nowX + (chgRight ? -5 : 5), Y((curHash + curDiffV) / 2), { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", align: chgRight ? "right" : "left", baseline: "middle" });
 }
 
 function drawNetwork(r) {
@@ -1542,7 +1548,7 @@ function render() {
 
   const { frames, total } = layoutSections();
   window.__frames = Object.fromEntries(frames.filter((f) => f.content).map((f) => [f.section, f.content])); // expose panel rects (for snapshot tests to clip exactly)
-  maxScroll = Math.max(0, total + 24 - H);
+  maxScroll = Math.max(0, total + FOOTER_PAD - H); // FOOTER_PAD leaves clearance so the last panel's bottom clears the fixed footer
   if (scrollY > maxScroll) scrollY = maxScroll;
 
   ctx.save();
@@ -1576,9 +1582,14 @@ function render() {
 
   // scrollbar indicator (fixed)
   if (maxScroll > 0) {
-    const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + 24)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
+    const trackH = H - 16, th = Math.max(40, (trackH * H) / (total + FOOTER_PAD)), ty = 8 + (trackH - th) * (scrollY / maxScroll);
     ctx.fillStyle = "rgba(255,255,255,0.16)"; roundRect(W - 7, ty, 4, th, 2); ctx.fill();
   }
+  // scrim behind the fixed footer so panel content scrolled to the bottom (e.g. the tall sync panel's
+  // disk bar) doesn't bleed through the payout / status line.
+  const fGrad = ctx.createLinearGradient(0, H - 34, 0, H);
+  fGrad.addColorStop(0, "rgba(5,4,10,0)"); fGrad.addColorStop(0.5, "rgba(5,4,10,0.85)"); fGrad.addColorStop(1, "rgba(5,4,10,0.97)");
+  ctx.fillStyle = fGrad; ctx.fillRect(0, H - 34, W, 34);
   // fixed footer — LIVE means everything's good: node reachable, fully synced, miner submitting.
   // anything short of that shows the real status (offline / syncing %) instead of claiming LIVE.
   const node = model.node;
