@@ -15,7 +15,7 @@ async function openPanel(page, section) {
   return { x: Math.round(r.x - 8), y: Math.round(r.y - 46), width: Math.round(r.w + 16), height: Math.round(r.h + 54) };
 }
 
-for (const section of ["closeness", "hashBuild", "network"]) {
+for (const section of ["mempool", "closeness", "hashBuild", "network"]) {
   test(`panel: ${section}`, async ({ page }) => {
     const clip = await openPanel(page, section);
     await expect(page).toHaveScreenshot(`panel-${section}.png`, { clip });

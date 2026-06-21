@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "closeness", "hashBuild", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "hashBuild", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -81,7 +81,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null };
 
 async function loadHistory() {
   try {
@@ -161,6 +161,14 @@ async function refresh() {
     fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
     fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
     fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { if (d && d.remainingBlocks != null) model.diffAdjust = d; }).catch(() => {}); // #2: next-difficulty estimate + timing
+    // mempool: the pending-tx pool the next block is packed from — count, fee distribution, and the
+    // projected upcoming blocks (mempool.space's mempool-blocks). Feeds the live tx-flow viz.
+    Promise.all([
+      fetch(`${API}/mempool`).then((r) => r.json()).catch(() => null),
+      fetch(`${API}/v1/fees/mempool-blocks`).then((r) => r.json()).catch(() => null),
+    ]).then(([mp, blocks]) => {
+      if (mp && mp.count != null) model.mempool = { count: mp.count, vsize: mp.vsize, hist: mp.fee_histogram || [], blocks: Array.isArray(blocks) ? blocks : (model.mempool?.blocks || []) };
+    }).catch(() => {});
     model.error = null;
   } catch (e) {
     model.error = "Couldn't reach mempool.space — retrying…";
@@ -361,7 +369,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 200, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
@@ -426,7 +434,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.106.0";
+const VERSION = "web v0.107.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -447,6 +455,7 @@ function layoutSections() {
 
 function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
+  if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "hashBuild") { return model.ticket ? "0x" + model.ticket.hashHex.slice(0, 10) + "…" : "—"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
@@ -465,6 +474,7 @@ function drawHeader(s, r, isExpanded, hovered) {
 
 function drawContent(s, r) {
   if (s === "nextBlock") return drawNextBlock(r);
+  if (s === "mempool") return drawMempool(r);
   if (s === "closeness") return drawCloseness(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "network") return drawNetwork(r);
@@ -489,6 +499,88 @@ function drawNextBlock(r) {
   let sy = cy - 38;
   for (const [l, v] of rows) { text(l, r.x + 200, sy, { size: 15, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 340, sy, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 32; }
   if (over) text("long blocks are normal — ~37% run past 10 min, ~5% past 30", r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
+}
+
+// ---- MEMPOOL: live tx flow — pending transactions stream in, pool, then feed the next block ----
+// fee-rate → colour, mempool.space-style: low purple/blue → teal → green → yellow → orange → red
+const FEE_STOPS = [[0.5, [125, 95, 185]], [1, [95, 95, 215]], [2, [60, 125, 215]], [5, [40, 170, 205]], [10, [50, 200, 150]], [20, [120, 205, 90]], [40, [215, 205, 70]], [80, [235, 150, 55]], [300, [225, 75, 60]]];
+function feeColor(f, a = 1) {
+  const S = FEE_STOPS;
+  if (f <= S[0][0]) return `rgba(${S[0][1].join(",")},${a})`;
+  if (f >= S[S.length - 1][0]) return `rgba(${S[S.length - 1][1].join(",")},${a})`;
+  let i = 0; while (i < S.length - 1 && f > S[i + 1][0]) i++;
+  const t = (f - S[i][0]) / (S[i + 1][0] - S[i][0]);
+  const c = (k) => Math.round(S[i][1][k] + (S[i + 1][1][k] - S[i][1][k]) * t);
+  return `rgba(${c(0)},${c(1)},${c(2)},${a})`;
+}
+let mpSeed = 12345; const mpRand = () => { mpSeed = (mpSeed * 1103515245 + 12345) & 0x7fffffff; return mpSeed / 0x7fffffff; };
+function sampleFee(hist) { // a fee rate weighted by the mempool's real vsize distribution
+  if (!hist || !hist.length) return 1 + mpRand() * 3;
+  let tot = 0; for (const b of hist) tot += b[1];
+  let x = mpRand() * tot;
+  for (const b of hist) { x -= b[1]; if (x <= 0) return b[0]; }
+  return hist[hist.length - 1][0];
+}
+let mpParts = [], mpTip = null, mpShip = 0, mpSpawn = 0;
+function drawMempool(r) {
+  const mp = model.mempool;
+  if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
+  const blocks = mp.blocks, nDeep = blocks.length, nextBlk = blocks[0];
+  text(`${mp.count.toLocaleString()} pending transactions · ~${nDeep} block${nDeep !== 1 ? "s" : ""} deep · the pool your ticket is mining from`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
+
+  const padX = 22, top = r.y + 42, bot = r.y + r.h - 44;
+  const bw = 120, bx = r.x + r.w - padX - bw, by = top + 2, bh = bot - top - 4;
+  const px0 = r.x + padX, px1 = bx - 38, py0 = top, py1 = bot;
+  const poolW = px1 - px0, poolH = py1 - py0;
+  const CAP = 135, dt = 1 / 60;
+  const cols = 6, rows = Math.max(4, Math.floor((bh - 12) / 13)), slotN = cols * rows;
+  const slotPos = (i) => ({ x: bx + 7 + (i % cols) * ((bw - 14) / cols) + ((bw - 14) / cols) / 2, y: by + bh - 7 - Math.floor(i / cols) * ((bh - 12) / rows) - ((bh - 12) / rows) / 2 });
+  const psz = (fee) => 3 + Math.min(3.5, Math.log10(fee + 1) * 1.7);
+
+  if (!mpParts.length) { // start with a FULL pool so it never looks empty; deterministic for snapshots
+    mpSeed = 12345;
+    for (let i = 0; i < 115; i++) { const fee = sampleFee(mp.hist); mpParts.push({ x: px0 + mpRand() * poolW, y: py0 + mpRand() * poolH, fee, sz: psz(fee), phase: "pool", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 }); }
+  }
+  if (!reduceMotion) {
+    if (mpTip !== null && model.tipHeight !== mpTip) { mpShip = 1; mpParts = mpParts.filter((p) => p.phase !== "inblock" && p.phase !== "toblock"); } // a block was found → its txs are mined
+    mpTip = model.tipHeight;
+    if (mpShip > 0) mpShip = Math.max(0, mpShip - dt * 2);
+    mpSpawn += 5 * dt; // a thin incoming stream from the left
+    while (mpSpawn >= 1) {
+      mpSpawn -= 1;
+      if (mpParts.length >= CAP) { let idx = -1, lo = 1e9; mpParts.forEach((p, i) => { if (p.phase === "pool" && p.fee < lo) { lo = p.fee; idx = i; } }); if (idx >= 0) mpParts.splice(idx, 1); } // churn: low-fee tx evicted
+      const fee = sampleFee(mp.hist);
+      mpParts.push({ x: px0 - 6, y: py0 + mpRand() * poolH, vx: 40 + mpRand() * 30, fee, sz: psz(fee), phase: "enter", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 });
+    }
+    const filled = mpParts.filter((p) => p.phase === "inblock" || p.phase === "toblock").length; // feed the block from the highest-fee txs nearest it
+    if (filled < slotN && frame % 3 === 0) {
+      let best = null; for (const p of mpParts) if (p.phase === "pool" && p.x > px0 + poolW * 0.45 && (!best || p.fee > best.fee)) best = p;
+      if (!best) for (const p of mpParts) if (p.phase === "pool" && (!best || p.fee > best.fee)) best = p;
+      if (best) { best.phase = "toblock"; const sp = slotPos(filled); best.tx = sp.x; best.ty = sp.y; }
+    }
+    for (const p of mpParts) {
+      if (p.phase === "enter") { p.x += p.vx * dt; if (p.x >= px0 + 16) p.phase = "pool"; }
+      else if (p.phase === "pool") { p.bob += dt; p.x += Math.cos(p.bob * 1.2 + p.ph) * 14 * dt; p.y += Math.sin(p.bob * 1.6 + p.ph2) * 14 * dt; p.x = Math.max(px0, Math.min(px1, p.x)); p.y = Math.max(py0, Math.min(py1, p.y)); }
+      else if (p.phase === "toblock") { p.x += (p.tx - p.x) * 0.16; p.y += (p.ty - p.y) * 0.16; if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1.5) { p.phase = "inblock"; p.x = p.tx; p.y = p.ty; } }
+    }
+  } else if (!mpParts.some((p) => p.phase === "inblock")) { // reduced-motion: pack the block ~60% for a settled frame
+    for (let i = 0; i < Math.floor(slotN * 0.6); i++) { const fee = sampleFee(mp.hist); const sp = slotPos(i); mpParts.push({ x: sp.x, y: sp.y, fee, sz: 4, phase: "inblock" }); }
+  }
+
+  for (const p of mpParts) { if (p.phase === "inblock" || p.phase === "toblock") continue; ctx.fillStyle = feeColor(p.fee, p.phase === "enter" ? 0.95 : 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
+  text("the mempool — pending transactions, coloured by fee", px0, py1 + 13, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  text("→", (px1 + bx) / 2, (top + bot) / 2, { size: 20, color: `rgba(${ACCENT},${0.4 + 0.3 * Math.sin(clock * 3)})`, align: "center", baseline: "middle" });
+  const shipDx = mpShip > 0 ? -mpShip * 36 : 0;
+  ctx.save(); ctx.translate(shipDx, 0);
+  ctx.strokeStyle = mpShip > 0 ? `rgba(90,225,140,${0.4 + 0.6 * mpShip})` : `rgba(${ACCENT},0.5)`; ctx.lineWidth = 1.5; roundRect(bx, by, bw, bh, 5); ctx.stroke();
+  for (const p of mpParts) { if (p.phase !== "inblock" && p.phase !== "toblock") continue; ctx.fillStyle = feeColor(p.fee, 0.92); ctx.fillRect(p.x - 2, p.y - 2, 4.2, 4.2); }
+  ctx.restore();
+  text("next block", bx + bw / 2, by - 9, { size: 10, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
+  text(`~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB · your ticket mines this`, bx + bw / 2, bot + 13, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  const lgW = 150, lgX = r.x + r.w / 2 - lgW / 2, lgY = r.y + r.h - 11;
+  for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 4, 1, 5); }
+  text("low fee", lgX - 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  text("high", lgX + lgW + 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
 }
 
 function drawCloseness(r) {
