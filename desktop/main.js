@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow } = require("electron");
+const { app, BrowserWindow, Menu } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -23,9 +23,31 @@ const MIME = {
   ".svg": "image/svg+xml", ".png": "image/png", ".css": "text/css; charset=utf-8", ".ico": "image/x-icon",
 };
 
-let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null;
+let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null, mainWindow = null;
 const configPath = () => path.join(DATA_DIR, "config.json");
 async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
+
+// ---- application menu: gives a way back to Settings after first-run setup ----
+function openSettings() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/setup`); }
+function openDashboard() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`); }
+function buildMenu() {
+  const isMac = process.platform === "darwin";
+  const settingsItem = { label: "Settings…", accelerator: isMac ? "Cmd+," : "Ctrl+,", click: openSettings };
+  const template = [
+    ...(isMac ? [{ label: app.name, submenu: [
+      { role: "about" }, { type: "separator" }, settingsItem, { type: "separator" },
+      { role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" },
+      { type: "separator" }, { role: "quit" },
+    ] }] : []),
+    { label: "File", submenu: [
+      ...(!isMac ? [settingsItem, { type: "separator" }] : []),
+      { label: "Dashboard", accelerator: isMac ? "Cmd+D" : "Ctrl+D", click: openDashboard },
+      { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
+    ] },
+    { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
 
 // ---- engine: our own miner + bridge, in an isolated data dir ----
 const procs = {};
@@ -99,9 +121,12 @@ function handleSetup(req, res) {
     const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     let p;
     try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let existing = {}; try { existing = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {} // settings edit: merge onto current
     const rpcUrl = (p.rpc_url || "http://127.0.0.1:8332").trim();
     const user = (p.rpc_user || "").trim();
-    const pass = p.rpc_pass || "";
+    let pass = p.rpc_pass || "";
+    // editing settings with the password left blank but the same username → keep the saved password
+    if (user && !pass && existing.rpc_pass && (existing.rpc_user || "") === user) pass = existing.rpc_pass;
     const usingCookie = !(user && pass); // blank creds → fall back to the node's auto-generated cookie
     const cookiePath = usingCookie ? defaultCookiePath() : "";
     if (usingCookie && !cookiePath) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf). We couldn't find a cookie file to log in automatically." });
@@ -112,6 +137,7 @@ function handleSetup(req, res) {
     if (!test.ok) return json(200, { ok: false, error: test.error });
 
     const cfg = {
+      ...existing, // preserve machine_seed, notification prefs, etc. across a settings save
       version: 1,
       mode: "live", // the desktop app is live-only — practice/demo lives on the web
       payout_address: (p.payout_address || "").trim(),
@@ -119,9 +145,9 @@ function handleSetup(req, res) {
       rpc_user: usingCookie ? "" : user,
       rpc_pass: usingCookie ? "" : pass,
       rpc_cookie: usingCookie ? cookiePath : "",
-      machine_seed: "",
-      price_poll_interval_min: 15,
-      notifications_enabled: true,
+      machine_seed: existing.machine_seed || "",
+      price_poll_interval_min: existing.price_poll_interval_min || 15,
+      notifications_enabled: existing.notifications_enabled != null ? existing.notifications_enabled : true,
     };
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -139,6 +165,11 @@ function startServer() {
       const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
       if (req.method === "POST" && urlPath === "/setup") { handleSetup(req, res); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
+      if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
+        let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
+        res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
+      }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
         fs.readFile(NODE_JSON, (e, d) => { if (e) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); } else { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } });
         return;
@@ -162,9 +193,10 @@ async function createWindow() {
   const port = await ensureServer();
   const win = new BrowserWindow({
     width: 1280, height: 880, minWidth: 900, minHeight: 600,
-    backgroundColor: "#05040a", title: "Bitcoin Lottery", icon: ICON, autoHideMenuBar: true,
+    backgroundColor: "#05040a", title: "Bitcoin Lottery", icon: ICON, autoHideMenuBar: false, // keep the menu visible so Settings is reachable (Win/Linux)
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
+  mainWindow = win;
   win.loadURL(`http://127.0.0.1:${port}${fs.existsSync(configPath()) ? "/" : "/setup"}`); // first run → wizard
 }
 
@@ -174,6 +206,7 @@ app.whenReady().then(() => {
   NODE_JSON = path.join(DATA_DIR, "node.json");
   ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
   if (fs.existsSync(configPath())) startEngines(); // configured already → mine; otherwise the wizard sets it up
+  buildMenu();
   createWindow();
 });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
