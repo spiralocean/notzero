@@ -366,7 +366,11 @@ let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
-let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null;
+// the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
+// the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
+let isDesktop = false;
+fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") isDesktop = true; }).catch(() => {});
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -422,7 +426,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.105.0";
+const VERSION = "web v0.106.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1453,10 +1457,26 @@ function drawPreviewTrigger() {
   const label = "▶ preview a win";
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
   const tw = ctx.measureText(label).width;
-  winPreviewHit = { x: W - PAD - tw, y: 10, w: tw, h: 22 };
+  const rightX = W - PAD - (isDesktop ? 28 : 0); // leave room for the settings gear in the desktop app
+  winPreviewHit = { x: rightX - tw, y: 10, w: tw, h: 22 };
   const pulse = 0.5 + 0.18 * Math.sin(clock * 2);
-  text(label, W - PAD, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
+  text(label, rightX, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
 }
+// desktop-only settings gear (top-right corner) → opens the settings screen (/setup). Drawn as a small
+// ring of teeth so it stays crisp/monochrome rather than a colour emoji.
+function drawGear() {
+  gearHit = null;
+  if (!isDesktop) return;
+  const gx = W - PAD - 7, gy = 21, hover = inHit(gearHit0(gx, gy), mouseX, mouseY);
+  const col = `rgba(${ACCENT},${hover ? 0.95 : 0.6})`;
+  ctx.save(); ctx.translate(gx, gy); ctx.strokeStyle = col; ctx.fillStyle = col; ctx.lineWidth = 1.4;
+  for (let i = 0; i < 8; i++) { const a = (i / 8) * Math.PI * 2; ctx.beginPath(); ctx.moveTo(Math.cos(a) * 5, Math.sin(a) * 5); ctx.lineTo(Math.cos(a) * 8, Math.sin(a) * 8); ctx.stroke(); }
+  ctx.beginPath(); ctx.arc(0, 0, 5, 0, 7); ctx.stroke();
+  ctx.beginPath(); ctx.arc(0, 0, 1.7, 0, 7); ctx.fill();
+  ctx.restore();
+  gearHit = gearHit0(gx, gy);
+}
+const gearHit0 = (gx, gy) => ({ x: gx - 12, y: gy - 12, w: 24, h: 24 });
 
 // persistent network-win notice (fixed, above the footer) — so you know even if you missed the moment
 function drawNetWinBadge(wins) {
@@ -1654,7 +1674,7 @@ function render() {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawPreviewTrigger(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawPreviewTrigger(); drawGear(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
@@ -1666,7 +1686,7 @@ function render() {
 }
 
 // ---- interaction ----
-let hoverSection = null;
+let hoverSection = null, mouseX = -1, mouseY = -1;
 function sectionAt(px, py) {
   for (const f of headerHits) { const r = f.header; if (px >= r.x && px <= r.x + r.w && py >= r.y && py <= r.y + r.h) return f.section; }
   return null;
@@ -1676,6 +1696,7 @@ canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
+  if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup"; return; } // settings (desktop app)
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
@@ -1685,8 +1706,9 @@ canvas.addEventListener("click", (e) => {
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
 canvas.addEventListener("mousemove", (e) => {
+  mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
