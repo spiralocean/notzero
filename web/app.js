@@ -198,6 +198,15 @@ function text(s, x, y, { size = 16, weight = 400, color = "#fff", align = "left"
   ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = baseline;
   ctx.fillText(s, x, y);
 }
+// text with a dark rounded background pill behind it — keeps labels readable over chart lines/fills
+function chipText(s, x, y, o = {}) {
+  const size = o.size || 16, pad = o.pad ?? 4;
+  ctx.font = `${o.weight || 400} ${size}px ${o.mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "-apple-system, system-ui, sans-serif"}`;
+  const w = ctx.measureText(s).width, ax = o.align === "right" ? x - w : o.align === "center" ? x - w / 2 : x;
+  ctx.fillStyle = o.bg || "rgba(5,4,10,0.78)";
+  roundRect(ax - pad, y - size / 2 - 3, w + pad * 2, size + 6, 3); ctx.fill();
+  text(s, x, y, { size, weight: o.weight, color: o.color, align: o.align, baseline: o.baseline || "middle", mono: o.mono });
+}
 function roundRect(x, y, w, h, r) { ctx.beginPath(); ctx.roundRect(x, y, w, h, r); }
 
 // ---- matrix rain background ----
@@ -413,7 +422,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.104.0";
+const VERSION = "web v0.105.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -764,20 +773,20 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   scan({ x: rowX, w: rowW, y: y1 }, p2, y2);             // 1st hash → 2nd hash
   text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
-  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 14, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
   // highlight the finished hash — ONLY once the 2nd SHA-256 has fully completed (the hold phase, after the
-  // reveal finishes), never during the reveal. Fades in over the first moment of hold, then breathes.
+  // reveal finishes), never during the reveal. Drawn BEFORE the label + glyphs so its glow sits behind them.
   const done = ph.name === "hold" ? Math.min(1, ph.p / 0.04) : 0;
   if (done > 0) {
     const pulse = 0.5 + 0.5 * Math.sin(frame / 22);
-    const hX = rowX - 12, hY = y2 - 11, hW = rowW + 24, hH = 24;
+    const hX = rowX - 12, hY = y2 - 9, hW = rowW + 24, hH = 22; // wraps the glyph row, clear of the label above
     ctx.save();
-    ctx.shadowColor = `rgba(${ACCENT},${0.55 * done})`; ctx.shadowBlur = 14 + 6 * pulse; // soft accent glow
+    ctx.shadowColor = `rgba(${ACCENT},${0.5 * done})`; ctx.shadowBlur = 10 + 5 * pulse; // soft accent glow
     ctx.fillStyle = `rgba(${ACCENT},${0.10 * done})`; roundRect(hX, hY, hW, hH, 7); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.strokeStyle = `rgba(${ACCENT},${done * (0.65 + 0.3 * pulse)})`; ctx.lineWidth = 1.8; roundRect(hX, hY, hW, hH, 7); ctx.stroke();
     ctx.restore();
   }
+  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 16, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
   text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   // #6: what makes the hash random
@@ -1203,7 +1212,7 @@ function drawSync(r) {
   const span = Math.ceil((birthX - leftExit) / spacing) + 4, pruneTarget = syncState.prunedBelow + 1;
   for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
     const x = blockX(k);
-    if (x > cx + bw || x < r.x + m - bw) continue;
+    if (x > cx + bw || x + bw < r.x + m + bw * 0.5) continue; // cull once a block is more than half off the left edge (no clipped-glyph sliver)
     const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
     // timed prune: only the leftmost block digests, and only during the prune phase; below it, already gone
     const fade = k <= syncState.prunedBelow ? 1 : (k === pruneTarget && syncState.phase === "prune" ? syncState.pruneT : 0);
@@ -1360,13 +1369,15 @@ function drawMiningChart(b) {
   // now + retarget verticals
   ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(nowX, b.y); ctx.lineTo(nowX, b.y + b.h); ctx.stroke();
   ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(rx, b.y); ctx.lineTo(rx, b.y + b.h); ctx.stroke(); ctx.setLineDash([]);
-  // labels
-  text("● mining power", b.x + 2, b.y + 7, { size: 10, weight: 600, color: "rgba(255,180,90,0.95)", baseline: "middle" });
-  text("● difficulty", b.x + 2, b.y + 19, { size: 10, weight: 600, color: "rgba(96,165,235,0.95)", baseline: "middle" });
-  if (da) text(`retarget ~${(da.remainingTime / 86400000).toFixed(1)}d`, rx - 4, b.y + 7, { size: 10, color: "rgba(255,255,255,0.6)", align: "right", baseline: "middle" });
-  // keep the % badge inside the chart: when "now" sits near the right edge, flip it to the left of the line
+  // labels — on background chips so the chart lines don't bleed through them
+  chipText("● mining power", b.x + 2, b.y + 8, { size: 10, weight: 600, color: "rgba(255,180,90,0.95)" });
+  chipText("● difficulty", b.x + 2, b.y + 21, { size: 10, weight: 600, color: "rgba(96,165,235,0.95)" });
+  if (da) chipText(`retarget ~${(da.remainingTime / 86400000).toFixed(1)}d`, rx - 4, b.y + 8, { size: 10, color: "rgba(255,255,255,0.7)", align: "right" });
+  // % badge: keep it inside the chart (flip left near the right edge) and lift it clear of the two lines,
+  // onto its own chip, so it never sits on top of the graph.
   const chgRight = nowX > b.x + b.w * 0.7;
-  text(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, nowX + (chgRight ? -5 : 5), Y((curHash + curDiffV) / 2), { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", align: chgRight ? "right" : "left", baseline: "middle" });
+  const badgeY = Math.max(b.y + 36, Math.min(b.y + b.h - 8, Math.min(Y(curHash), Y(curDiffV)) - 12)); // just above the higher line
+  chipText(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, nowX + (chgRight ? -6 : 6), badgeY, { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", align: chgRight ? "right" : "left" });
 }
 
 function drawNetwork(r) {
