@@ -81,7 +81,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [] };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [], recentTxs: [] };
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
@@ -175,6 +175,8 @@ async function refresh() {
     ]).then(([mp, blocks]) => {
       if (mp && mp.count != null) model.mempool = { count: mp.count, vsize: mp.vsize, hist: mp.fee_histogram || [], blocks: Array.isArray(blocks) ? blocks : (model.mempool?.blocks || []) };
     }).catch(() => {});
+    // the actual most-recent transactions — real fee/size/value, used to spawn the live particles + spotlight whales
+    fetch(`${API}/mempool/recent`).then((r) => r.json()).then((txs) => { if (Array.isArray(txs)) model.recentTxs = txs.filter((t) => t && t.vsize); }).catch(() => {});
     model.error = null;
   } catch (e) {
     model.error = "Couldn't reach mempool.space — retrying…";
@@ -375,7 +377,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 200, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
@@ -440,7 +442,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.108.0";
+const VERSION = "web v0.109.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -534,18 +536,24 @@ function drawMempool(r) {
   const blocks = mp.blocks, nDeep = blocks.length, nextBlk = blocks[0];
   text(`${mp.count.toLocaleString()} pending transactions · ~${nDeep} block${nDeep !== 1 ? "s" : ""} deep · the pool your ticket is mining from`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
 
-  const padX = 22, top = r.y + 42, bot = r.y + r.h - 44;
+  const padX = 22, top = r.y + 42, bot = r.y + r.h - 52;
   const bw = 120, bx = r.x + r.w - padX - bw, by = top + 2, bh = bot - top - 4;
   const px0 = r.x + padX, px1 = bx - 38, py0 = top, py1 = bot;
   const poolW = px1 - px0, poolH = py1 - py0;
   const CAP = 135, dt = 1 / 60;
   const cols = 6, rows = Math.max(4, Math.floor((bh - 12) / 13)), slotN = cols * rows;
   const slotPos = (i) => ({ x: bx + 7 + (i % cols) * ((bw - 14) / cols) + ((bw - 14) / cols) / 2, y: by + bh - 7 - Math.floor(i / cols) * ((bh - 12) / rows) - ((bh - 12) / rows) / 2 });
-  const psz = (fee) => 3 + Math.min(3.5, Math.log10(fee + 1) * 1.7);
+  const vsz = (v) => 2.6 + Math.min(4.5, Math.log10(Math.max(140, v) / 110) * 1.9); // square size = block space the tx takes (vbytes)
+  let mpRT = mp.__rt || (mp.__rt = 0); // cursor into the real recent-tx list
+  const pickTx = () => { // a real recent tx (cycled): real fee rate, value, size — or fall back to the histogram
+    const rt = model.recentTxs;
+    if (rt && rt.length) { const t = rt[mp.__rt++ % rt.length]; return { fee: Math.max(0.1, t.vsize ? t.fee / t.vsize : 1), value: (t.value || 0) / 1e8, vsize: t.vsize || 200 }; }
+    return { fee: sampleFee(mp.hist), value: 0, vsize: 150 + mpRand() * 2500 };
+  };
 
   if (!mpParts.length) { // start with a FULL pool so it never looks empty; deterministic for snapshots
     mpSeed = 12345;
-    for (let i = 0; i < 115; i++) { const fee = sampleFee(mp.hist); mpParts.push({ x: px0 + mpRand() * poolW, y: py0 + mpRand() * poolH, fee, sz: psz(fee), phase: "pool", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 }); }
+    for (let i = 0; i < 115; i++) { const fee = sampleFee(mp.hist); mpParts.push({ x: px0 + mpRand() * poolW, y: py0 + mpRand() * poolH, fee, sz: vsz(150 + mpRand() * 2800), phase: "pool", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 }); }
   }
   if (!reduceMotion) {
     if (mpTip !== null && model.tipHeight !== mpTip) { mpShip = 1; mpParts = mpParts.filter((p) => p.phase !== "inblock" && p.phase !== "toblock"); } // a block was found → its txs are mined
@@ -555,8 +563,8 @@ function drawMempool(r) {
     while (mpSpawn >= 1) {
       mpSpawn -= 1;
       if (mpParts.length >= CAP) { let idx = -1, lo = 1e9; mpParts.forEach((p, i) => { if (p.phase === "pool" && p.fee < lo) { lo = p.fee; idx = i; } }); if (idx >= 0) mpParts.splice(idx, 1); } // churn: low-fee tx evicted
-      const fee = sampleFee(mp.hist);
-      mpParts.push({ x: px0 - 6, y: py0 + mpRand() * poolH, vx: 40 + mpRand() * 30, fee, sz: psz(fee), phase: "enter", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 });
+      const t = pickTx(), whale = t.value >= 1; // a real tx; whales (≥1 BTC moved) get spotlighted
+      mpParts.push({ x: px0 - 6, y: py0 + mpRand() * poolH, vx: 40 + mpRand() * 30, fee: t.fee, value: t.value, whale, sz: whale ? Math.max(7, vsz(t.vsize)) : vsz(t.vsize), phase: "enter", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 });
     }
     const filled = mpParts.filter((p) => p.phase === "inblock" || p.phase === "toblock").length; // feed the block from the highest-fee txs nearest it
     if (filled < slotN && frame % 3 === 0) {
@@ -573,8 +581,16 @@ function drawMempool(r) {
     for (let i = 0; i < Math.floor(slotN * 0.6); i++) { const fee = sampleFee(mp.hist); const sp = slotPos(i); mpParts.push({ x: sp.x, y: sp.y, fee, sz: 4, phase: "inblock" }); }
   }
 
-  for (const p of mpParts) { if (p.phase === "inblock" || p.phase === "toblock") continue; ctx.fillStyle = feeColor(p.fee, p.phase === "enter" ? 0.95 : 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
-  text("the mempool — pending transactions, coloured by fee", px0, py1 + 13, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  for (const p of mpParts) {
+    if (p.phase === "inblock" || p.phase === "toblock") continue;
+    if (p.whale) { // spotlight: a glowing square; the BTC value floats beside it only while entering (avoids clutter)
+      ctx.save(); ctx.shadowColor = "rgba(255,206,84,0.85)"; ctx.shadowBlur = 9; ctx.fillStyle = feeColor(p.fee, 0.95); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); ctx.restore();
+      if (p.phase === "enter") text(`${p.value >= 10 ? Math.round(p.value) : p.value.toFixed(1)} ₿`, p.x + p.sz, p.y - p.sz / 2 - 5, { size: 10, weight: 700, color: "rgba(255,212,120,0.95)", baseline: "middle" });
+    } else { ctx.fillStyle = feeColor(p.fee, p.phase === "enter" ? 0.95 : 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
+  }
+  text("the mempool — pending transactions, sized by space, coloured by fee", px0, bot + 13, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  const lt = model.recentTxs && model.recentTxs[0]; // a real-time ticker of the most recent transaction
+  if (lt && lt.vsize) text(`↳ latest tx: ${((lt.value || 0) / 1e8).toFixed(3)} ₿ · ${(lt.fee / lt.vsize).toFixed(1)} sat/vB`, px0, bot + 27, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   text("→", (px1 + bx) / 2, (top + bot) / 2, { size: 20, color: `rgba(${ACCENT},${0.4 + 0.3 * Math.sin(clock * 3)})`, align: "center", baseline: "middle" });
   const shipDx = mpShip > 0 ? -mpShip * 36 : 0;
   ctx.save(); ctx.translate(shipDx, 0);
@@ -586,7 +602,11 @@ function drawMempool(r) {
   ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(bx + 5, by + 4, bw - 10, 3, 1.5); ctx.fill();
   ctx.fillStyle = `rgba(${ACCENT},0.9)`; roundRect(bx + 5, by + 4, (bw - 10) * Math.min(1, mvb), 3, 1.5); ctx.fill();
   text("next block", bx + bw / 2, by - 9, { size: 10, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
-  text(`${(nextBlk.nTx || 0).toLocaleString()} txs · ${fillPct}% full · ~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB · your ticket mines this`, r.x + r.w - padX, bot + 13, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "right", baseline: "middle" });
+  text(`${(nextBlk.nTx || 0).toLocaleString()} txs · ${fillPct}% full · ~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB`, r.x + r.w - padX, bot + 13, { size: 10, color: "rgba(255,255,255,0.55)", align: "right", baseline: "middle" });
+  // #1 — your payday: a won block pays the block subsidy PLUS these mempool fees
+  const subsidy = 50 / Math.pow(2, Math.floor((model.tipHeight || 0) / 210000)), fees = (nextBlk.totalFees || 0) / 1e8, reward = subsidy + fees;
+  const usd = model.price ? reward * model.price : 0, usdStr = usd >= 1000 ? "$" + Math.round(usd / 1000) + "k" : "$" + Math.round(usd);
+  text(`🏆 if you win: ${subsidy.toFixed(3)} + ${fees.toFixed(3)} ₿ fees = ${reward.toFixed(3)} ₿${usd ? " ≈ " + usdStr : ""}`, r.x + r.w - padX, bot + 27, { size: 11, weight: 700, color: "rgb(255,206,84)", align: "right", baseline: "middle" });
   const lgW = 150, lgX = r.x + r.w / 2 - lgW / 2, lgY = r.y + r.h - 11;
   for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 4, 1, 5); }
   text("low fee", lgX - 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });

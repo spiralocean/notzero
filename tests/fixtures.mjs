@@ -74,12 +74,19 @@ const DIFFADJ = { difficultyChange: 4.3, remainingBlocks: 1080, remainingTime: 6
 
 // mempool: a fixed pending pool + projected blocks for the tx-flow viz
 const MEMPOOL = { count: 103683, vsize: 43_240_000, fee_histogram: [[1, 5e6], [2, 8e6], [3, 6e6], [5, 4e6], [8, 3e6], [15, 2e6], [30, 1.5e6], [60, 1e6], [120, 5e5], [300, 2e5]] };
-const MEMPOOL_BLOCKS = Array.from({ length: 8 }, (_, i) => ({ nTx: 6200 - i * 180, blockSize: 1_500_000, blockVSize: 1_000_000, medianFee: Math.max(0.5, 9 - i), feeRange: [Math.max(0.4, 7 - i), 8 - i, 9 - i, 10 - i, 13 - i, 22 - i, 250], totalFees: 1_000_000 }));
+const MEMPOOL_BLOCKS = Array.from({ length: 8 }, (_, i) => ({ nTx: 6200 - i * 180, blockSize: 1_500_000, blockVSize: 1_000_000, medianFee: Math.max(0.5, 9 - i), feeRange: [Math.max(0.4, 7 - i), 8 - i, 9 - i, 10 - i, 13 - i, 22 - i, 250], totalFees: 5_200_000 }));
+// real recent txs (mempool.space /mempool/recent shape): fee in sat, vsize, value in sat — incl a whale
+const RECENT_TXS = [
+  { txid: "a1", fee: 1400, vsize: 200, value: 52_000_000 }, { txid: "a2", fee: 9000, vsize: 560, value: 230_000_000 },
+  { txid: "a3", fee: 320, vsize: 140, value: 8_900_000 }, { txid: "a4", fee: 64000, vsize: 1800, value: 1_240_000_000 },
+  { txid: "a5", fee: 2100, vsize: 380, value: 71_000_000 }, { txid: "a6", fee: 540, vsize: 220, value: 3_200_000 },
+];
 
 export async function installMocks(page) {
   const json = (route, body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });
   await page.route("**/node.json*", (r) => json(r, NODE));
   await page.route("**/api/mempool", (r) => json(r, MEMPOOL));
+  await page.route("**/api/mempool/recent", (r) => json(r, RECENT_TXS));
   await page.route("**/api/v1/fees/mempool-blocks", (r) => json(r, MEMPOOL_BLOCKS));
   await page.route("**/api/blocks/tip/hash", (r) => r.fulfill({ status: 200, contentType: "text/plain", body: TIP_HASH }));
   await page.route("**/api/block/*", (r) => json(r, BLOCK));
