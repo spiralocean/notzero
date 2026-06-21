@@ -182,6 +182,13 @@ def build(url, user, pw, cookie=""):
             mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2), "relay": relay}
         except Exception:  # noqa: BLE001
             mempool = None
+    nettotals = None
+    if node_ok:
+        try:  # cumulative bytes in/out since the node started — the dashboard graphs the rate from successive samples
+            nt = rpc(url, user, pw, "getnettotals")
+            nettotals = {"recv": int(nt.get("totalbytesrecv", 0)), "sent": int(nt.get("totalbytessent", 0)), "ms": int(nt.get("timemillis", 0))}
+        except Exception:  # noqa: BLE001
+            nettotals = None
     peers = []
     for p in peers_raw:
         addr = p.get("addr", "?")
@@ -262,6 +269,7 @@ def build(url, user, pw, cookie=""):
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),
         "mempool": mempool,
+        "nettotals": nettotals,
         "miner": miner,
         "miner_proc": miner_proc_stats(),  # CPU%/RAM the miner daemon uses — calms 'is this a mining rig?' fears
         "lottery_blocks": scan_lottery_blocks(url, user, pw),  # recent blocks carrying the /BitcoinLottery/ coinbase tag

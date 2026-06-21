@@ -81,7 +81,8 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [] };
+let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
   try {
@@ -112,6 +113,11 @@ async function pollNode() {
     // the local node sees a new block within ~3s; if it's ahead of our last mempool fetch, refresh now
     // so the elapsed/countdown stays synced with current mining instead of lagging up to REFRESH_MS
     const n = model.node;
+    if (n && n.nettotals) { // derive up/down rate (bytes/s) from successive cumulative samples
+      const nt = n.nettotals;
+      if (bwLast && nt.ms > bwLast.ms) { const dt = (nt.ms - bwLast.ms) / 1000; if (dt > 0) { model.bwHistory.push({ down: Math.max(0, (nt.recv - bwLast.recv) / dt), up: Math.max(0, (nt.sent - bwLast.sent) / dt) }); if (model.bwHistory.length > 120) model.bwHistory.shift(); } }
+      bwLast = nt;
+    }
     if (n && n.reachable !== false && !n.initialblockdownload && Math.floor(n.blocks || 0) > (model.tipHeight || 0)) refresh();
     // rebuild the EXACT 80-byte header the daemon hashed → the whole HASH BUILD shows the real block,
     // and we verify our double-SHA256 reproduces the daemon's submitted hash byte-for-byte
@@ -434,7 +440,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.107.0";
+const VERSION = "web v0.108.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -575,8 +581,12 @@ function drawMempool(r) {
   ctx.strokeStyle = mpShip > 0 ? `rgba(90,225,140,${0.4 + 0.6 * mpShip})` : `rgba(${ACCENT},0.5)`; ctx.lineWidth = 1.5; roundRect(bx, by, bw, bh, 5); ctx.stroke();
   for (const p of mpParts) { if (p.phase !== "inblock" && p.phase !== "toblock") continue; ctx.fillStyle = feeColor(p.fee, 0.92); ctx.fillRect(p.x - 2, p.y - 2, 4.2, 4.2); }
   ctx.restore();
+  // estimated block fill — how packed the next block is (projected vsize toward a full ~1 MvB block)
+  const mvb = (nextBlk.blockVSize || 0) / 1e6, fillPct = Math.min(100, Math.round(mvb * 100));
+  ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(bx + 5, by + 4, bw - 10, 3, 1.5); ctx.fill();
+  ctx.fillStyle = `rgba(${ACCENT},0.9)`; roundRect(bx + 5, by + 4, (bw - 10) * Math.min(1, mvb), 3, 1.5); ctx.fill();
   text("next block", bx + bw / 2, by - 9, { size: 10, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
-  text(`~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB · your ticket mines this`, bx + bw / 2, bot + 13, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  text(`${(nextBlk.nTx || 0).toLocaleString()} txs · ${fillPct}% full · ~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB · your ticket mines this`, r.x + r.w - padX, bot + 13, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "right", baseline: "middle" });
   const lgW = 150, lgX = r.x + r.w / 2 - lgW / 2, lgY = r.y + r.h - 11;
   for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 4, 1, 5); }
   text("low fee", lgX - 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
@@ -1488,19 +1498,41 @@ function drawNetwork(r) {
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
   // all three indicators in one row: BTC price (left) · mining power vs difficulty (middle) · halving (right)
-  const gap = 16, totW = r.w - gap * 2, priceW = totW * 0.27, chartW = totW * 0.46, halvW = totW * 0.27, ch = r.y + r.h - y - 6;
+  const gap = 16, ch = r.y + r.h - y - 6;
+  const hasBw = !!(model.node && model.node.nettotals); // node bandwidth → add a 4th card (desktop only)
+  const cards = hasBw ? [["price", 0.21], ["mining", 0.34], ["halving", 0.21], ["bw", 0.24]] : [["price", 0.27], ["mining", 0.46], ["halving", 0.27]];
+  const totW = r.w - gap * (cards.length - 1);
   let cx = r.x;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, priceW, ch, 8); ctx.fill();
-  text(model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", cx + 10, y + 15, { size: 13, weight: 600, color: "rgb(70,220,130)" });
-  sparkline({ x: cx + 10, y: y + 26, w: priceW - 20, h: ch - 36 }, model.priceHistory, "rgb(70,220,130)");
-  cx = r.x + priceW + gap;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, chartW, ch, 8); ctx.fill();
-  text("Mining power vs difficulty", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-  drawMiningChart({ x: cx + 14, y: y + 26, w: chartW - 28, h: ch - 36 });
-  cx = r.x + priceW + chartW + gap * 2;
-  ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, halvW, ch, 8); ctx.fill();
-  text("Next halving", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
-  drawHalvingCard({ x: cx + 12, y: y + 30, w: halvW - 24, h: ch - 42 });
+  for (const [kind, frac] of cards) {
+    const w = totW * frac;
+    ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx, y, w, ch, 8); ctx.fill();
+    if (kind === "price") { text(model.price ? `BTC $${Math.round(model.price).toLocaleString()}` : "BTC price", cx + 10, y + 15, { size: 13, weight: 600, color: "rgb(70,220,130)" }); sparkline({ x: cx + 10, y: y + 26, w: w - 20, h: ch - 36 }, model.priceHistory, "rgb(70,220,130)"); }
+    else if (kind === "mining") { text("Mining power vs difficulty", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" }); drawMiningChart({ x: cx + 14, y: y + 26, w: w - 28, h: ch - 36 }); }
+    else if (kind === "halving") { text("Next halving", cx + 10, y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" }); drawHalvingCard({ x: cx + 12, y: y + 30, w: w - 24, h: ch - 42 }); }
+    else { drawBandwidthCard({ x: cx, y, w, h: ch }); }
+    cx += w + gap;
+  }
+}
+
+// node bandwidth: up/down rate graphed from successive getnettotals samples, with a GB/month estimate
+function drawBandwidthCard(b) {
+  text("Bandwidth", b.x + 10, b.y + 15, { size: 13, weight: 600, color: "rgba(255,255,255,0.7)" });
+  const h = model.bwHistory, kb = (bps) => bps / 1024;
+  const cur = h.length ? h[h.length - 1] : null;
+  if (cur) {
+    text(`↓${kb(cur.down).toFixed(1)} ↑${kb(cur.up).toFixed(1)} KB/s`, b.x + b.w - 10, b.y + 15, { size: 10, color: "rgba(255,255,255,0.6)", align: "right", baseline: "middle" });
+    const moGB = (cur.down + cur.up) * 86400 * 30 / 1e9;
+    text(`~${moGB < 10 ? moGB.toFixed(1) : Math.round(moGB)} GB/mo`, b.x + b.w - 10, b.y + b.h - 8, { size: 10, weight: 600, color: `rgba(${ACCENT},0.8)`, align: "right", baseline: "middle" });
+  }
+  const gx = b.x + 10, gy = b.y + 28, gw = b.w - 20, gh = b.h - 44;
+  if (h.length < 2) { text("measuring…", b.x + b.w / 2, b.y + b.h / 2, { size: 11, color: "rgba(255,255,255,0.35)", align: "center", baseline: "middle" }); return; }
+  const maxR = Math.max(1, ...h.map((s) => Math.max(s.down, s.up)));
+  const X = (i) => gx + (i / (h.length - 1)) * gw, Y = (v) => gy + gh - (v / maxR) * gh;
+  ctx.fillStyle = "rgba(70,160,230,0.22)"; ctx.beginPath(); ctx.moveTo(gx, gy + gh); h.forEach((s, i) => ctx.lineTo(X(i), Y(s.down))); ctx.lineTo(X(h.length - 1), gy + gh); ctx.closePath(); ctx.fill(); // download area
+  ctx.strokeStyle = "rgba(90,180,235,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); h.forEach((s, i) => (i ? ctx.lineTo(X(i), Y(s.down)) : ctx.moveTo(X(i), Y(s.down)))); ctx.stroke();
+  ctx.strokeStyle = "rgba(255,180,90,0.95)"; ctx.lineWidth = 1.2; ctx.beginPath(); h.forEach((s, i) => (i ? ctx.lineTo(X(i), Y(s.up)) : ctx.moveTo(X(i), Y(s.up)))); ctx.stroke(); // upload line
+  text("↓ down", gx, b.y + b.h - 8, { size: 10, color: "rgba(90,180,235,0.9)", baseline: "middle" });
+  text("↑ up", gx + 48, b.y + b.h - 8, { size: 10, color: "rgba(255,180,90,0.9)", baseline: "middle" });
 }
 
 // ---- sync preview/demo: fabricate an IBD node so the sync animation can be previewed when caught up ----

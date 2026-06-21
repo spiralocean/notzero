@@ -47,6 +47,7 @@ const NODE = {
     zhist: ZHIST,
   },
   miner_proc: { cpu: 0.0, mem_mb: 14.9 },
+  nettotals: { recv: 31_400_000_000, sent: 8_900_000_000, ms: 1718901234000 },
   lottery_blocks: [],
   payout: { masked: "bc1qxs…fph2fn", is_default: false, valid: true, status: "ok" },
   peers: [],
