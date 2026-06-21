@@ -442,7 +442,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.109.0";
+const VERSION = "web v0.110.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -529,88 +529,50 @@ function sampleFee(hist) { // a fee rate weighted by the mempool's real vsize di
   for (const b of hist) { x -= b[1]; if (x <= 0) return b[0]; }
   return hist[hist.length - 1][0];
 }
-let mpParts = [], mpTip = null, mpShip = 0, mpSpawn = 0;
+let mpTip = null, mpShip = 0;
 function drawMempool(r) {
   const mp = model.mempool;
   if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
-  const blocks = mp.blocks, nDeep = blocks.length, nextBlk = blocks[0];
-  text(`${mp.count.toLocaleString()} pending transactions · ~${nDeep} block${nDeep !== 1 ? "s" : ""} deep · the pool your ticket is mining from`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
+  const blocks = mp.blocks, nextBlk = blocks[0];
+  text(`${mp.count.toLocaleString()} pending transactions · ~${blocks.length} blocks deep · the upcoming blocks your ticket mines from`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
 
-  const padX = 22, top = r.y + 42, bot = r.y + r.h - 52;
-  const bw = 120, bx = r.x + r.w - padX - bw, by = top + 2, bh = bot - top - 4;
-  const px0 = r.x + padX, px1 = bx - 38, py0 = top, py1 = bot;
-  const poolW = px1 - px0, poolH = py1 - py0;
-  const CAP = 135, dt = 1 / 60;
-  const cols = 6, rows = Math.max(4, Math.floor((bh - 12) / 13)), slotN = cols * rows;
-  const slotPos = (i) => ({ x: bx + 7 + (i % cols) * ((bw - 14) / cols) + ((bw - 14) / cols) / 2, y: by + bh - 7 - Math.floor(i / cols) * ((bh - 12) / rows) - ((bh - 12) / rows) / 2 });
-  const vsz = (v) => 2.6 + Math.min(4.5, Math.log10(Math.max(140, v) / 110) * 1.9); // square size = block space the tx takes (vbytes)
-  let mpRT = mp.__rt || (mp.__rt = 0); // cursor into the real recent-tx list
-  const pickTx = () => { // a real recent tx (cycled): real fee rate, value, size — or fall back to the histogram
-    const rt = model.recentTxs;
-    if (rt && rt.length) { const t = rt[mp.__rt++ % rt.length]; return { fee: Math.max(0.1, t.vsize ? t.fee / t.vsize : 1), value: (t.value || 0) / 1e8, vsize: t.vsize || 200 }; }
-    return { fee: sampleFee(mp.hist), value: 0, vsize: 150 + mpRand() * 2500 };
-  };
+  const padX = 24, top = r.y + 52, bot = r.y + r.h - 38; // bottom = the baseline the blocks sit on
+  const maxBH = bot - top, gap = 12, nShow = Math.min(blocks.length, 8);
+  const bw = Math.min(126, (r.w - 2 * padX - gap * (nShow - 1)) / nShow);
 
-  if (!mpParts.length) { // start with a FULL pool so it never looks empty; deterministic for snapshots
-    mpSeed = 12345;
-    for (let i = 0; i < 115; i++) { const fee = sampleFee(mp.hist); mpParts.push({ x: px0 + mpRand() * poolW, y: py0 + mpRand() * poolH, fee, sz: vsz(150 + mpRand() * 2800), phase: "pool", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 }); }
-  }
-  if (!reduceMotion) {
-    if (mpTip !== null && model.tipHeight !== mpTip) { mpShip = 1; mpParts = mpParts.filter((p) => p.phase !== "inblock" && p.phase !== "toblock"); } // a block was found → its txs are mined
-    mpTip = model.tipHeight;
-    if (mpShip > 0) mpShip = Math.max(0, mpShip - dt * 2);
-    mpSpawn += 5 * dt; // a thin incoming stream from the left
-    while (mpSpawn >= 1) {
-      mpSpawn -= 1;
-      if (mpParts.length >= CAP) { let idx = -1, lo = 1e9; mpParts.forEach((p, i) => { if (p.phase === "pool" && p.fee < lo) { lo = p.fee; idx = i; } }); if (idx >= 0) mpParts.splice(idx, 1); } // churn: low-fee tx evicted
-      const t = pickTx(), whale = t.value >= 1; // a real tx; whales (≥1 BTC moved) get spotlighted
-      mpParts.push({ x: px0 - 6, y: py0 + mpRand() * poolH, vx: 40 + mpRand() * 30, fee: t.fee, value: t.value, whale, sz: whale ? Math.max(7, vsz(t.vsize)) : vsz(t.vsize), phase: "enter", ph: mpRand() * 6.28, ph2: mpRand() * 6.28, bob: mpRand() * 6.28 });
+  if (!reduceMotion) { if (mpTip !== null && model.tipHeight !== mpTip) mpShip = 1; mpTip = model.tipHeight; if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.5); } // a real block was found → ship the next block, slide
+  const slide = mpShip > 0 ? -mpShip * (bw + gap) : 0;
+
+  for (let i = 0; i < nShow; i++) {
+    const blk = blocks[i], mvb = (blk.blockVSize || 0) / 1e6, med = blk.medianFee || 1, fr = blk.feeRange || [med];
+    const bh = Math.max(22, maxBH * Math.min(1, mvb)); // block SIZE reflects the transactions it holds (its vsize)
+    const bx = r.x + padX + i * (bw + gap) + slide, by = bot - bh, isNext = i === 0;
+    ctx.fillStyle = feeColor(med, 0.12); roundRect(bx, by, bw, bh, 4); ctx.fill();
+    // the transactions inside — a grid of fee-coloured cells, higher fee toward the top (mempool.space-style)
+    const cell = 7, gcols = Math.max(1, Math.floor((bw - 6) / cell)), grows = Math.max(1, Math.floor((bh - 6) / cell));
+    for (let rr = 0; rr < grows; rr++) {
+      const ff = fr[Math.min(fr.length - 1, Math.round((grows > 1 ? rr / (grows - 1) : 0) * (fr.length - 1)))] || med; // 0=bottom(low) → 1=top(high)
+      ctx.fillStyle = feeColor(ff, 0.85);
+      for (let c = 0; c < gcols; c++) ctx.fillRect(bx + 3 + c * cell, by + 3 + (grows - 1 - rr) * cell, cell - 1.6, cell - 1.6);
     }
-    const filled = mpParts.filter((p) => p.phase === "inblock" || p.phase === "toblock").length; // feed the block from the highest-fee txs nearest it
-    if (filled < slotN && frame % 3 === 0) {
-      let best = null; for (const p of mpParts) if (p.phase === "pool" && p.x > px0 + poolW * 0.45 && (!best || p.fee > best.fee)) best = p;
-      if (!best) for (const p of mpParts) if (p.phase === "pool" && (!best || p.fee > best.fee)) best = p;
-      if (best) { best.phase = "toblock"; const sp = slotPos(filled); best.tx = sp.x; best.ty = sp.y; }
-    }
-    for (const p of mpParts) {
-      if (p.phase === "enter") { p.x += p.vx * dt; if (p.x >= px0 + 16) p.phase = "pool"; }
-      else if (p.phase === "pool") { p.bob += dt; p.x += Math.cos(p.bob * 1.2 + p.ph) * 14 * dt; p.y += Math.sin(p.bob * 1.6 + p.ph2) * 14 * dt; p.x = Math.max(px0, Math.min(px1, p.x)); p.y = Math.max(py0, Math.min(py1, p.y)); }
-      else if (p.phase === "toblock") { p.x += (p.tx - p.x) * 0.16; p.y += (p.ty - p.y) * 0.16; if (Math.hypot(p.tx - p.x, p.ty - p.y) < 1.5) { p.phase = "inblock"; p.x = p.tx; p.y = p.ty; } }
-    }
-  } else if (!mpParts.some((p) => p.phase === "inblock")) { // reduced-motion: pack the block ~60% for a settled frame
-    for (let i = 0; i < Math.floor(slotN * 0.6); i++) { const fee = sampleFee(mp.hist); const sp = slotPos(i); mpParts.push({ x: sp.x, y: sp.y, fee, sz: 4, phase: "inblock" }); }
+    ctx.strokeStyle = isNext ? (mpShip > 0 ? `rgba(90,225,140,${0.5 + 0.5 * mpShip})` : `rgba(${ACCENT},0.9)`) : "rgba(255,255,255,0.16)";
+    ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+    if (bx + bw < r.x + 4 || bx > r.x + r.w - 4) continue; // labels only for on-panel blocks
+    text(`~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB`, bx + bw / 2, by - 9, { size: 10, weight: isNext ? 700 : 600, color: isNext ? "rgb(255,206,84)" : "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
+    text(`${blk.nTx >= 1000 ? (blk.nTx / 1000).toFixed(1) + "k" : blk.nTx} txs · ${mvb.toFixed(2)} MvB`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    if (isNext) text("◀ next · your ticket mines this", bx, by - 22, { size: 10, weight: 700, color: `rgba(${ACCENT},0.9)`, baseline: "middle" });
   }
 
-  for (const p of mpParts) {
-    if (p.phase === "inblock" || p.phase === "toblock") continue;
-    if (p.whale) { // spotlight: a glowing square; the BTC value floats beside it only while entering (avoids clutter)
-      ctx.save(); ctx.shadowColor = "rgba(255,206,84,0.85)"; ctx.shadowBlur = 9; ctx.fillStyle = feeColor(p.fee, 0.95); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); ctx.restore();
-      if (p.phase === "enter") text(`${p.value >= 10 ? Math.round(p.value) : p.value.toFixed(1)} ₿`, p.x + p.sz, p.y - p.sz / 2 - 5, { size: 10, weight: 700, color: "rgba(255,212,120,0.95)", baseline: "middle" });
-    } else { ctx.fillStyle = feeColor(p.fee, p.phase === "enter" ? 0.95 : 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
-  }
-  text("the mempool — pending transactions, sized by space, coloured by fee", px0, bot + 13, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
-  const lt = model.recentTxs && model.recentTxs[0]; // a real-time ticker of the most recent transaction
-  if (lt && lt.vsize) text(`↳ latest tx: ${((lt.value || 0) / 1e8).toFixed(3)} ₿ · ${(lt.fee / lt.vsize).toFixed(1)} sat/vB`, px0, bot + 27, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-  text("→", (px1 + bx) / 2, (top + bot) / 2, { size: 20, color: `rgba(${ACCENT},${0.4 + 0.3 * Math.sin(clock * 3)})`, align: "center", baseline: "middle" });
-  const shipDx = mpShip > 0 ? -mpShip * 36 : 0;
-  ctx.save(); ctx.translate(shipDx, 0);
-  ctx.strokeStyle = mpShip > 0 ? `rgba(90,225,140,${0.4 + 0.6 * mpShip})` : `rgba(${ACCENT},0.5)`; ctx.lineWidth = 1.5; roundRect(bx, by, bw, bh, 5); ctx.stroke();
-  for (const p of mpParts) { if (p.phase !== "inblock" && p.phase !== "toblock") continue; ctx.fillStyle = feeColor(p.fee, 0.92); ctx.fillRect(p.x - 2, p.y - 2, 4.2, 4.2); }
-  ctx.restore();
-  // estimated block fill — how packed the next block is (projected vsize toward a full ~1 MvB block)
-  const mvb = (nextBlk.blockVSize || 0) / 1e6, fillPct = Math.min(100, Math.round(mvb * 100));
-  ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(bx + 5, by + 4, bw - 10, 3, 1.5); ctx.fill();
-  ctx.fillStyle = `rgba(${ACCENT},0.9)`; roundRect(bx + 5, by + 4, (bw - 10) * Math.min(1, mvb), 3, 1.5); ctx.fill();
-  text("next block", bx + bw / 2, by - 9, { size: 10, weight: 700, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
-  text(`${(nextBlk.nTx || 0).toLocaleString()} txs · ${fillPct}% full · ~${(nextBlk.medianFee || 0).toFixed(1)} sat/vB`, r.x + r.w - padX, bot + 13, { size: 10, color: "rgba(255,255,255,0.55)", align: "right", baseline: "middle" });
-  // #1 — your payday: a won block pays the block subsidy PLUS these mempool fees
+  // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
+  const lt = model.recentTxs && model.recentTxs[0], ltVal = lt ? (lt.value || 0) / 1e8 : 0, whaleLt = ltVal >= 1;
+  if (lt && lt.vsize) text(`${whaleLt ? "🐋 " : "↳ "}latest tx: ${ltVal.toFixed(3)} ₿ · ${(lt.fee / lt.vsize).toFixed(1)} sat/vB`, r.x + padX, r.y + r.h - 12, { size: 10, weight: whaleLt ? 700 : 400, color: whaleLt ? "rgb(255,206,84)" : "rgba(255,255,255,0.5)", baseline: "middle" });
   const subsidy = 50 / Math.pow(2, Math.floor((model.tipHeight || 0) / 210000)), fees = (nextBlk.totalFees || 0) / 1e8, reward = subsidy + fees;
   const usd = model.price ? reward * model.price : 0, usdStr = usd >= 1000 ? "$" + Math.round(usd / 1000) + "k" : "$" + Math.round(usd);
-  text(`🏆 if you win: ${subsidy.toFixed(3)} + ${fees.toFixed(3)} ₿ fees = ${reward.toFixed(3)} ₿${usd ? " ≈ " + usdStr : ""}`, r.x + r.w - padX, bot + 27, { size: 11, weight: 700, color: "rgb(255,206,84)", align: "right", baseline: "middle" });
-  const lgW = 150, lgX = r.x + r.w / 2 - lgW / 2, lgY = r.y + r.h - 11;
-  for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 4, 1, 5); }
-  text("low fee", lgX - 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  text("high", lgX + lgW + 5, lgY - 2, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  text(`🏆 if you win: ${subsidy.toFixed(3)} + ${fees.toFixed(3)} ₿ fees = ${reward.toFixed(3)} ₿${usd ? " ≈ " + usdStr : ""}`, r.x + r.w - padX, r.y + r.h - 12, { size: 11, weight: 700, color: "rgb(255,206,84)", align: "right", baseline: "middle" });
+  const lgW = 120, lgX = r.x + r.w / 2 - lgW / 2, lgY = r.y + r.h - 12;
+  for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 3, 1, 5); }
+  text("low", lgX - 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  text("high fee", lgX + lgW + 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
 }
 
 function drawCloseness(r) {

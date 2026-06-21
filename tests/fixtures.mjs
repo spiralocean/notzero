@@ -74,7 +74,7 @@ const DIFFADJ = { difficultyChange: 4.3, remainingBlocks: 1080, remainingTime: 6
 
 // mempool: a fixed pending pool + projected blocks for the tx-flow viz
 const MEMPOOL = { count: 103683, vsize: 43_240_000, fee_histogram: [[1, 5e6], [2, 8e6], [3, 6e6], [5, 4e6], [8, 3e6], [15, 2e6], [30, 1.5e6], [60, 1e6], [120, 5e5], [300, 2e5]] };
-const MEMPOOL_BLOCKS = Array.from({ length: 8 }, (_, i) => ({ nTx: 6200 - i * 180, blockSize: 1_500_000, blockVSize: 1_000_000, medianFee: Math.max(0.5, 9 - i), feeRange: [Math.max(0.4, 7 - i), 8 - i, 9 - i, 10 - i, 13 - i, 22 - i, 250], totalFees: 5_200_000 }));
+const MEMPOOL_BLOCKS = Array.from({ length: 8 }, (_, i) => ({ nTx: i < 7 ? 6200 - i * 180 : 2100, blockSize: 1_500_000, blockVSize: i < 7 ? 1_000_000 : 340_000, medianFee: Math.max(0.5, 9 - i), feeRange: [Math.max(0.4, 7 - i), 8 - i, 9 - i, 10 - i, 13 - i, 22 - i, 250], totalFees: 5_200_000 }));
 // real recent txs (mempool.space /mempool/recent shape): fee in sat, vsize, value in sat — incl a whale
 const RECENT_TXS = [
   { txid: "a1", fee: 1400, vsize: 200, value: 52_000_000 }, { txid: "a2", fee: 9000, vsize: 560, value: 230_000_000 },
