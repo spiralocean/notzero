@@ -23,6 +23,22 @@ fi
 echo "PyInstaller $(python3 -c 'import PyInstaller; print(PyInstaller.__version__)')  →  $OUT"
 mkdir -p "$OUT"
 
+# Gate: don't ship a miner whose found block would be rejected. verify-block.py asks the local node to
+# validate the exact block this miner would submit (getblocktemplate proposal mode). It needs a reachable
+# node; in an environment without one (e.g. CI), set SKIP_BLOCK_VERIFY=1 to build UNVERIFIED binaries.
+if [ "${SKIP_BLOCK_VERIFY:-}" = "1" ]; then
+  echo "⚠ SKIP_BLOCK_VERIFY=1 — skipping the block-validity gate; binaries will be UNVERIFIED." >&2
+else
+  echo "── gate: verifying block validity against the local node…"
+  if ! python3 scripts/verify-block.py; then
+    echo "" >&2
+    echo "✋ block-validity check FAILED — refusing to build the engine binaries." >&2
+    echo "   A found block could be rejected by the network. Fix it (see scripts/verify-block.py)," >&2
+    echo "   or, if no node is reachable here, re-run with:  SKIP_BLOCK_VERIFY=1 bash desktop/build-engines.sh" >&2
+    exit 1
+  fi
+fi
+
 build() {                      # build <name> <entry.py> [extra pyinstaller args...]
   local name="$1" entry="$2"; shift 2
   echo "── building $name from $entry"
