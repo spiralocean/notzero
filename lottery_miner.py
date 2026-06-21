@@ -857,10 +857,12 @@ def live_attempt(
 
 
 def _merkle_root_from_coinbase(coinbase_hex: str, transactions: list) -> str:
+    # the block merkle tree is over TXIDs (non-witness). The coinbase txid is the double-SHA256 of its
+    # non-witness serialization; for every other tx we use the template's txid — hashing tx["data"] would
+    # give the WTXID for segwit txs, which is wrong. All hashes are internal (little-endian) order.
     hashes = [hashlib.sha256(hashlib.sha256(bytes.fromhex(coinbase_hex)).digest()).digest()]
     for tx in transactions:
-        raw = bytes.fromhex(tx["data"])
-        hashes.append(hashlib.sha256(hashlib.sha256(raw).digest()).digest())
+        hashes.append(bytes.fromhex(tx["txid"])[::-1])
     return _compute_merkle_root(hashes)[::-1].hex()
 
 
@@ -876,13 +878,30 @@ def _compute_merkle_root(hashes: list[bytes]) -> bytes:
     return layer[0]
 
 
+def _coinbase_with_witness(cb: bytes) -> bytes:
+    # a segwit block's coinbase must carry a witness: a single 32-byte reserved value (all zeros), which is
+    # exactly what the template's default_witness_commitment assumes. Re-serialize the legacy coinbase into
+    # segwit form: version | 00 01 (marker+flag) | inputs+outputs | witness(1 item ×32 zero bytes) | locktime
+    version, middle, locktime = cb[:4], cb[4:-4], cb[-4:]
+    witness = _serialize_varint(1) + _serialize_varint(32) + b"\x00" * 32
+    return version + b"\x00\x01" + middle + witness + locktime
+
+
 def _assemble_block_hex(template: dict, coinbase_hex: str, nonce: int) -> str:
+    # a full, consensus-valid block: 80-byte header + tx count + the (witness-serialized) coinbase + EVERY
+    # template transaction, in template order. The header carries the merkle root as bytes (internal order).
     header = struct.pack("<I", template["version"])
     header += bytes.fromhex(template["previousblockhash"])[::-1]
     merkle = _merkle_root_from_coinbase(coinbase_hex, template.get("transactions", []))
-    header += merkle[::-1]
+    header += bytes.fromhex(merkle)[::-1]
     header += struct.pack("<III", template["curtime"], int(template["bits"], 16), nonce)
-    return header.hex() + "01" + _varint(1) + coinbase_hex
+    txs = template.get("transactions", [])
+    cb = bytes.fromhex(coinbase_hex)
+    cb_serialized = _coinbase_with_witness(cb) if template.get("default_witness_commitment") else cb
+    block = header + _serialize_varint(1 + len(txs)) + cb_serialized
+    for tx in txs:
+        block += bytes.fromhex(tx["data"])
+    return block.hex()
 
 
 def _varint(n: int) -> str:
