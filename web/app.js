@@ -444,7 +444,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.114.0";
+const VERSION = "web v0.115.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -558,42 +558,52 @@ function squarify(items, x, y, w, h) {
   }
   return out;
 }
+// fill a block rect with a treemap of (representative) transactions — sized by space, coloured by fee
+// (or a muted confirmed colour for mined-history blocks). Deterministic via `seed` for a stable layout.
+function mpTreemap(bx, by, bw, bh, fr, seed, confirmed) {
+  mpSeed = seed;
+  const nItems = Math.min(120, Math.max(12, Math.floor((bw * bh) / 72))), items = [];
+  for (let k = 0; k < nItems; k++) { const v = 0.3 + mpRand() * mpRand() * mpRand() * 30; items.push({ v, fee: confirmed ? 0 : (fr[Math.floor(mpRand() * fr.length)] || 1) }); }
+  items.sort((p, q) => q.v - p.v);
+  for (const t of squarify(items, bx + 2, by + 2, bw - 4, bh - 4)) { ctx.fillStyle = confirmed ? "rgba(110,175,135,0.42)" : feeColor(t.fee, 0.9); ctx.fillRect(t.x + 0.4, t.y + 0.4, Math.max(0.7, t.w - 0.8), Math.max(0.7, t.h - 0.8)); }
+}
 function drawMempool(r) {
   const mp = model.mempool;
   if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
   // the API's final entry is often a giant AGGREGATE of the whole deep backlog — keep only real single blocks
   const singles = mp.blocks.filter((b) => (b.blockVSize || 0) <= 1_300_000);
-  const shown = (singles.length ? singles : mp.blocks.slice(0, 1)).slice(0, 8), nextBlk = shown[0];
-  const depth = Math.max(shown.length, Math.round((mp.vsize || shown.length * 1e6) / 1e6)); // true mempool depth in blocks
-  text(`${mp.count.toLocaleString()} pending transactions · ~${depth.toLocaleString()} blocks deep · new txs flow in toward the next block (your ticket)`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
+  const mem = (singles.length ? singles : mp.blocks.slice(0, 1)).slice(0, 5), nextBlk = mem[0]; // next + backlog
+  const hist = (model.recentBlocks || []).slice(-3); // recently MINED blocks (history): oldest → newest
+  const depth = Math.max(mem.length, Math.round((mp.vsize || mem.length * 1e6) / 1e6));
+  text(`${mp.count.toLocaleString()} pending · ~${depth.toLocaleString()} blocks deep · time flows right → left: txs arrive, get mined, fall into history`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
 
-  const padX = 22, top = r.y + 52, bot = r.y + r.h - 38, maxBH = bot - top, gap = 11;
-  const inflowW = 116, nShow = shown.length; // a right-edge zone where new txs stream in
-  const bw = Math.min(116, (r.w - 2 * padX - inflowW - gap * nShow) / nShow);
-  const rowRight = r.x + padX + nShow * (bw + gap) - gap;
-  const SIZE_REF = 2.6e6; // a typical full SegWit block in bytes → the reference for "full height"
-  const sizeH = (b) => Math.max(0.34, Math.min(1, (b.blockSize || b.blockVSize || 0) / SIZE_REF)); // block height = its DATA (bytes)
+  const padX = 20, top = r.y + 54, bot = r.y + r.h - 38, maxBH = bot - top, gap = 10;
+  const inflowW = 80, dividerW = 22, nHist = hist.length, nMem = mem.length, nAll = nHist + nMem;
+  const bw = Math.max(72, Math.min(112, (r.w - 2 * padX - inflowW - dividerW - gap * nAll) / nAll));
+  const SIZE_REF = 2.6e6, sizeH = (b) => Math.max(0.34, Math.min(1, (b.blockSize || b.size || b.blockVSize || 0) / SIZE_REF)); // height = data (bytes)
+  const histW = nHist * (bw + gap), memStartX = r.x + padX + histW + (nHist ? dividerW : 0); // mempool starts after history + the "now" divider
 
-  // #6 fee weather — congestion mood + the next-block fee (top-left), green→red by how busy the network is
+  // #6 fee weather (top-left)
   if (model.fees) { const w = feeWeather(model.fees.fastestFee); ctx.fillStyle = `rgba(${w.col},0.95)`; ctx.beginPath(); ctx.arc(r.x + padX + 4, r.y + 18, 4, 0, 7); ctx.fill(); text(`${w.mood} · ${model.fees.fastestFee} sat/vB`, r.x + padX + 13, r.y + 18, { size: 11, weight: 700, color: `rgba(${w.col},0.95)`, baseline: "middle" }); }
 
-  // #2 harvest — when a real block is mined (or the preview fires), the next block's txs fly off + a toast
+  // #2 harvest — the next block is mined: it flashes, slides LEFT across "now" into history, txs fly off
   if (!reduceMotion) {
     if ((mpTip !== null && model.tipHeight !== mpTip) || mpPreview) {
-      mpShip = 1; mpHarvestT = 1; mpHarvestTip = (model.tipHeight || 954000) + (mpPreview ? 1 : 0); mpHarvestTx = shown[0] ? shown[0].nTx : 0;
-      const b0 = shown[0], fr0 = (b0 && b0.feeRange) || [1], bh0 = Math.max(22, maxBH * sizeH(b0)), by0 = bot - bh0;
-      for (let k = 0; k < 40; k++) mpHarvest.push({ x: r.x + padX + Math.random() * bw, y: by0 + Math.random() * bh0, vx: -(20 + Math.random() * 70), vy: -(30 + Math.random() * 80), fee: fr0[Math.floor(Math.random() * fr0.length)], life: 1 });
+      mpShip = 1; mpHarvestT = 1; mpHarvestTip = (model.tipHeight || 954000) + (mpPreview ? 1 : 0); mpHarvestTx = nextBlk ? nextBlk.nTx : 0;
+      const fr0 = (nextBlk && nextBlk.feeRange) || [1], bh0 = Math.max(22, maxBH * sizeH(nextBlk)), by0 = bot - bh0;
+      for (let k = 0; k < 44; k++) mpHarvest.push({ x: memStartX + Math.random() * bw, y: by0 + Math.random() * bh0, vx: -(40 + Math.random() * 90), vy: -(20 + Math.random() * 70), fee: fr0[Math.floor(Math.random() * fr0.length)], life: 1 });
     }
     mpTip = model.tipHeight;
-    if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.5);
+    if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.3);
     if (mpHarvestT > 0) mpHarvestT = Math.max(0, mpHarvestT - (1 / 60) / 2.4);
     for (const h of mpHarvest) { h.x += h.vx * (1 / 60); h.y += h.vy * (1 / 60); h.vy += 70 * (1 / 60); h.life -= (1 / 60) * 1.3; }
     mpHarvest = mpHarvest.filter((h) => h.life > 0);
   }
   mpPreview = false;
-  const slide = mpShip > 0 ? -mpShip * (bw + gap) : 0;
+  const slide = mpShip > 0 ? -mpShip * (bw + gap) : 0; // the whole row eases left on a block-found
 
-  // incoming txs: spawn at the RIGHT edge, drift LEFT toward the next block, merge into the deepest block
+  // incoming txs stream in from the RIGHT, drift LEFT toward the next block
+  const rowRight = memStartX + nMem * (bw + gap) - gap;
   if (!reduceMotion) {
     mpFlowAcc += 7 * (1 / 60);
     while (mpFlowAcc >= 1 && mpFlow.length < 70) {
@@ -606,36 +616,48 @@ function drawMempool(r) {
     mpFlow = mpFlow.filter((p) => p.x > rowRight - 6);
   }
 
-  for (let i = 0; i < nShow; i++) {
-    const blk = shown[i], med = blk.medianFee || 1, fr = blk.feeRange || [med];
-    const bh = Math.max(22, maxBH * sizeH(blk)); // height = the block's actual data size (bytes)
-    const bx = r.x + padX + i * (bw + gap) + slide, by = bot - bh, isNext = i === 0;
-    ctx.fillStyle = feeColor(med, 0.12); roundRect(bx, by, bw, bh, 4); ctx.fill();
-    // the transactions inside — each tile is one tx, SIZED by the block space it takes (vbytes), coloured by
-    // its fee. A representative set (the API doesn't give per-tx contents), packed as a squarified treemap.
-    mpSeed = 1000 + i * 919; // deterministic per block (stable layout, snapshot-safe)
-    const nItems = Math.min(120, Math.max(16, Math.floor((bw * bh) / 70)));
-    const items = [];
-    for (let k = 0; k < nItems; k++) { const v = 0.3 + mpRand() * mpRand() * mpRand() * 30; const ff = fr[Math.floor(mpRand() * fr.length)] || med; items.push({ v, fee: ff }); }
-    items.sort((p, q) => q.v - p.v);
-    for (const t of squarify(items, bx + 2, by + 2, bw - 4, bh - 4)) { ctx.fillStyle = feeColor(t.fee, 0.9); ctx.fillRect(t.x + 0.4, t.y + 0.4, Math.max(0.7, t.w - 0.8), Math.max(0.7, t.h - 0.8)); }
-    ctx.strokeStyle = isNext ? (mpShip > 0 ? `rgba(90,225,140,${0.5 + 0.5 * mpShip})` : `rgba(${ACCENT},0.9)`) : "rgba(255,255,255,0.16)";
-    ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
-    if (bx + bw < r.x + 4 || bx > r.x + r.w - 4) continue;
-    text(`~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB`, bx + bw / 2, by - 9, { size: 10, weight: isNext ? 700 : 600, color: isNext ? "rgb(255,206,84)" : "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
-    text(`${blk.nTx >= 1000 ? (blk.nTx / 1000).toFixed(1) + "k" : blk.nTx} txs · ${((blk.blockSize || 0) / 1e6).toFixed(2)} MB`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
-    if (isNext) text("◀ next · your ticket mines this", bx, by - 22, { size: 10, weight: 700, color: `rgba(${ACCENT},0.9)`, baseline: "middle" });
+  // --- mined history (left, confirmed) ---
+  for (let i = 0; i < nHist; i++) {
+    const blk = hist[i], bh = Math.max(20, maxBH * sizeH(blk)), bx = r.x + padX + i * (bw + gap) + slide, by = bot - bh;
+    if (bx + bw < r.x - 2 || bx > r.x + r.w) continue;
+    ctx.fillStyle = "rgba(90,180,120,0.08)"; roundRect(bx, by, bw, bh, 4); ctx.fill();
+    mpTreemap(bx, by, bw, bh, null, 5000 + (blk.height || i) * 13, true);
+    ctx.strokeStyle = "rgba(90,200,130,0.4)"; ctx.lineWidth = 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+    text(`✓ #${(blk.height || 0).toLocaleString()}`, bx + bw / 2, by - 9, { size: 10, weight: 600, color: "rgba(90,210,140,0.85)", align: "center", baseline: "middle" });
+    text(`${blk.tx >= 1000 ? (blk.tx / 1000).toFixed(1) + "k" : (blk.tx || 0)} txs`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  }
+  if (nHist) text("mined · the chain ◂", r.x + padX, top - 22, { size: 10, color: "rgba(90,200,130,0.6)", baseline: "middle" });
+
+  // --- the "now" divider ---
+  if (nHist) {
+    const divX = r.x + padX + histW + dividerW / 2 - gap / 2 + slide;
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(divX, top - 16); ctx.lineTo(divX, bot + 4); ctx.stroke(); ctx.setLineDash([]);
+    text("now", divX, top - 26, { size: 10, weight: 700, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
   }
 
-  // incoming particles + the deep-backlog hint
+  // --- mempool: next block + backlog (right) ---
+  for (let j = 0; j < nMem; j++) {
+    const blk = mem[j], med = blk.medianFee || 1, fr = blk.feeRange || [med];
+    const bh = Math.max(22, maxBH * sizeH(blk)), bx = memStartX + j * (bw + gap) + slide, by = bot - bh, isNext = j === 0;
+    if (bx + bw < r.x || bx > r.x + r.w + 2) continue;
+    ctx.fillStyle = feeColor(med, 0.12); roundRect(bx, by, bw, bh, 4); ctx.fill();
+    mpTreemap(bx, by, bw, bh, fr, 1000 + j * 919, false);
+    ctx.strokeStyle = isNext ? (mpShip > 0 ? `rgba(90,225,140,${0.5 + 0.5 * mpShip})` : `rgba(${ACCENT},0.9)`) : "rgba(255,255,255,0.16)";
+    ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+    text(`~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB`, bx + bw / 2, by - 9, { size: 10, weight: isNext ? 700 : 600, color: isNext ? "rgb(255,206,84)" : "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
+    text(`${blk.nTx >= 1000 ? (blk.nTx / 1000).toFixed(1) + "k" : blk.nTx} txs · ${((blk.blockSize || 0) / 1e6).toFixed(2)} MB`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    if (isNext) text("next · your ticket ▸", bx + bw, by - 22, { size: 10, weight: 700, color: `rgba(${ACCENT},0.9)`, align: "right", baseline: "middle" });
+  }
+
+  // incoming particles + the deep-backlog hint (far right)
   for (const p of mpFlow) {
     if (p.whale) { ctx.save(); ctx.shadowColor = "rgba(255,206,84,0.8)"; ctx.shadowBlur = 8; ctx.fillStyle = feeColor(p.fee, 0.95); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); ctx.restore(); }
     else { ctx.fillStyle = feeColor(p.fee, 0.8); ctx.fillRect(p.x - p.sz / 2, p.y - p.sz / 2, p.sz, p.sz); }
   }
-  if (depth > nShow) text(`⋯ +${(depth - nShow).toLocaleString()} blocks of backlog · new txs ▸`, r.x + r.w - padX, top - 8, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  // #2 harvest — confirmed txs flying off + the "mined" toast
+  if (depth > nMem) text(`◂ ${(depth - nMem).toLocaleString()} more deep · new txs in ▸`, r.x + r.w - padX, top - 8, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  // harvest particles + toast
   for (const h of mpHarvest) { ctx.fillStyle = feeColor(h.fee, h.life * 0.9); ctx.fillRect(h.x - 2, h.y - 2, 4.2, 4.2); }
-  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 37, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
+  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 38, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
 
   // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
   const lt = model.recentTxs && model.recentTxs[0], ltVal = lt ? (lt.value || 0) / 1e8 : 0, whaleLt = ltVal >= 1;
