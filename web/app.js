@@ -444,7 +444,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.113.0";
+const VERSION = "web v0.114.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -541,6 +541,23 @@ function feeWeather(f) {
   if (f <= 70) return { mood: "congested", note: "fees high", col: "240,150,70" };
   return { mood: "jammed", note: "fees very high", col: "230,90,70" };
 }
+// squarified treemap (Bruls/Huizing/van Wijk) — pack items {v, fee} into a rect so each AREA ∝ v, keeping
+// squarish aspect ratios. This is how mempool.space draws a block: each tx is a tile sized by its vbytes.
+function mpWorst(row, side) { let s = 0, mx = 0, mn = Infinity; for (const it of row) { s += it.a; if (it.a > mx) mx = it.a; if (it.a < mn) mn = it.a; } const s2 = s * s, d2 = side * side; return Math.max(d2 * mx / s2, s2 / (d2 * mn)); }
+function squarify(items, x, y, w, h) {
+  const total = items.reduce((s, it) => s + it.v, 0) || 1, scale = (w * h) / total;
+  const a = items.map((it) => ({ a: it.v * scale, fee: it.fee })), out = [];
+  let rx = x, ry = y, rw = w, rh = h, i = 0;
+  while (i < a.length && rw > 0.5 && rh > 0.5) {
+    let row = [a[i]], j = i + 1; const side = Math.min(rw, rh);
+    while (j < a.length && mpWorst(row.concat(a[j]), side) <= mpWorst(row, side)) { row.push(a[j]); j++; }
+    const sum = row.reduce((s, it) => s + it.a, 0);
+    if (rw >= rh) { const cw = sum / rh; let yy = ry; for (const it of row) { const hh = it.a / sum * rh; out.push({ x: rx, y: yy, w: cw, h: hh, fee: it.fee }); yy += hh; } rx += cw; rw -= cw; }
+    else { const rwh = sum / rw; let xx = rx; for (const it of row) { const ww = it.a / sum * rw; out.push({ x: xx, y: ry, w: ww, h: rwh, fee: it.fee }); xx += ww; } ry += rwh; rh -= rwh; }
+    i = j;
+  }
+  return out;
+}
 function drawMempool(r) {
   const mp = model.mempool;
   if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
@@ -594,13 +611,14 @@ function drawMempool(r) {
     const bh = Math.max(22, maxBH * sizeH(blk)); // height = the block's actual data size (bytes)
     const bx = r.x + padX + i * (bw + gap) + slide, by = bot - bh, isNext = i === 0;
     ctx.fillStyle = feeColor(med, 0.12); roundRect(bx, by, bw, bh, 4); ctx.fill();
-    // the transactions inside — a grid of fee-coloured cells, higher fee toward the top (mempool.space-style)
-    const cell = 7, gcols = Math.max(1, Math.floor((bw - 6) / cell)), grows = Math.max(1, Math.floor((bh - 6) / cell));
-    for (let rr = 0; rr < grows; rr++) {
-      const ff = fr[Math.min(fr.length - 1, Math.round((grows > 1 ? rr / (grows - 1) : 0) * (fr.length - 1)))] || med;
-      ctx.fillStyle = feeColor(ff, 0.85);
-      for (let c = 0; c < gcols; c++) ctx.fillRect(bx + 3 + c * cell, by + 3 + (grows - 1 - rr) * cell, cell - 1.6, cell - 1.6);
-    }
+    // the transactions inside — each tile is one tx, SIZED by the block space it takes (vbytes), coloured by
+    // its fee. A representative set (the API doesn't give per-tx contents), packed as a squarified treemap.
+    mpSeed = 1000 + i * 919; // deterministic per block (stable layout, snapshot-safe)
+    const nItems = Math.min(120, Math.max(16, Math.floor((bw * bh) / 70)));
+    const items = [];
+    for (let k = 0; k < nItems; k++) { const v = 0.3 + mpRand() * mpRand() * mpRand() * 30; const ff = fr[Math.floor(mpRand() * fr.length)] || med; items.push({ v, fee: ff }); }
+    items.sort((p, q) => q.v - p.v);
+    for (const t of squarify(items, bx + 2, by + 2, bw - 4, bh - 4)) { ctx.fillStyle = feeColor(t.fee, 0.9); ctx.fillRect(t.x + 0.4, t.y + 0.4, Math.max(0.7, t.w - 0.8), Math.max(0.7, t.h - 0.8)); }
     ctx.strokeStyle = isNext ? (mpShip > 0 ? `rgba(90,225,140,${0.5 + 0.5 * mpShip})` : `rgba(${ACCENT},0.9)`) : "rgba(255,255,255,0.16)";
     ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
     if (bx + bw < r.x + 4 || bx > r.x + r.w - 4) continue;
