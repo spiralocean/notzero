@@ -444,7 +444,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.116.0";
+const VERSION = "web v0.117.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -1127,6 +1127,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
 
 // ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
 const syncState = { t: 0, shown: null, phase: "fill", fp: 0, sp: 0, disk: 12 };
+let syncFlash = 0, syncFlashH = 0; // a "new block mined" pulse for the sync panel (node + newest block + toast)
 const mbFmt = (s) => (s / 1e6).toFixed(2) + " MB";
 
 function dataComet(x0, y0, x1, y1, prog, seed, alpha = 1) {
@@ -1250,9 +1251,10 @@ function drawSync(r) {
   const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
   const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600)); // time since last block vs the ~10-min average
   const fHead = Math.floor(head);
-  if (syncState.lastHead != null && fHead > syncState.lastHead && fHead - syncState.lastHead <= 2 && behind === 0) syncState.pending = Math.min(3, (syncState.pending || 0) + (fHead - syncState.lastHead)); // a real new block is +1; ignore big catch-up jumps
-  if (syncPreview && behind === 0) { syncState.pending = Math.min(3, (syncState.pending || 0) + 1); syncPreview = false; } // "preview a block" → commit a block now
+  if (syncState.lastHead != null && fHead > syncState.lastHead && fHead - syncState.lastHead <= 2 && behind === 0) { syncState.pending = Math.min(3, (syncState.pending || 0) + (fHead - syncState.lastHead)); syncFlash = 1; syncFlashH = fHead; } // a real new block
+  if (syncPreview && behind === 0) { syncState.pending = Math.min(3, (syncState.pending || 0) + 1); syncFlash = 1; syncFlashH = fHead + 1; syncPreview = false; } // "preview a block" → commit one now
   syncState.lastHead = fHead;
+  if (!reduceMotion && syncFlash > 0) syncFlash = Math.max(0, syncFlash - (1 / 60) / 2.6); // the new-block flash decays over ~2.6s
   const minedAnim = behind === 0 && (syncState.pending || 0) > 0; // a freshly mined block is committing, live
   const flowing = minedAnim || peersAll.some((p) => (p.rate || 0) > 15_000); // ≥1 peer sending, or a mined block landing
   syncState.streams = syncState.streams || {};
@@ -1378,9 +1380,11 @@ function drawSync(r) {
   }
 
   // ---- your node (centered, above the new block) ----
+  if (syncFlash > 0) { ctx.save(); ctx.shadowColor = `rgba(90,235,150,${syncFlash})`; ctx.shadowBlur = 10 + 20 * syncFlash; ctx.strokeStyle = `rgba(90,235,150,${0.4 + 0.6 * syncFlash})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12 + 8 * syncFlash, 0, 7); ctx.stroke(); ctx.restore(); } // new-block pulse ring
   ctx.font = "700 16px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = "rgba(255,255,255,0.95)"; ctx.fillText(CYBER[frame % CYBER.length], cx, nodeY);
-  ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
+  ctx.strokeStyle = syncFlash > 0 ? `rgba(90,235,150,${0.9})` : `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, nodeY, 12, 0, 7); ctx.stroke();
   text("your node", cx, nodeY + 20, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (syncFlash > 0) text(`⛏ new block #${syncFlashH.toLocaleString()} — validated & added to your chain`, cx, r.y + 36, { size: 12, weight: 700, color: `rgba(90,235,150,${Math.min(1, syncFlash * 1.6)})`, align: "center", baseline: "middle" });
 
   // node → new block: the stream's head/tail are driven by the fill phase machine above, so the water
   // and the block level are one system — the level only moves once the leading edge lands and tops off
