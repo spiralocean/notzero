@@ -383,7 +383,8 @@ let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
-let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null;
+let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false;
@@ -443,7 +444,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.112.0";
+const VERSION = "web v0.113.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -559,10 +560,10 @@ function drawMempool(r) {
   // #6 fee weather — congestion mood + the next-block fee (top-left), green→red by how busy the network is
   if (model.fees) { const w = feeWeather(model.fees.fastestFee); ctx.fillStyle = `rgba(${w.col},0.95)`; ctx.beginPath(); ctx.arc(r.x + padX + 4, r.y + 18, 4, 0, 7); ctx.fill(); text(`${w.mood} · ${model.fees.fastestFee} sat/vB`, r.x + padX + 13, r.y + 18, { size: 11, weight: 700, color: `rgba(${w.col},0.95)`, baseline: "middle" }); }
 
-  // #2 harvest — when a real block is mined, the next block's txs fly off (confirmed) + a toast
+  // #2 harvest — when a real block is mined (or the preview fires), the next block's txs fly off + a toast
   if (!reduceMotion) {
-    if (mpTip !== null && model.tipHeight !== mpTip) {
-      mpShip = 1; mpHarvestT = 1; mpHarvestTip = model.tipHeight; mpHarvestTx = shown[0] ? shown[0].nTx : 0;
+    if ((mpTip !== null && model.tipHeight !== mpTip) || mpPreview) {
+      mpShip = 1; mpHarvestT = 1; mpHarvestTip = (model.tipHeight || 954000) + (mpPreview ? 1 : 0); mpHarvestTx = shown[0] ? shown[0].nTx : 0;
       const b0 = shown[0], fr0 = (b0 && b0.feeRange) || [1], bh0 = Math.max(22, maxBH * sizeH(b0)), by0 = bot - bh0;
       for (let k = 0; k < 40; k++) mpHarvest.push({ x: r.x + padX + Math.random() * bw, y: by0 + Math.random() * bh0, vx: -(20 + Math.random() * 70), vy: -(30 + Math.random() * 80), fee: fr0[Math.floor(Math.random() * fr0.length)], life: 1 });
     }
@@ -572,6 +573,7 @@ function drawMempool(r) {
     for (const h of mpHarvest) { h.x += h.vx * (1 / 60); h.y += h.vy * (1 / 60); h.vy += 70 * (1 / 60); h.life -= (1 / 60) * 1.3; }
     mpHarvest = mpHarvest.filter((h) => h.life > 0);
   }
+  mpPreview = false;
   const slide = mpShip > 0 ? -mpShip * (bw + gap) : 0;
 
   // incoming txs: spawn at the RIGHT edge, drift LEFT toward the next block, merge into the deepest block
@@ -1203,6 +1205,7 @@ function drawSync(r) {
   const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600)); // time since last block vs the ~10-min average
   const fHead = Math.floor(head);
   if (syncState.lastHead != null && fHead > syncState.lastHead && fHead - syncState.lastHead <= 2 && behind === 0) syncState.pending = Math.min(3, (syncState.pending || 0) + (fHead - syncState.lastHead)); // a real new block is +1; ignore big catch-up jumps
+  if (syncPreview && behind === 0) { syncState.pending = Math.min(3, (syncState.pending || 0) + 1); syncPreview = false; } // "preview a block" → commit a block now
   syncState.lastHead = fHead;
   const minedAnim = behind === 0 && (syncState.pending || 0) > 0; // a freshly mined block is committing, live
   const flowing = minedAnim || peersAll.some((p) => (p.rate || 0) > 15_000); // ≥1 peer sending, or a mined block landing
@@ -1612,15 +1615,18 @@ window.addEventListener("keydown", (e) => {
 });
 
 // ---- render loop ----
-// the subtle "preview a win" affordance (top-right, fixed) — registers a hit-region for the click handler
+// the subtle preview affordances (top-right, fixed): "preview a block" (mempool harvest + sync commit) and
+// "preview a win" (the celebration) — each registers a hit-region for the click handler
 function drawPreviewTrigger() {
-  const label = "▶ preview a win";
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
-  const tw = ctx.measureText(label).width;
-  const rightX = W - PAD - (isDesktop ? 28 : 0); // leave room for the settings gear in the desktop app
-  winPreviewHit = { x: rightX - tw, y: 10, w: tw, h: 22 };
   const pulse = 0.5 + 0.18 * Math.sin(clock * 2);
-  text(label, rightX, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
+  const rightX = W - PAD - (isDesktop ? 28 : 0); // leave room for the settings gear in the desktop app
+  const winLbl = "▶ preview a win", winW = ctx.measureText(winLbl).width;
+  winPreviewHit = { x: rightX - winW, y: 10, w: winW, h: 22 };
+  text(winLbl, rightX, 21, { size: 12, weight: 700, color: `rgba(${ACCENT},${pulse})`, align: "right", baseline: "middle" });
+  const blkLbl = "▶ preview a block", blkRight = rightX - winW - 16, blkW = ctx.measureText(blkLbl).width;
+  blockPreviewHit = { x: blkRight - blkW, y: 10, w: blkW, h: 22 };
+  text(blkLbl, blkRight, 21, { size: 12, weight: 700, color: `rgba(255,255,255,${0.4 + 0.12 * Math.sin(clock * 2 + 1)})`, align: "right", baseline: "middle" });
 }
 // desktop-only settings gear (top-right corner) → opens the settings screen (/setup). Drawn as a small
 // ring of teeth so it stays crisp/monochrome rather than a colour emoji.
@@ -1862,13 +1868,14 @@ canvas.addEventListener("click", (e) => {
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
   }
+  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
 canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
