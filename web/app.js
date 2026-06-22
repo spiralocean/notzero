@@ -444,7 +444,7 @@ function drawDecodeQuote(to, p, alpha, seed) {
     else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
   }
 }
-const VERSION = "web v0.117.0";
+const VERSION = "web v0.118.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
 // The daemon (node.json .payout) is authoritative when present; full address lives in node_bridge.py.
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
@@ -531,7 +531,7 @@ function sampleFee(hist) { // a fee rate weighted by the mempool's real vsize di
   for (const b of hist) { x -= b[1]; if (x <= 0) return b[0]; }
   return hist[hist.length - 1][0];
 }
-let mpTip = null, mpShip = 0, mpHarvest = [], mpHarvestT = 0, mpHarvestTip = 0, mpHarvestTx = 0;
+let mpTip = null, mpShip = 0, mpGhost = null, mpHarvestT = 0, mpHarvestTip = 0, mpHarvestTx = 0;
 let mpFlow = [], mpFlowAcc = 0, mpFlowIdx = 0;
 // fee "weather" — congestion mood from the next-block fee rate (sat/vB)
 function feeWeather(f) {
@@ -560,12 +560,19 @@ function squarify(items, x, y, w, h) {
 }
 // fill a block rect with a treemap of (representative) transactions — sized by space, coloured by fee
 // (or a muted confirmed colour for mined-history blocks). Deterministic via `seed` for a stable layout.
-function mpTreemap(bx, by, bw, bh, fr, seed, confirmed) {
+function mpTreemap(bx, by, bw, bh, fr, seed, confirmed, fillFrac = 1) {
   mpSeed = seed;
   const nItems = Math.min(120, Math.max(12, Math.floor((bw * bh) / 72))), items = [];
   for (let k = 0; k < nItems; k++) { const v = 0.3 + mpRand() * mpRand() * mpRand() * 30; items.push({ v, fee: confirmed ? 0 : (fr[Math.floor(mpRand() * fr.length)] || 1) }); }
   items.sort((p, q) => q.v - p.v);
-  for (const t of squarify(items, bx + 2, by + 2, bw - 4, bh - 4)) { ctx.fillStyle = confirmed ? "rgba(110,175,135,0.42)" : feeColor(t.fee, 0.9); ctx.fillRect(t.x + 0.4, t.y + 0.4, Math.max(0.7, t.w - 0.8), Math.max(0.7, t.h - 0.8)); }
+  const tiles = squarify(items, bx + 2, by + 2, bw - 4, bh - 4), lim = Math.ceil(tiles.length * Math.max(0, Math.min(1, fillFrac))); // fillFrac < 1 → fill in tile by tile (largest first)
+  for (let ti = 0; ti < lim; ti++) { const t = tiles[ti]; ctx.fillStyle = confirmed ? "rgba(110,175,135,0.42)" : feeColor(t.fee, 0.9); ctx.fillRect(t.x + 0.4, t.y + 0.4, Math.max(0.7, t.w - 0.8), Math.max(0.7, t.h - 0.8)); }
+}
+// cover a rect with churning green glyphs — "this block is being mined / validated"
+function glyphCover(bx, by, bw, bh, alpha) {
+  ctx.font = "10px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  const cell = 11, cols = Math.max(1, Math.floor((bw - 4) / cell)), rows = Math.max(1, Math.floor((bh - 4) / cell));
+  for (let rr = 0; rr < rows; rr++) for (let c = 0; c < cols; c++) { ctx.fillStyle = `rgba(90,235,150,${alpha * (0.35 + 0.5 * Math.abs(Math.sin(frame * 0.3 + c * 2 + rr)))})`; ctx.fillText(CYBER[(frame + c * 5 + rr * 3) % CYBER.length], bx + 4 + c * cell + cell / 2, by + 4 + rr * cell + cell / 2); }
 }
 function drawMempool(r) {
   const mp = model.mempool;
@@ -588,20 +595,18 @@ function drawMempool(r) {
 
   // #2 harvest — the next block is mined: it flashes, slides LEFT across "now" into history, txs fly off
   if (!reduceMotion) {
-    if ((mpTip !== null && model.tipHeight !== mpTip) || mpPreview) {
+    if ((mpTip !== null && model.tipHeight !== mpTip) || mpPreview) { // block mined → start the glyphs→slide→fill transition
       mpShip = 1; mpHarvestT = 1; mpHarvestTip = (model.tipHeight || 954000) + (mpPreview ? 1 : 0); mpHarvestTx = nextBlk ? nextBlk.nTx : 0;
-      const fr0 = (nextBlk && nextBlk.feeRange) || [1], bh0 = Math.max(22, maxBH * sizeH(nextBlk)), by0 = bot - bh0;
-      const htx = nHist ? r.x + padX + (nHist - 1) * (bw + gap) + bw / 2 : r.x + padX, hty = bot - maxBH * 0.45; // newest history block (left of "now")
-      for (let k = 0; k < 54; k++) mpHarvest.push({ x: memStartX + Math.random() * bw, y: by0 + Math.random() * bh0, tx: htx + (Math.random() - 0.5) * bw * 0.8, ty: hty + (Math.random() - 0.5) * maxBH * 0.6, fee: fr0[Math.floor(Math.random() * fr0.length)], life: 1 });
+      mpGhost = { med: (nextBlk && nextBlk.medianFee) || 1, sizeFrac: sizeH(nextBlk), fr: (nextBlk && nextBlk.feeRange) || [1] };
     }
     mpTip = model.tipHeight;
-    if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) * 1.3);
+    if (mpShip > 0) mpShip = Math.max(0, mpShip - (1 / 60) / 1.8); // ~1.8s: glyphs → slide left → refill
     if (mpHarvestT > 0) mpHarvestT = Math.max(0, mpHarvestT - (1 / 60) / 2.4);
-    for (const h of mpHarvest) { h.x += (h.tx - h.x) * 0.07; h.y += (h.ty - h.y) * 0.07; h.life -= (1 / 60) * 0.7; } // mined txs ease LEFT into history (the chain)
-    mpHarvest = mpHarvest.filter((h) => h.life > 0);
   }
   mpPreview = false;
-  const slide = 0; // no row shift — the block-found motion is the txs flying left into history (below)
+  const slide = 0;
+  const tp = mpShip > 0 ? 1 - mpShip : 1; // transition progress 0→1
+  const glyphP = Math.min(1, tp / 0.28), slideP = Math.max(0, Math.min(1, (tp - 0.28) / 0.32)), fillP = Math.max(0, Math.min(1, (tp - 0.6) / 0.4));
 
   // incoming txs stream in from the RIGHT, drift LEFT toward the next block
   const rowRight = memStartX + nMem * (bw + gap) - gap;
@@ -643,9 +648,17 @@ function drawMempool(r) {
     const bh = Math.max(22, maxBH * sizeH(blk)), bx = memStartX + j * (bw + gap) + slide, by = bot - bh, isNext = j === 0;
     if (bx + bw < r.x || bx > r.x + r.w + 2) continue;
     ctx.fillStyle = feeColor(med, 0.12); roundRect(bx, by, bw, bh, 4); ctx.fill();
-    mpTreemap(bx, by, bw, bh, fr, 1000 + j * 919, false);
-    ctx.strokeStyle = isNext ? (mpShip > 0 ? `rgba(90,225,140,${0.5 + 0.5 * mpShip})` : `rgba(${ACCENT},0.9)`) : "rgba(255,255,255,0.16)";
-    ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+    if (isNext && mpShip > 0) { // block-found transition, in place: glyphs churn → contents slide out (drawn as ghost) → slot refills
+      if (slideP === 0) { mpTreemap(bx, by, bw, bh, fr, 1000, false); glyphCover(bx, by, bw, bh, glyphP); }
+      else if (fillP === 0) { /* contents have flown left (the ghost); slot is momentarily empty */ }
+      else mpTreemap(bx, by, bw, bh, fr, 1000, false, fillP);
+      ctx.strokeStyle = `rgba(90,225,140,${0.5 + 0.5 * mpShip})`; ctx.lineWidth = 2;
+      ctx.setLineDash(slideP > 0 && fillP < 1 ? [4, 4] : []); roundRect(bx, by, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
+    } else {
+      mpTreemap(bx, by, bw, bh, fr, 1000 + j * 919, false);
+      ctx.strokeStyle = isNext ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.16)";
+      ctx.lineWidth = isNext ? 1.8 : 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+    }
     text(`~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB`, bx + bw / 2, by - 9, { size: 10, weight: isNext ? 700 : 600, color: isNext ? "rgb(255,206,84)" : "rgba(255,255,255,0.72)", align: "center", baseline: "middle" });
     text(`${blk.nTx >= 1000 ? (blk.nTx / 1000).toFixed(1) + "k" : blk.nTx} txs · ${((blk.blockSize || 0) / 1e6).toFixed(2)} MB`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     if (isNext) text("next · your ticket ▸", bx + bw, by - 22, { size: 10, weight: 700, color: `rgba(${ACCENT},0.9)`, align: "right", baseline: "middle" });
@@ -661,8 +674,18 @@ function drawMempool(r) {
     for (let k = 0; k < 7 && gx < r.x + r.w - 22; k++) { const hh = maxBH * (0.5 - k * 0.05), gw = Math.max(4, 16 - k * 2); ctx.fillStyle = `rgba(255,255,255,${Math.max(0.05, 0.3 - k * 0.04)})`; roundRect(gx, bot - hh, gw, hh, 2); ctx.fill(); gx += gw + 3; }
     text(`+${(depth - nMem).toLocaleString()} deep · new txs ▸`, r.x + r.w - padX, top - 8, { size: 10, color: "rgba(255,255,255,0.45)", align: "right", baseline: "middle" });
   }
-  // harvest particles + toast
-  for (const h of mpHarvest) { ctx.fillStyle = feeColor(h.fee, h.life * 0.9); ctx.fillRect(h.x - 2, h.y - 2, 4.2, 4.2); }
+  // block-found transition: the mined block's contents slide left from "next" into the newest history slot, glyphs fading as they travel
+  if (mpShip > 0 && mpGhost && slideP > 0 && fillP === 0) {
+    const ease = 1 - Math.pow(1 - slideP, 3);
+    const x0 = memStartX, x1 = nHist ? r.x + padX + (nHist - 1) * (bw + gap) : r.x + padX;
+    const gx = x0 + (x1 - x0) * ease, gbh = Math.max(22, maxBH * mpGhost.sizeFrac), gby = bot - gbh;
+    ctx.save(); ctx.globalAlpha = 1 - slideP * 0.4;
+    ctx.fillStyle = feeColor(mpGhost.med, 0.12); roundRect(gx, gby, bw, gbh, 4); ctx.fill();
+    mpTreemap(gx, gby, bw, gbh, mpGhost.fr, 1000, false);
+    glyphCover(gx, gby, bw, gbh, glyphP * (1 - slideP));
+    ctx.strokeStyle = "rgba(90,235,150,0.9)"; ctx.lineWidth = 2; roundRect(gx, gby, bw, gbh, 4); ctx.stroke();
+    ctx.restore();
+  }
   if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 38, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
 
   // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
@@ -1735,16 +1758,22 @@ function drawBestToast() {
   if (!bestToast.active) { bestToastHit = null; return; }
   bestToast.t += 1 / 60;
   const t = bestToast.t, inP = Math.min(1, t / 0.3);
-  const label = `🎯 new best · ${bestToast.bits} zero bits`;
-  ctx.font = "700 13px -apple-system, system-ui, sans-serif";
-  const tw = ctx.measureText(label).width, pw = tw + 50, ph = 30, slide = reduceMotion ? 0 : (1 - inP) * 18;
-  const px = W / 2 - pw / 2, py = H - 78 + slide;
+  // a "best" is measured in zero BITS; spell out what that means for the hash you'd actually see —
+  // every 4 bits = one hex "0", so N bits ⇒ ⌊N/4⌋ leading "0" characters (the rest is a partial nibble).
+  const hz = Math.floor(bestToast.bits / 4);
+  const label = `🎯 new best · ${bestToast.bits} leading zero bits`;
+  const sub = `the hash now starts with ${hz} “0”${hz === 1 ? "" : "s"} — a winner needs ~19`;
+  ctx.font = "700 13px -apple-system, system-ui, sans-serif"; const tw = ctx.measureText(label).width;
+  ctx.font = "600 11px -apple-system, system-ui, sans-serif"; const sw = ctx.measureText(sub).width;
+  const pw = Math.max(tw, sw) + 50, ph = 46, slide = reduceMotion ? 0 : (1 - inP) * 18;
+  const px = W / 2 - pw / 2, py = H - 92 + slide;
   bestToastHit = { x: px, y: py, w: pw, h: ph };
   ctx.globalAlpha = inP; // fade in, then hold at full
   ctx.fillStyle = "rgba(22,17,8,0.94)"; roundRect(px, py, pw, ph, 9); ctx.fill();
   ctx.strokeStyle = "rgba(255,215,90,0.75)"; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 9); ctx.stroke();
-  text(label, px + 15 + tw / 2, py + ph / 2, { size: 13, weight: 700, color: "rgb(255,228,130)", align: "center", baseline: "middle" });
-  text("✕", px + pw - 15, py + ph / 2, { size: 13, weight: 700, color: "rgba(255,228,130,0.55)", align: "center", baseline: "middle" });
+  text(label, px + pw / 2, py + 16, { size: 13, weight: 700, color: "rgb(255,228,130)", align: "center", baseline: "middle" });
+  text(sub, px + pw / 2, py + 32, { size: 11, weight: 600, color: "rgba(255,228,130,0.62)", align: "center", baseline: "middle" });
+  text("✕", px + pw - 15, py + 15, { size: 13, weight: 700, color: "rgba(255,228,130,0.55)", align: "center", baseline: "middle" });
   if (!reduceMotion && t < 1.2) for (let i = 0; i < 8; i++) { // a brief spark on appearance
     const a = (i / 8) * Math.PI * 2, rr = 14 + t * 42;
     ctx.fillStyle = `rgba(255,215,90,${0.5 * (1 - t / 1.2)})`;
