@@ -87,6 +87,45 @@ function rpcAuthHeader({ user, pass, cookiePath }) {
   else return null;
   return "Basic " + Buffer.from(creds).toString("base64");
 }
+// Resolve the cookie file from an optional user-supplied location: a custom -datadir (we append .cookie),
+// the .cookie file itself, or — when blank — the platform default. "" if nothing usable exists.
+function resolveCookiePath(userPath) {
+  const p = (userPath || "").trim();
+  if (!p) return defaultCookiePath();
+  const candidate = p.endsWith(".cookie") ? p : path.join(p, ".cookie");
+  return fs.existsSync(candidate) ? candidate : "";
+}
+// Generic JSON-RPC call (any method/params, optional /wallet/<name> path). Mirrors testRpc's error mapping.
+function rpcCall(rpcUrl, authHeader, method, params) {
+  return new Promise((resolve) => {
+    let u; try { u = new URL(rpcUrl); } catch (_) { return resolve({ ok: false, error: "That RPC URL doesn't look right." }); }
+    const payload = JSON.stringify({ jsonrpc: "1.0", id: "app", method, params: params || [] });
+    const req = http.request({
+      hostname: u.hostname, port: u.port || 8332, path: (u.pathname || "/") + (u.search || ""), method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": authHeader, "Content-Length": Buffer.byteLength(payload) }, timeout: 8000,
+    }, (res) => {
+      let data = ""; res.on("data", (c) => (data += c));
+      res.on("end", () => {
+        if (res.statusCode === 401) return resolve({ ok: false, error: "Your node rejected those credentials (401)." });
+        try { const j = JSON.parse(data); if (j.error) return resolve({ ok: false, error: j.error.message || String(j.error) }); return resolve({ ok: true, result: j.result }); }
+        catch (_) { return resolve({ ok: false, error: res.statusCode !== 200 ? `Your node returned HTTP ${res.statusCode}.` : "Got an unreadable response from the node." }); }
+      });
+    });
+    req.on("timeout", () => { req.destroy(); resolve({ ok: false, error: "Your node didn't respond in time." }); });
+    req.on("error", (e) => resolve({ ok: false, error: e.code === "ECONNREFUSED" ? `Couldn't connect to ${u.host}. Is bitcoind running with server=1?` : `Couldn't reach your node (${e.code || e.message}).` }));
+    req.write(payload); req.end();
+  });
+}
+// Ask the node's wallet for a fresh receive address of the requested type.
+async function nodeGetNewAddress(rpcUrl, authHeader, addrType) {
+  const wl = await rpcCall(rpcUrl, authHeader, "listwallets", []);
+  if (!wl.ok) return wl.error && /method not found/i.test(wl.error) ? { ok: false, error: "Wallet is disabled on your node (disablewallet=1). Paste a receive address instead." } : wl;
+  const wallets = wl.result || [];
+  if (!wallets.length) return { ok: false, error: "Your node has no wallet loaded. Load or create one (bitcoin-cli loadwallet …), or paste an address manually." };
+  const base = rpcUrl.replace(/\/+$/, ""); // target the first loaded wallet explicitly so it works with multi-wallet nodes
+  const r = await rpcCall(`${base}/wallet/${encodeURIComponent(wallets[0])}`, authHeader, "getnewaddress", addrType ? ["", addrType] : [""]);
+  return r.ok ? { ok: true, address: r.result, wallet: wallets[0] } : r;
+}
 // Try getblockchaininfo and translate the failure into something a human can act on.
 function testRpc(rpcUrl, authHeader) {
   return new Promise((resolve) => {
@@ -127,9 +166,13 @@ function handleSetup(req, res) {
     let pass = p.rpc_pass || "";
     // editing settings with the password left blank but the same username → keep the saved password
     if (user && !pass && existing.rpc_pass && (existing.rpc_user || "") === user) pass = existing.rpc_pass;
+    const datadir = (p.rpc_datadir || "").trim(); // optional: custom -datadir or direct .cookie path
+    const coinbaseTag = (p.coinbase_tag || "").trim().slice(0, 90); // operator's vanity coinbase message (miner byte-caps to consensus)
     const usingCookie = !(user && pass); // blank creds → fall back to the node's auto-generated cookie
-    const cookiePath = usingCookie ? defaultCookiePath() : "";
-    if (usingCookie && !cookiePath) return json(200, { ok: false, error: "Enter your node's RPC username and password (from bitcoin.conf). We couldn't find a cookie file to log in automatically." });
+    const cookiePath = usingCookie ? resolveCookiePath(datadir) : "";
+    if (usingCookie && !cookiePath) return json(200, { ok: false, error: datadir
+      ? "Couldn't find a .cookie there. Point to your node's data directory (or its .cookie file directly), or enter rpcuser/rpcpassword."
+      : "Enter your node's RPC username and password (from bitcoin.conf). We couldn't find a cookie file to log in automatically." });
     const authHeader = rpcAuthHeader({ user, pass, cookiePath });
     if (!authHeader) return json(200, { ok: false, error: "Enter your node's RPC username and password." });
 
@@ -145,6 +188,8 @@ function handleSetup(req, res) {
       rpc_user: usingCookie ? "" : user,
       rpc_pass: usingCookie ? "" : pass,
       rpc_cookie: usingCookie ? cookiePath : "",
+      rpc_datadir: usingCookie ? datadir : "", // remembered so the settings screen can pre-fill it
+      coinbase_tag: coinbaseTag,
       machine_seed: existing.machine_seed || "",
       price_poll_interval_min: existing.price_poll_interval_min || 15,
       notifications_enabled: existing.notifications_enabled != null ? existing.notifications_enabled : true,
@@ -158,16 +203,40 @@ function handleSetup(req, res) {
   });
 }
 
+// ---- fetch a fresh receive address from the node's own wallet (so node operators needn't paste one) ----
+function handleNodeAddress(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 100000) req.destroy(); });
+  req.on("end", async () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    const rpcUrl = (p.rpc_url || "http://127.0.0.1:8332").trim();
+    const user = (p.rpc_user || "").trim();
+    let pass = p.rpc_pass || "";
+    let existing = {}; try { existing = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    if (user && !pass && existing.rpc_pass && (existing.rpc_user || "") === user) pass = existing.rpc_pass; // reuse saved pass when blank
+    const usingCookie = !(user && pass);
+    const cookiePath = usingCookie ? resolveCookiePath((p.rpc_datadir || "").trim()) : "";
+    if (usingCookie && !cookiePath) return json(200, { ok: false, error: "Connect to your node first (RPC credentials, or a reachable cookie) to pull an address." });
+    const authHeader = rpcAuthHeader({ user, pass, cookiePath });
+    if (!authHeader) return json(200, { ok: false, error: "Enter your node's RPC username and password." });
+    const at = ["legacy", "p2sh-segwit", "bech32", "bech32m"].includes(p.address_type) ? p.address_type : "bech32";
+    const r = await nodeGetNewAddress(rpcUrl, authHeader, at);
+    json(200, r.ok ? { ok: true, address: r.address } : { ok: false, error: r.error });
+  });
+}
+
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
 function startServer() {
   return new Promise((resolve, reject) => {
     const server = http.createServer((req, res) => {
       const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
       if (req.method === "POST" && urlPath === "/setup") { handleSetup(req, res); return; }
+      if (req.method === "POST" && urlPath === "/node-address") { handleNodeAddress(req, res); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
