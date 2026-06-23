@@ -110,6 +110,7 @@ def load_config() -> dict:
     config.setdefault("rpc_user", "")
     config.setdefault("rpc_pass", "")
     config.setdefault("rpc_cookie", "")  # path to bitcoind's .cookie — used when user/pass are blank
+    config.setdefault("coinbase_tag", "")  # operator's vanity message stamped into the coinbase scriptSig
     config.setdefault("machine_seed", "")
     config.setdefault("price_poll_interval_min", DEFAULT_PRICE_POLL_MIN)
     config.setdefault("menu_bar_display", "block")
@@ -419,11 +420,17 @@ def build_coinbase_transaction(
     coinbase_value: int,
     payout_script: bytes,
     witness_commitment_hex: Optional[str] = None,
+    coinbase_tag: str = "",
 ) -> bytes:
     coinbase_value = int(coinbase_value)
     if not 0 <= coinbase_value < (1 << 64):  # guard struct.pack("<Q") — a bad template value must not crash us
         raise ValueError(f"coinbasevalue out of range: {coinbase_value}")
-    script_sig = _encode_height(height) + b"/BitcoinLottery/0.1/"
+    # the operator's vanity tag (or the default). The BIP34 height push must come first; consensus caps the
+    # whole scriptSig at 100 bytes, so trim the tag to whatever room is left after the height push.
+    height_push = _encode_height(height)
+    tag_bytes = (coinbase_tag or "").strip().encode("utf-8") or b"/BitcoinLottery/0.1/notzero.spiralocean.com/"
+    tag_bytes = tag_bytes[: max(0, 100 - len(height_push))]
+    script_sig = height_push + tag_bytes
     tx = struct.pack("<I", 2)
     tx += _serialize_varint(1)
     tx += b"\x00" * 32
@@ -788,6 +795,7 @@ def live_attempt(
     machine_seed: str,
     payout_address: str,
     rpc_cookie: str = "",
+    coinbase_tag: str = "",
 ) -> BlockAttempt:
     """Real solo attempt via Bitcoin Core getblocktemplate + submitblock."""
     payout_address = validate_payout_address(payout_address)
@@ -810,6 +818,7 @@ def live_attempt(
         coinbase_value=template["coinbasevalue"],
         payout_script=payout_script,
         witness_commitment_hex=template.get("default_witness_commitment"),
+        coinbase_tag=coinbase_tag,
     )
     coinbase_tx = coinbase_raw.hex()
     merkle_root = _merkle_root_from_coinbase(coinbase_tx, template.get("transactions", []))
@@ -1064,6 +1073,7 @@ def resolve_runtime_settings(
         "rpc_user": rpc_user or config.get("rpc_user", ""),
         "rpc_pass": rpc_pass or config.get("rpc_pass", ""),
         "rpc_cookie": config.get("rpc_cookie", ""),
+        "coinbase_tag": config.get("coinbase_tag", ""),
         # default seed is a HASH of the hostname, not the hostname itself — it's published in node.json
         # (which is web-served) and shown in the nonce pane, so a raw hostname would leak the device name.
         # Deterministic (stable nonce per host) and identical on daemon + dashboard. A user-set seed wins.
@@ -1142,6 +1152,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                         settings["machine_seed"],
                         settings["payout_address"],
                         settings.get("rpc_cookie", ""),
+                        settings.get("coinbase_tag", ""),
                     )
                 else:
                     attempt = symbolic_attempt(height, settings["machine_seed"])
@@ -1281,6 +1292,7 @@ def main() -> None:
                 settings["machine_seed"],
                 settings["payout_address"],
                 settings.get("rpc_cookie", ""),
+                settings.get("coinbase_tag", ""),
             )
             if settings["mode"] == "live"
             else symbolic_attempt(height, settings["machine_seed"])

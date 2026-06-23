@@ -5,6 +5,7 @@
   "rpc_url": "http://127.0.0.1:8332",
   "rpc_user": "",
   "rpc_pass": "",
+  "coinbase_tag": "",
   "machine_seed": "",
   "price_poll_interval_min": 15,
   "menu_bar_display": "block",

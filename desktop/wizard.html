@@ -18,8 +18,12 @@
     .section h2 { font-size: 14px; font-weight: 700; color: rgba(255,255,255,0.85); margin-bottom: 4px; }
     .hint { font-size: 12px; color: rgba(255,255,255,0.45); margin-bottom: 12px; line-height: 1.45; }
     label { display: block; font-size: 12px; color: rgba(255,255,255,0.55); margin: 10px 0 4px; }
-    input { width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 10px 12px; font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
-    input:focus { outline: none; border-color: rgba(255,153,26,0.6); }
+    input, select { width: 100%; background: rgba(0,0,0,0.35); border: 1px solid rgba(255,255,255,0.14); border-radius: 8px; color: #fff; padding: 10px 12px; font-size: 13px; font-family: ui-monospace, Menlo, monospace; }
+    input:focus, select:focus { outline: none; border-color: rgba(255,153,26,0.6); }
+    select { cursor: pointer; }
+    .addrtools { display: flex; gap: 10px; align-items: flex-end; margin-top: 10px; }
+    .addrtools .grow { flex: 1; }
+    .btn-sm { padding: 10px 14px; font-size: 12px; white-space: nowrap; }
     .choice { display: flex; gap: 10px; margin-bottom: 12px; }
     .opt { flex: 1; border: 1px solid rgba(255,255,255,0.14); border-radius: 10px; padding: 12px; cursor: pointer; transition: border-color .15s, background .15s; }
     .opt.sel { border-color: var(--orange); background: rgba(255,153,26,0.08); }
@@ -49,6 +53,19 @@
       <h2>Where do your winnings go?</h2>
       <div class="hint">Your Bitcoin <b>receive</b> address — where a winning block pays out. <b>Set your own.</b> If you leave it blank, any block you win is mined straight to the developer's address, and a confirmed reward can't be moved afterward — it's permanent, not temporary. You can change this anytime, but it only applies to blocks won after the change.</div>
       <input id="payout" type="text" placeholder="bc1q… (your wallet address)" autocomplete="off" spellcheck="false" />
+      <div class="addrtools">
+        <div class="grow">
+          <label>Address type</label>
+          <select id="addr_type">
+            <option value="bech32">Native SegWit (bech32)</option>
+            <option value="bech32m">Taproot (bech32m)</option>
+            <option value="p2sh-segwit">P2SH-SegWit</option>
+            <option value="legacy">Legacy</option>
+          </select>
+        </div>
+        <button class="ghost btn-sm" id="from-node" type="button">Use my node's wallet ▸</button>
+      </div>
+      <div class="hint" id="addr_hint" style="margin-top:6px">Already run a node with a wallet? Pull a fresh receive address straight from it instead of pasting one. (Uses the connection below.)</div>
     </div>
 
     <div class="section">
@@ -66,6 +83,12 @@
           <div><label>RPC password <span style="opacity:.6">(optional)</span></label><input id="rpc_pass" type="password" autocomplete="off" /></div>
         </div>
         <div class="hint" style="margin-top:10px">The <code>rpcuser</code> / <code>rpcpassword</code> from your <code>bitcoin.conf</code> — copy them <b>exactly</b>. They stay on this machine.<br/><b>Leave both blank</b> if your node doesn't set them — we'll use its automatic cookie login. We test the connection before saving.</div>
+        <label>Data directory <span style="opacity:.6">(optional — only for cookie login)</span></label>
+        <input id="rpc_datadir" type="text" placeholder="default — e.g. /mnt/btc/.bitcoin (or the .cookie file)" spellcheck="false" />
+        <div class="hint" style="margin-top:6px">Only if your node runs with a custom <code>-datadir</code>. Point here (or at the <code>.cookie</code> file directly) so automatic cookie login can find it.</div>
+        <label>Coinbase tag <span style="opacity:.6">(optional)</span></label>
+        <input id="coinbase_tag" type="text" maxlength="90" placeholder="/BitcoinLottery/0.1/notzero.spiralocean.com/ (default)" spellcheck="false" />
+        <div class="hint" style="margin-top:6px">A short message stamped into the coinbase of any block you mine. Vanity only — it's permanent and public on-chain. Max ~90 bytes; the block height is added automatically.</div>
       </div>
     </div>
 
@@ -93,6 +116,8 @@
         $("payout").value = c.payout_address || "";
         $("rpc_url").value = c.rpc_url || "http://127.0.0.1:8332";
         $("rpc_user").value = c.rpc_user || "";
+        $("rpc_datadir").value = c.rpc_datadir || "";
+        $("coinbase_tag").value = c.coinbase_tag || "";
         $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
         $("start").textContent = "Save changes";
         $("cancel").style.display = "block";
@@ -119,7 +144,26 @@
       rpc_url: $("rpc_url").value.trim(),
       rpc_user: $("rpc_user").value.trim(),
       rpc_pass: $("rpc_pass").value,
+      rpc_datadir: $("rpc_datadir").value.trim(),
+      coinbase_tag: $("coinbase_tag").value.trim(),
     });
+
+    // pull a fresh receive address from the node's own wallet
+    $("from-node").onclick = async () => {
+      const setHint = (msg, ok) => { $("addr_hint").style.color = ok == null ? "rgba(255,255,255,0.45)" : ok ? "rgb(90,220,140)" : "rgb(255,140,90)"; $("addr_hint").textContent = msg; };
+      setHint("Asking your node for a fresh address…");
+      $("from-node").disabled = true;
+      try {
+        const res = await fetch("/node-address", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({
+          rpc_url: $("rpc_url").value.trim(), rpc_user: $("rpc_user").value.trim(), rpc_pass: $("rpc_pass").value,
+          rpc_datadir: $("rpc_datadir").value.trim(), address_type: $("addr_type").value,
+        }) });
+        const b = await res.json();
+        if (b.ok) { $("payout").value = b.address; setHint(`Filled a fresh ${$("addr_type").options[$("addr_type").selectedIndex].text} address from your node wallet.`, true); }
+        else setHint(b.error || "Couldn't get an address.", false);
+      } catch (_) { setHint("Couldn't reach the app.", false); }
+      $("from-node").disabled = false;
+    };
   </script>
 </body>
 </html>
