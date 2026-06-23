@@ -15,6 +15,14 @@ const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
+const NodeProvision = require("./node-provision");
+
+const REQUIRED_FREE_BYTES = 25 * 1024 ** 3; // ~25 GB headroom for snapshot + pruned chain + load-time peak
+// Free bytes on the volume holding `dir` (null if it can't be determined → don't block).
+function freeBytes(dir) {
+  try { const s = fs.statfsSync(dir); return s.bavail * s.bsize; } catch (_) { return null; }
+}
+const gb = (b) => Math.round(b / 1024 ** 3);
 
 const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
 const ICON = path.join(__dirname, "assets", "icon.png");
@@ -272,6 +280,8 @@ function handleNodeSetup(req, res) {
   req.on("end", () => {
     const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
     let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    const free = freeBytes(DATA_DIR); // disk preflight — don't start a download we can't finish
+    if (free != null && free < REQUIRED_FREE_BYTES) return json(200, { ok: false, error: `Not enough free disk space — a node needs about ${gb(REQUIRED_FREE_BYTES)} GB and you have ${gb(free)} GB free. Free up some space and try again.` });
     let existing = {}; try { existing = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     const cfg = {
       ...existing, version: 1, mode: "live", node_mode: "managed",
@@ -285,6 +295,20 @@ function handleNodeSetup(req, res) {
   });
 }
 
+// Remove the managed node entirely (stop it, delete Core + datadir + snapshot, reset to first-run).
+async function removeManagedNode() {
+  let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+  if (cfg.node_mode !== "managed" && !managed) return; // never wipe a user's external config
+  try { if (managed) await managed.stop(); } catch (_) {}
+  managed = null; managedState = { state: "idle", progress: null, detail: null };
+  stopEngines(); enginesStarted = false; stopping = false; // allow a fresh start after reconfigure
+  try { fs.rmSync(NodeProvision.managedPaths(DATA_DIR).node, { recursive: true, force: true }); } catch (_) {}
+  try { fs.rmSync(configPath(), { force: true }); } catch (_) {} // back to the first-run wizard
+}
+function handleNodeRemove(req, res) {
+  removeManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); });
+}
+
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
 function startServer() {
   return new Promise((resolve, reject) => {
@@ -293,12 +317,14 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/setup") { handleSetup(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-address") { handleNodeAddress(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-setup") { handleNodeSetup(req, res); return; }
+      if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
+      if (urlPath === "/disk") { const free = freeBytes(DATA_DIR); res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ freeGB: free == null ? null : gb(free), requiredGB: gb(REQUIRED_FREE_BYTES), ok: free == null || free >= REQUIRED_FREE_BYTES })); return; }
       if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }
       if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(managedState)); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle

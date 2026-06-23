@@ -86,10 +86,16 @@
           We'll set up your <b>own private Bitcoin node</b> — nothing to configure.<br/><br/>
           ✓ Downloads the <b>official Bitcoin Core</b> and <b>verifies its signature</b> before it ever runs.<br/>
           ✓ Runs <b>privately on your machine</b> (localhost only) — <b>no wallet, no keys</b> are held here.<br/>
-          ✓ Uses about <b>15 GB</b> of disk (a pruned node), and you can remove it anytime.<br/>
+          ✓ Uses about <b>20 GB</b> of disk (a pruned node), and you can remove it anytime.<br/>
           ✓ <b>One lottery ticket per block</b> — it barely touches your CPU.<br/><br/>
           The first sync downloads and checks part of the blockchain, which can take a while. You can keep using your computer the whole time.
         </div>
+        <div class="hint" id="disk-free" style="margin-top:10px"></div>
+      </div>
+      <div class="rpc" id="managed-status">
+        <div class="reassure">✓ You're running your <b>own private node</b>, set up by this app. No keys are held here.</div>
+        <button class="ghost btn-sm" id="node-remove" type="button" style="margin-top:12px;color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove node &amp; all data</button>
+        <div class="hint" style="margin-top:6px">Stops the node and deletes Bitcoin Core + its ~20 GB of data. You'd re-sync if you set it up again.</div>
       </div>
       <div class="rpc show" id="rpc">
         <label>RPC URL</label>
@@ -131,10 +137,39 @@
     const $ = (id) => document.getElementById(id);
     let settingsMode = false, nodeChoice = "existing";
     function selectExisting() { nodeChoice = "existing"; $("opt-existing").classList.add("sel"); $("opt-new").classList.remove("sel"); $("rpc").classList.add("show"); $("managed").classList.remove("show"); $("start").textContent = settingsMode ? "Save changes" : "Start mining"; }
-    function selectManaged() { nodeChoice = "managed"; $("opt-new").classList.add("sel"); $("opt-existing").classList.remove("sel"); $("rpc").classList.remove("show"); $("managed").classList.add("show"); $("start").textContent = "Set up my node & start"; }
+    function selectManaged() {
+      nodeChoice = "managed"; $("opt-new").classList.add("sel"); $("opt-existing").classList.remove("sel");
+      $("rpc").classList.remove("show"); $("managed").classList.add("show"); $("start").textContent = "Set up my node & start";
+      fetch("/disk").then((r) => r.json()).then((d) => {
+        if (d.freeGB == null) return;
+        const el = $("disk-free");
+        if (d.ok) { el.style.color = "rgba(255,255,255,0.5)"; el.textContent = `You have ${d.freeGB} GB free — plenty of room.`; }
+        else { el.style.color = "rgb(255,140,90)"; el.textContent = `⚠ Only ${d.freeGB} GB free — a node needs about ${d.requiredGB} GB. Free up some space first.`; }
+      }).catch(() => {});
+    }
+    // settings view for an already-running managed node: status + remove, no RPC setup
+    function showManagedSettings() {
+      nodeChoice = "managed-settings";
+      $("detect").style.display = "none";
+      document.querySelector(".choice").style.display = "none";
+      $("rpc").classList.remove("show"); $("managed").classList.remove("show");
+      $("managed-status").classList.add("show");
+      $("start").textContent = "Save changes";
+    }
     $("opt-existing").onclick = selectExisting;
     $("opt-new").onclick = selectManaged;
     $("cancel").onclick = () => { window.location = "/"; };
+    $("node-remove").onclick = async () => {
+      if (!confirm("Remove your managed Bitcoin node and all its data? You'd re-sync from scratch if you set it up again.")) return;
+      $("node-remove").disabled = true; $("node-remove").textContent = "Removing…";
+      try { await fetch("/node-remove", { method: "POST" }); window.location = "/setup"; }
+      catch (_) { $("node-remove").disabled = false; $("node-remove").textContent = "Remove node & all data"; }
+    };
+    async function saveManagedSettings() {
+      $("err").textContent = ""; $("start").disabled = true; $("start").textContent = "Saving…";
+      try { await fetch("/node-setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payout_address: $("payout").value.trim(), coinbase_tag: $("coinbase_tag").value.trim() }) }); window.location = "/"; }
+      catch (_) { $("err").textContent = "Couldn't save."; $("start").disabled = false; $("start").textContent = "Save changes"; }
+    }
 
     // settings mode (config exists → edit + pre-fill); otherwise first run → auto-detect a running node
     (async () => {
@@ -153,6 +188,7 @@
           $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
           $("start").textContent = "Save changes";
           $("cancel").style.display = "block";
+          if (c.node_mode === "managed") showManagedSettings();
         }
       } catch (_) {}
       if (!settingsMode) {
@@ -215,6 +251,7 @@
 
     $("start").onclick = () => {
       if (nodeChoice === "managed") return startManaged();
+      if (nodeChoice === "managed-settings") return saveManagedSettings();
       submit({
         payout_address: $("payout").value.trim(),
         rpc_url: $("rpc_url").value.trim(),
