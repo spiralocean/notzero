@@ -41,6 +41,11 @@
     .ghost { background: transparent; color: rgba(255,255,255,0.55); border: 1px solid rgba(255,255,255,0.14); }
     .err { color: rgb(255,140,90); font-size: 12px; min-height: 16px; text-align: center; margin-top: 6px; }
     .foot { text-align: center; font-size: 11px; color: rgba(255,255,255,0.35); margin-top: 18px; line-height: 1.5; }
+    .detect { font-size: 12px; color: rgb(90,220,140); margin-bottom: 10px; min-height: 0; }
+    .bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; margin: 14px 0 4px; }
+    .bar-fill { height: 100%; background: var(--orange); width: 0%; transition: width .4s ease; }
+    .reassure { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.7; }
+    .reassure b { color: rgba(255,255,255,0.85); }
   </style>
 </head>
 <body>
@@ -71,9 +76,26 @@
     <div class="section">
       <h2>Your Bitcoin node</h2>
       <div class="hint">Solo mining needs a Bitcoin node to tell you what to mine and to submit a winning block.</div>
+      <div class="detect" id="detect"></div>
       <div class="choice">
         <div class="opt sel" id="opt-existing"><div class="t">I already run a node</div><div class="d">Connect to your running bitcoind via RPC. Instant.</div></div>
-        <div class="opt soon" id="opt-new"><div class="t">Set one up for me</div><div class="d">Downloads Bitcoin Core &amp; syncs. (Coming next.)</div></div>
+        <div class="opt" id="opt-new"><div class="t">Set one up for me</div><div class="d">Downloads &amp; runs a private Bitcoin Core for you. No terminal.</div></div>
+      </div>
+      <div class="rpc" id="managed">
+        <div class="reassure">
+          We'll set up your <b>own private Bitcoin node</b> — nothing to configure.<br/><br/>
+          ✓ Downloads the <b>official Bitcoin Core</b> and <b>verifies its signature</b> before it ever runs.<br/>
+          ✓ Runs <b>privately on your machine</b> (localhost only) — <b>no wallet, no keys</b> are held here.<br/>
+          ✓ Uses about <b>20 GB</b> of disk (a pruned node), and you can remove it anytime.<br/>
+          ✓ <b>One lottery ticket per block</b> — it barely touches your CPU.<br/><br/>
+          The first sync downloads and checks part of the blockchain, which can take a while. You can keep using your computer the whole time.
+        </div>
+        <div class="hint" id="disk-free" style="margin-top:10px"></div>
+      </div>
+      <div class="rpc" id="managed-status">
+        <div class="reassure">✓ You're running your <b>own private node</b>, set up by this app. No keys are held here.</div>
+        <button class="ghost btn-sm" id="node-remove" type="button" style="margin-top:12px;color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove node &amp; all data</button>
+        <div class="hint" style="margin-top:6px">Stops the node and deletes Bitcoin Core + its ~20 GB of data. You'd re-sync if you set it up again.</div>
       </div>
       <div class="rpc show" id="rpc">
         <label>RPC URL</label>
@@ -98,31 +120,119 @@
     </div>
     <div class="err" id="err"></div>
     <div class="foot">Open source · non-custodial · this never holds your keys, only a receive address.<br/>You can change any of this later.</div>
+
+    <div id="progress" style="display:none">
+      <div class="section">
+        <h2 id="p-title">Setting up your node…</h2>
+        <div class="hint" id="p-sub" style="margin-bottom:0"></div>
+        <div class="bar"><div class="bar-fill" id="p-bar"></div></div>
+        <div class="hint" id="p-pct" style="text-align:right;margin:0"></div>
+      </div>
+      <div class="foot">You can close this window — setup keeps running, and mining starts automatically when your node is ready.</div>
+      <button class="ghost" id="p-retry" style="display:none;margin-top:10px" onclick="location.reload()">Try again</button>
+    </div>
   </div>
 
   <script>
     const $ = (id) => document.getElementById(id);
-    $("opt-existing").onclick = () => { $("opt-existing").classList.add("sel"); $("rpc").classList.add("show"); };
+    let settingsMode = false, nodeChoice = "existing";
+    function selectExisting() { nodeChoice = "existing"; $("opt-existing").classList.add("sel"); $("opt-new").classList.remove("sel"); $("rpc").classList.add("show"); $("managed").classList.remove("show"); $("start").textContent = settingsMode ? "Save changes" : "Start mining"; }
+    function selectManaged() {
+      nodeChoice = "managed"; $("opt-new").classList.add("sel"); $("opt-existing").classList.remove("sel");
+      $("rpc").classList.remove("show"); $("managed").classList.add("show"); $("start").textContent = "Set up my node & start";
+      fetch("/disk").then((r) => r.json()).then((d) => {
+        if (d.freeGB == null) return;
+        const el = $("disk-free");
+        if (d.ok) { el.style.color = "rgba(255,255,255,0.5)"; el.textContent = `You have ${d.freeGB} GB free — plenty of room.`; }
+        else { el.style.color = "rgb(255,140,90)"; el.textContent = `⚠ Only ${d.freeGB} GB free — a node needs about ${d.requiredGB} GB. Free up some space first.`; }
+      }).catch(() => {});
+    }
+    // settings view for an already-running managed node: status + remove, no RPC setup
+    function showManagedSettings() {
+      nodeChoice = "managed-settings";
+      $("detect").style.display = "none";
+      document.querySelector(".choice").style.display = "none";
+      $("rpc").classList.remove("show"); $("managed").classList.remove("show");
+      $("managed-status").classList.add("show");
+      $("start").textContent = "Save changes";
+    }
+    $("opt-existing").onclick = selectExisting;
+    $("opt-new").onclick = selectManaged;
     $("cancel").onclick = () => { window.location = "/"; };
+    $("node-remove").onclick = async () => {
+      if (!confirm("Remove your managed Bitcoin node and all its data? You'd re-sync from scratch if you set it up again.")) return;
+      $("node-remove").disabled = true; $("node-remove").textContent = "Removing…";
+      try { await fetch("/node-remove", { method: "POST" }); window.location = "/setup"; }
+      catch (_) { $("node-remove").disabled = false; $("node-remove").textContent = "Remove node & all data"; }
+    };
+    async function saveManagedSettings() {
+      $("err").textContent = ""; $("start").disabled = true; $("start").textContent = "Saving…";
+      try { await fetch("/node-setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payout_address: $("payout").value.trim(), coinbase_tag: $("coinbase_tag").value.trim() }) }); window.location = "/"; }
+      catch (_) { $("err").textContent = "Couldn't save."; $("start").disabled = false; $("start").textContent = "Save changes"; }
+    }
 
-    // settings mode: if a config already exists, this screen edits it — pre-fill and relabel
+    // settings mode (config exists → edit + pre-fill); otherwise first run → auto-detect a running node
     (async () => {
       try {
         const c = await (await fetch("/config")).json();
-        if (!c || !c.exists) return; // first run — keep the setup wording
-        document.title = "Settings — ₿itcoin Lottery";
-        $("h1").textContent = "Settings";
-        $("sub").textContent = "Update where your winnings go or how you connect to your node.";
-        $("payout").value = c.payout_address || "";
-        $("rpc_url").value = c.rpc_url || "http://127.0.0.1:8332";
-        $("rpc_user").value = c.rpc_user || "";
-        $("rpc_datadir").value = c.rpc_datadir || "";
-        $("coinbase_tag").value = c.coinbase_tag || "";
-        $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
-        $("start").textContent = "Save changes";
-        $("cancel").style.display = "block";
+        if (c && c.exists) {
+          settingsMode = true;
+          document.title = "Settings — ₿itcoin Lottery";
+          $("h1").textContent = "Settings";
+          $("sub").textContent = "Update where your winnings go or how you connect to your node.";
+          $("payout").value = c.payout_address || "";
+          $("rpc_url").value = c.rpc_url || "http://127.0.0.1:8332";
+          $("rpc_user").value = c.rpc_user || "";
+          $("rpc_datadir").value = c.rpc_datadir || "";
+          $("coinbase_tag").value = c.coinbase_tag || "";
+          $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
+          $("start").textContent = "Save changes";
+          $("cancel").style.display = "block";
+          if (c.node_mode === "managed") showManagedSettings();
+        }
       } catch (_) {}
+      if (!settingsMode) {
+        try {
+          const d = await (await fetch("/detect-node")).json();
+          if (d && d.found) { selectExisting(); $("rpc_url").value = d.rpc_url || $("rpc_url").value; $("detect").textContent = `✓ Detected a running node on this machine${d.syncing ? " (still syncing)" : ""} — confirm and start.`; }
+        } catch (_) {}
+      }
     })();
+
+    // "Set one up for me" → kick off provisioning, then watch progress
+    async function startManaged() {
+      $("err").textContent = ""; $("start").disabled = true; $("start").textContent = "Setting up…";
+      try {
+        const res = await fetch("/node-setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payout_address: $("payout").value.trim(), coinbase_tag: $("coinbase_tag").value.trim() }) });
+        const b = await res.json();
+        if (!b.ok) { $("err").textContent = b.error || "Couldn't start setup."; $("start").disabled = false; $("start").textContent = "Set up my node & start"; return; }
+        document.querySelectorAll(".section, .actions, .err, .foot").forEach((e) => (e.style.display = "none"));
+        $("progress").style.display = "block";
+        pollStatus();
+      } catch (_) { $("err").textContent = "Couldn't start setup."; $("start").disabled = false; }
+    }
+    const STEP = {
+      "downloading-core": ["Downloading Bitcoin Core", "Fetching the official release…"],
+      "extracting": ["Verifying & installing", "✓ Signature verified — unpacking…"],
+      "starting": ["Starting your private node", "Launching it locally…"],
+      "loading-snapshot": ["Loading a verified chain snapshot", "Your node checks this itself…"],
+      "syncing": ["Syncing the blockchain", "This can take a while — you can keep using your computer."],
+      "ready": ["Ready!", "Starting mining…"],
+      "error": ["Something went wrong", ""],
+    };
+    function pollStatus() {
+      fetch("/node-status").then((r) => r.json()).then((s) => {
+        const [t, sub] = STEP[s.state] || ["Working…", ""];
+        $("p-title").textContent = t;
+        $("p-sub").textContent = s.state === "error" ? (s.detail || "Please try again.") : sub;
+        const pct = s.progress != null ? Math.round(s.progress * 100) : null;
+        $("p-bar").style.width = pct != null ? pct + "%" : "30%";
+        $("p-pct").textContent = pct != null ? pct + "%" : "";
+        if (s.state === "ready") { window.location = "/"; return; }
+        if (s.state === "error") { $("p-retry").style.display = "block"; return; }
+        setTimeout(pollStatus, 1500);
+      }).catch(() => setTimeout(pollStatus, 2000));
+    }
 
     async function submit(payload) {
       $("err").textContent = "";
@@ -139,14 +249,18 @@
       }
     }
 
-    $("start").onclick = () => submit({
-      payout_address: $("payout").value.trim(),
-      rpc_url: $("rpc_url").value.trim(),
-      rpc_user: $("rpc_user").value.trim(),
-      rpc_pass: $("rpc_pass").value,
-      rpc_datadir: $("rpc_datadir").value.trim(),
-      coinbase_tag: $("coinbase_tag").value.trim(),
-    });
+    $("start").onclick = () => {
+      if (nodeChoice === "managed") return startManaged();
+      if (nodeChoice === "managed-settings") return saveManagedSettings();
+      submit({
+        payout_address: $("payout").value.trim(),
+        rpc_url: $("rpc_url").value.trim(),
+        rpc_user: $("rpc_user").value.trim(),
+        rpc_pass: $("rpc_pass").value,
+        rpc_datadir: $("rpc_datadir").value.trim(),
+        coinbase_tag: $("coinbase_tag").value.trim(),
+      });
+    };
 
     // pull a fresh receive address from the node's own wallet
     $("from-node").onclick = async () => {

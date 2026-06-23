@@ -1,0 +1,148 @@
+// ---------------------------------------------------------------------------
+// Managed node lifecycle (Phase 2) — bring a provisioned Bitcoin Core up to a
+// mineable state and keep it healthy. Builds on node-provision.js (Phase 1).
+//
+// State machine (emitted via onState):
+//   downloading-core → extracting → starting → loading-snapshot → syncing → ready
+//   (any step can go to `error`; stop() → `stopped`)
+//
+// assumeutxo: once the node is up we loadtxoutset the self-hosted snapshot —
+// Core verifies it against the height/blockhash baked into the release, so the
+// node reaches the snapshot height instantly, then syncs that → tip. "ready"
+// (= mineable, getblocktemplate works) means out of initial block download.
+// Until ASSUMEUTXO.snapshotUrl is set, we gracefully fall back to normal IBD.
+// ---------------------------------------------------------------------------
+"use strict";
+const fs = require("fs");
+const path = require("path");
+const http = require("http");
+const { spawn } = require("child_process");
+const P = require("./node-provision");
+
+const STATES = {
+  IDLE: "idle", DOWNLOADING: "downloading-core", EXTRACTING: "extracting",
+  STARTING: "starting", LOADING_SNAPSHOT: "loading-snapshot", SYNCING: "syncing",
+  READY: "ready", ERROR: "error", STOPPED: "stopped",
+};
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+// JSON-RPC to the managed node using its auto-generated cookie (localhost only).
+function rpcOverCookie(rpcUrl, cookiePath, method, params = [], timeoutMs = 30000) {
+  return new Promise((resolve, reject) => {
+    let auth;
+    try { auth = "Basic " + Buffer.from(fs.readFileSync(cookiePath, "utf8").trim()).toString("base64"); }
+    catch { return reject(new Error("cookie not ready")); }
+    const u = new URL(rpcUrl);
+    const payload = JSON.stringify({ jsonrpc: "1.0", id: "mn", method, params });
+    const req = http.request({
+      hostname: u.hostname, port: u.port, path: "/", method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": auth, "Content-Length": Buffer.byteLength(payload) }, timeout: timeoutMs,
+    }, (res) => {
+      let d = ""; res.on("data", (c) => (d += c));
+      res.on("end", () => { try { const j = JSON.parse(d); if (j.error) return reject(new Error(j.error.message || String(j.error))); resolve(j.result); } catch (_) { reject(new Error(`bad RPC response (HTTP ${res.statusCode})`)); } });
+    });
+    req.on("timeout", () => { req.destroy(); reject(new Error("RPC timeout")); });
+    req.on("error", reject);
+    req.write(payload); req.end();
+  });
+}
+
+// Map a getblockchaininfo result to our state + a 0..1 progress for the UI.
+function syncStateFrom(info) {
+  const ibd = info.initialblockdownload !== false;
+  return {
+    state: ibd ? STATES.SYNCING : STATES.READY,
+    progress: Math.max(0, Math.min(1, info.verificationprogress || 0)),
+    blocks: info.blocks, headers: info.headers, mineable: !ibd,
+  };
+}
+
+function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = () => {} } = {}) {
+  const paths = P.managedPaths(dataRoot);
+  const rpcUrl = `http://127.0.0.1:${rpcport}`;
+  let child = null, stopping = false, lastState = STATES.IDLE;
+  const emit = (state, progress = null, detail = null) => { lastState = state; onState({ state, progress, detail }); };
+  const rpc = (method, params = [], timeoutMs) => rpcOverCookie(rpcUrl, paths.cookie, method, params, timeoutMs);
+
+  // Download + verify + extract Core if it isn't already present.
+  async function ensureCore() {
+    if (fs.existsSync(paths.bitcoind)) return;
+    fs.mkdirSync(paths.coreDir, { recursive: true });
+    emit(STATES.DOWNLOADING, 0);
+    const { file, kind } = await P.downloadAndVerifyCore(paths.coreDir, (p) => emit(STATES.DOWNLOADING, p));
+    emit(STATES.EXTRACTING);
+    P.extractCore(file, paths.coreDir, kind);
+    fs.rm(file, { force: true }, () => {});
+    if (!fs.existsSync(paths.bitcoind)) throw new Error("bitcoind missing after extract");
+  }
+
+  function writeConf() {
+    fs.mkdirSync(paths.datadir, { recursive: true });
+    if (!fs.existsSync(paths.conf)) fs.writeFileSync(paths.conf, P.buildBitcoinConf({ rpcport }), { mode: 0o600 });
+  }
+
+  function launch() {
+    child = spawn(paths.bitcoind, [`-datadir=${paths.datadir}`], { stdio: "ignore" });
+    child.on("exit", (code) => { const was = child; child = null; if (!stopping && was) emit(STATES.ERROR, null, `bitcoind exited (code ${code})`); });
+  }
+
+  async function waitForRpc(timeoutMs = 90000) {
+    const t0 = Date.now();
+    while (Date.now() - t0 < timeoutMs) {
+      if (!child && !stopping) throw new Error("bitcoind exited before it became reachable");
+      try { await rpc("getblockchaininfo", [], 4000); return; } catch (_) {}
+      await sleep(1500);
+    }
+    throw new Error("the node did not become reachable in time");
+  }
+
+  // Load the assumeutxo snapshot if the node is still in IBD and we host one.
+  async function maybeLoadSnapshot() {
+    let info; try { info = await rpc("getblockchaininfo"); } catch { return; }
+    if (info.initialblockdownload === false) return;     // already usable
+    if (info.blocks >= P.ASSUMEUTXO.height) return;      // already past the snapshot height
+    if (!P.ASSUMEUTXO.snapshotUrl) return;               // Phase 2 stub: no hosted snapshot yet → normal IBD
+    const snap = path.join(paths.node, `utxo-${P.ASSUMEUTXO.height}.dat`);
+    if (!fs.existsSync(snap)) { emit(STATES.LOADING_SNAPSHOT, 0); await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p)); }
+    emit(STATES.LOADING_SNAPSHOT, 1);
+    await rpc("loadtxoutset", [snap], 0);                // Core verifies vs its baked-in hash; long-running
+  }
+
+  // Bring the node up to "started + snapshot attempted". Caller then polls sync().
+  async function start() {
+    stopping = false;
+    await ensureCore();
+    writeConf();
+    emit(STATES.STARTING);
+    launch();
+    await waitForRpc();
+    await maybeLoadSnapshot();
+    return sync();
+  }
+
+  // One sync sample → {state, progress, blocks, headers, mineable}.
+  async function sync() {
+    const info = await rpc("getblockchaininfo");
+    const s = syncStateFrom(info);
+    emit(s.state, s.progress, `${s.blocks}/${s.headers}`);
+    return s;
+  }
+
+  // The managed RPC config the miner/bridge use once the node is mineable.
+  function rpcConfig() {
+    return { rpc_url: rpcUrl, rpc_user: "", rpc_pass: "", rpc_cookie: paths.cookie };
+  }
+
+  async function stop() {
+    stopping = true;
+    try { await rpc("stop", [], 4000); } catch (_) {}
+    for (let i = 0; i < 20 && child; i++) await sleep(500); // give bitcoind time to flush + exit cleanly
+    if (child) { try { child.kill(); } catch (_) {} child = null; }
+    emit(STATES.STOPPED);
+  }
+
+  return { paths, rpcUrl, start, sync, stop, rpc, rpcConfig, ensureCore, writeConf, get state() { return lastState; }, get pid() { return child && child.pid; } };
+}
+
+module.exports = { STATES, createManagedNode, syncStateFrom, rpcOverCookie };

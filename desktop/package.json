@@ -13,12 +13,15 @@
   "build": {
     "appId": "com.spiralocean.bitcoinlottery",
     "productName": "Bitcoin Lottery",
+    "afterSign": "notarize.js",
     "directories": {
       "buildResources": "assets",
       "output": "dist"
     },
     "files": [
       "main.js",
+      "node-provision.js",
+      "node-lifecycle.js",
       "package.json",
       "assets/icon.png",
       "wizard.html"
@@ -44,7 +47,8 @@
     "mac": {
       "target": "dir",
       "category": "public.app-category.finance",
-      "icon": "assets/icon.png"
+      "icon": "assets/icon.png",
+      "notarize": false
     },
     "win": {
       "target": "nsis",
