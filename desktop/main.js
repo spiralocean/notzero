@@ -14,6 +14,7 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 
 const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
 const ICON = path.join(__dirname, "assets", "icon.png");
@@ -24,6 +25,7 @@ const MIME = {
 };
 
 let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null, mainWindow = null;
+let managed = null, managedState = { state: "idle", progress: null, detail: null }; // managed-node provisioning state
 const configPath = () => path.join(DATA_DIR, "config.json");
 async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
 
@@ -226,6 +228,63 @@ function handleNodeAddress(req, res) {
   });
 }
 
+// ---- detect an existing node (so node-runners are auto-recognized instead of typing RPC details) ----
+// Best-effort: probe a default-cookie node on localhost. A node with explicit rpcuser/rpcpassword and no
+// cookie can't be auto-authed, so it falls back to manual entry — we never guess credentials.
+async function detectExistingNode() {
+  const cookie = resolveCookiePath("");
+  if (!cookie) return { found: false };
+  const authHeader = rpcAuthHeader({ cookiePath: cookie });
+  if (!authHeader) return { found: false };
+  const r = await testRpc("http://127.0.0.1:8332", authHeader);
+  return r.ok ? { found: true, rpc_url: "http://127.0.0.1:8332", chain: r.info && r.info.chain, syncing: !!(r.info && r.info.initialblockdownload) } : { found: false };
+}
+
+// ---- managed node: provision + run a private Bitcoin Core, then point the miner at it ----
+async function startManagedNode() {
+  if (managed) return;
+  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; } });
+  try {
+    await managed.start(); // download → verify → launch → snapshot → first sync sample
+    const tick = async () => {
+      if (!managed) return;
+      let s = null;
+      try { s = await managed.sync(); } catch (_) { /* node still warming up */ }
+      if (s && s.mineable) return onManagedReady();
+      setTimeout(tick, 5000);
+    };
+    tick();
+  } catch (e) { managedState = { state: "error", detail: e.message }; }
+}
+// Node is synced enough to mine → write its RPC config into config.json and start the engines.
+function onManagedReady() {
+  try {
+    const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
+    Object.assign(cfg, managed.rpcConfig(), { mode: "live" });
+    fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
+  } catch (_) {}
+  if (enginesStarted) restartEngines(); else startEngines();
+}
+// The wizard's "Set one up for me" choice: save intent + payout, then kick off provisioning (progress via /node-status).
+function handleNodeSetup(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 100000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let existing = {}; try { existing = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    const cfg = {
+      ...existing, version: 1, mode: "live", node_mode: "managed",
+      payout_address: (p.payout_address || "").trim(),
+      coinbase_tag: (p.coinbase_tag || existing.coinbase_tag || "").trim().slice(0, 90),
+    };
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); }
+    catch (_) { return json(200, { ok: false, error: "Couldn't save settings." }); }
+    startManagedNode();
+    json(200, { ok: true });
+  });
+}
+
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
 function startServer() {
   return new Promise((resolve, reject) => {
@@ -233,6 +292,9 @@ function startServer() {
       const urlPath = decodeURIComponent((req.url || "/").split("?")[0]);
       if (req.method === "POST" && urlPath === "/setup") { handleSetup(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-address") { handleNodeAddress(req, res); return; }
+      if (req.method === "POST" && urlPath === "/node-setup") { handleNodeSetup(req, res); return; }
+      if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }
+      if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(managedState)); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
@@ -274,12 +336,16 @@ app.whenReady().then(() => {
   try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
   NODE_JSON = path.join(DATA_DIR, "node.json");
   ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
-  if (fs.existsSync(configPath())) startEngines(); // configured already → mine; otherwise the wizard sets it up
+  if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    if (cfg.node_mode === "managed") startManagedNode(); // provision/resume our own node, then start engines when it's mineable
+    else startEngines();
+  }
   buildMenu();
   createWindow();
 });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
-app.on("before-quit", stopEngines); // ⌘Q / real quit → stop mining
+app.on("before-quit", () => { stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / real quit → stop mining (+ our node)
 // On macOS, closing the window keeps the miner running in the background (app stays in the dock; reopen
 // from the dock). Only ⌘Q stops it. On Windows/Linux, closing the last window quits the app.
 app.on("window-all-closed", () => { if (process.platform !== "darwin") { stopEngines(); app.quit(); } });

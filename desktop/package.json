@@ -19,6 +19,8 @@
     },
     "files": [
       "main.js",
+      "node-provision.js",
+      "node-lifecycle.js",
       "package.json",
       "assets/icon.png",
       "wizard.html"
