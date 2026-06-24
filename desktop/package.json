@@ -14,6 +14,7 @@
     "appId": "com.spiralocean.bitcoinlottery",
     "productName": "Bitcoin Lottery",
     "afterSign": "notarize.js",
+    "publish": { "provider": "generic", "url": "https://dl.getnotzero.com" },
     "directories": {
       "buildResources": "assets",
       "output": "dist"
@@ -45,7 +46,8 @@
       }
     ],
     "mac": {
-      "target": "dir",
+      "target": ["dmg", "zip"],
+      "artifactName": "notzero-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.finance",
       "icon": "assets/icon.png",
       "notarize": false

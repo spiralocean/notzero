@@ -320,11 +320,9 @@
 
 <script src="qrcode.min.js"></script>
 <script>
-  // ---- OS-aware download (placeholder URLs → swap when installers are hosted) ----
-  // TODO: point these at the real installers on https://dl.getnotzero.com once uploaded.
-  // Only macOS (Apple Silicon) is built today; Intel Mac / Windows / Linux are coming soon.
-  // TODO: point at the real installer on https://dl.getnotzero.com once uploaded.
-  const MAC_URL = "https://dl.getnotzero.com/BitcoinLottery-mac-arm64.dmg";
+  // ---- OS-aware download ----
+  // macOS (Apple Silicon) is live (signed + notarized .dmg on R2). Intel Mac / Windows / Linux: coming soon.
+  const MAC_URL = "https://dl.getnotzero.com/notzero-mac-arm64.dmg";
   const SOON = { win: "Windows", linux: "Linux" };
   function detectOS() {
     const ua = navigator.userAgent, p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
