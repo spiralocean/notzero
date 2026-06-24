@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu } = require("electron");
+const { app, BrowserWindow, Menu, shell } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -55,6 +55,10 @@ function buildMenu() {
       { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
+    { role: "help", submenu: [
+      { label: "Tip the Developer ⚡", click: () => shell.openExternal("https://notzero.spiralocean.com/#tip") },
+      { label: "notzero.spiralocean.com", click: () => shell.openExternal("https://notzero.spiralocean.com") },
+    ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }

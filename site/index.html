@@ -93,6 +93,23 @@
   .dl.soon .arr, .dl.soon small { color: var(--orange); }
   .dl.soon small { opacity: 0.95; }
   .soon-tag { color: var(--orange); }
+  /* tip jar */
+  .tip-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; margin-top: 38px; }
+  .tip-card { border: 1px solid var(--line); border-radius: 16px; padding: 26px 24px; background: var(--bg-2);
+    display: flex; flex-direction: column; align-items: center; text-align: center; gap: 15px; }
+  .tip-card.primary { border-color: rgba(255,153,26,0.35); box-shadow: 0 0 40px -28px rgba(255,153,26,0.8); }
+  .tip-card .tlabel { font-family: var(--mono); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
+  .tip-card.primary .tlabel { color: var(--orange); }
+  .tip-card .qr { background: #fff; padding: 11px; border-radius: 12px; line-height: 0; box-shadow: 0 8px 30px -12px rgba(0,0,0,0.7); }
+  .tip-card .qr svg, .tip-card .qr img { width: 148px; height: 148px; display: block; image-rendering: pixelated; }
+  .tip-card .addr { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-all; max-width: 26ch; line-height: 1.55; }
+  .tip-card .tsub { font-family: var(--mono); font-size: 11px; color: var(--faint); }
+  .copy { font-family: var(--mono); font-size: 12.5px; cursor: pointer; border: 1px solid var(--line); background: transparent; color: var(--ink);
+    padding: 9px 18px; border-radius: 9px; transition: border-color .2s, color .2s; }
+  .copy:hover { border-color: var(--orange); color: var(--orange); }
+  .copy.done { border-color: var(--green); color: var(--green); }
+  nav .tip-nav { color: var(--orange); }
+  @media (max-width: 720px) { .tip-grid { grid-template-columns: 1fr; } }
 
   /* odds band */
   .odds { border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); padding: 64px 0; margin-top: 30px; text-align: center; }
@@ -175,7 +192,10 @@
 
 <nav>
   <div class="brand"><span class="dot"></span>not<b>zero</b></div>
-  <a class="demo" href="https://notzero.spiralocean.com" target="_blank" rel="noopener">live demo&nbsp;↗</a>
+  <div style="display:flex;gap:22px;align-items:center">
+    <a class="demo tip-nav" href="#tip">tip&nbsp;⚡</a>
+    <a class="demo" href="https://notzero.spiralocean.com" target="_blank" rel="noopener">live demo&nbsp;↗</a>
+  </div>
 </nav>
 
 <header class="wrap">
@@ -264,10 +284,33 @@
   <a class="dl" id="dl2" href="#"><span class="arr">↓</span><span class="lbl" id="dl-label2">Download<small id="dl-sub2">free</small></span></a>
 </div>
 
+<section class="blk wrap reveal" id="tip">
+  <div class="sec-k">Support</div>
+  <h2>A labour of love. <em>Powered by sats.</em></h2>
+  <p class="lede" style="margin-top:18px">notzero is free and open, and it'll stay that way. If it made you smile — or you just like that someone keeps the longest of long shots alive — toss a few sats in the jar. Thank you. ⚡</p>
+  <div class="tip-grid">
+    <div class="tip-card primary">
+      <div class="tlabel">⚡ Lightning · instant</div>
+      <div class="qr" id="qr-ln"></div>
+      <div class="addr" id="addr-ln">spiralocean@coinos.io</div>
+      <button class="copy" data-copy="spiralocean@coinos.io">Copy address</button>
+      <div class="tsub">scan with any Lightning wallet</div>
+    </div>
+    <div class="tip-card">
+      <div class="tlabel">₿ On-chain · for larger tips</div>
+      <div class="qr" id="qr-btc"></div>
+      <div class="addr" id="addr-btc">bc1q9xh66pje85h6ah723py768j4syq7kapeflunqn</div>
+      <button class="copy" data-copy="bc1q9xh66pje85h6ah723py768j4syq7kapeflunqn">Copy address</button>
+      <div class="tsub">Bitcoin (on-chain)</div>
+    </div>
+  </div>
+</section>
+
 <footer class="wrap">
   <div class="foot">
     <div class="f-brand">not<b>zero</b> — a non-custodial Bitcoin lottery.</div>
     <div class="f-links">
+      <a href="#tip">Tip ⚡</a>
       <a href="https://notzero.spiralocean.com" target="_blank" rel="noopener">Live demo</a>
       <a href="https://github.com/" target="_blank" rel="noopener" id="src">View the source</a>
     </div>
@@ -275,6 +318,7 @@
   <div class="foot-fine">Open source · non-custodial · this never holds your keys, only a receiving address. © 2026 Spiral Ocean.</div>
 </footer>
 
+<script src="qrcode.min.js"></script>
 <script>
   // ---- OS-aware download (placeholder URLs → swap when installers are hosted) ----
   // TODO: point these at the real installers on https://dl.notzero.spiralocean.com once uploaded.
@@ -304,6 +348,31 @@
   document.getElementById("others").innerHTML = os === "mac"
     ? 'Intel Mac, Windows &amp; Linux — <span class="soon-tag">coming soon</span>'
     : `Available now: <a href="${MAC_URL}">Mac · Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
+
+  // ---- tip jar: QR codes + copy ----
+  // Lightning QR = the LNURL-pay for spiralocean@coinos.io (any Lightning wallet scans it).
+  // On-chain QR = a BIP21 bitcoin: URI. Both verified before shipping.
+  function makeQR(elId, text) {
+    if (typeof qrcode === "undefined") return;
+    const qr = qrcode(0, "M"); qr.addData(text); qr.make();
+    const el = document.getElementById(elId);
+    try { el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); }
+    catch (_) { el.innerHTML = qr.createImgTag(4, 0); }
+  }
+  makeQR("qr-ln", "LNURL1DP68GURN8GHJ7CM0D9HX7UEWD9HJ7TNHV4KXCTTTDEHHWM30D3H82UNVWQHHXURFWFSKCMMRV4SKUN0U0YZ");
+  makeQR("qr-btc", "bitcoin:bc1q9xh66pje85h6ah723py768j4syq7kapeflunqn");
+  async function copyText(s) {
+    try { await navigator.clipboard.writeText(s); return true; } catch (_) {}
+    try { // fallback for non-secure contexts / older browsers
+      const ta = document.createElement("textarea"); ta.value = s; ta.style.position = "fixed"; ta.style.opacity = "0";
+      document.body.appendChild(ta); ta.select(); const ok = document.execCommand("copy"); document.body.removeChild(ta); return ok;
+    } catch (_) { return false; }
+  }
+  document.querySelectorAll(".copy").forEach((btn) => btn.addEventListener("click", async () => {
+    if (!(await copyText(btn.dataset.copy))) return;
+    const orig = btn.textContent; btn.textContent = "Copied ✓"; btn.classList.add("done");
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove("done"); }, 1600);
+  }));
 
   // ---- scroll reveals ----
   const io = new IntersectionObserver((es) => es.forEach((e) => { if (e.isIntersecting) { e.target.classList.add("in"); io.unobserve(e.target); } }), { threshold: 0.12 });
