@@ -2,7 +2,7 @@
   "name": "bitcoin-lottery-desktop",
   "version": "0.1.0",
   "private": true,
-  "description": "Desktop app (Electron) for the Bitcoin Lottery \u2014 wraps the dashboard and (in later phases) downloads/manages bitcoind + runs the miner, so non-technical users never touch a terminal.",
+  "description": "Desktop app (Electron) for the Bitcoin Lottery — wraps the dashboard and (in later phases) downloads/manages bitcoind + runs the miner, so non-technical users never touch a terminal.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -14,7 +14,10 @@
     "appId": "com.spiralocean.bitcoinlottery",
     "productName": "Bitcoin Lottery",
     "afterSign": "notarize.js",
-    "publish": { "provider": "generic", "url": "https://dl.getnotzero.com" },
+    "publish": {
+      "provider": "generic",
+      "url": "https://dl.getnotzero.com"
+    },
     "directories": {
       "buildResources": "assets",
       "output": "dist"
@@ -46,7 +49,10 @@
       }
     ],
     "mac": {
-      "target": ["dmg", "zip"],
+      "target": [
+        "dmg",
+        "zip"
+      ],
       "artifactName": "notzero-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.finance",
       "icon": "assets/icon.png",
@@ -65,5 +71,8 @@
   "devDependencies": {
     "electron": "^42.4.1",
     "electron-builder": "^26.15.3"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.9"
   }
 }

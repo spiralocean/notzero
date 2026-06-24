@@ -16,6 +16,7 @@ const path = require("node:path");
 const os = require("node:os");
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 const NodeProvision = require("./node-provision");
+const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 
 const REQUIRED_FREE_BYTES = 25 * 1024 ** 3; // ~25 GB headroom for snapshot + pruned chain + load-time peak
 // Free bytes on the volume holding `dir` (null if it can't be determined → don't block).
@@ -61,6 +62,17 @@ function buildMenu() {
     ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---- auto-update: quietly check the dl.getnotzero.com feed on launch + every few hours.
+// Downloads in the background and installs on quit. Errors are swallowed (a failed update
+// check must never bother a non-technical user). No-op in dev (no app-update.yml). ----
+function initAutoUpdate() {
+  if (!app.isPackaged) return;
+  autoUpdater.on("error", () => {});
+  const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  check();
+  setInterval(check, 6 * 60 * 60 * 1000); // every 6 hours
 }
 
 // ---- engine: our own miner + bridge, in an isolated data dir ----
@@ -373,6 +385,7 @@ app.whenReady().then(() => {
   }
   buildMenu();
   createWindow();
+  initAutoUpdate();
 });
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
 app.on("before-quit", () => { stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / real quit → stop mining (+ our node)
