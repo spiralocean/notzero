@@ -39,11 +39,13 @@ const CORE_ARTIFACTS = {
 };
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
-// height/blockhash baked into the release, so the CDN host need not be trusted.
+// height/hash baked into the release, so the CDN host need not be trusted.
+// Core 31 has both 840000 and 880000 baked in; we use 840000 because a verified
+// snapshot is publicly available to re-host (blog.lopp.net) — no archival node needed.
 const ASSUMEUTXO = {
-  height: 880000,
-  blockhash: "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880",
-  // Phase 2: our CDN URL for the loadtxoutset snapshot file (utxo-<height>.dat).
+  height: 840000,
+  blockhash: "0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5", // block 840000 (the halving block)
+  // our CDN URL for the loadtxoutset snapshot file (utxo-<height>.dat); null → full IBD fallback.
   snapshotUrl: null,
 };
 

@@ -15,20 +15,25 @@
 #
 # USAGE:
 #   scripts/make-snapshot.sh [output-path]
-#   BTC_ARGS="-datadir=/mnt/btc" scripts/make-snapshot.sh ~/snap/utxo-880000.dat
+#   BTC_ARGS="-datadir=/mnt/btc" scripts/make-snapshot.sh ~/snap/utxo-840000.dat
 #
 # ENV:
-#   SNAPSHOT_HEIGHT   default 880000 (Core 29-31's latest baked-in assumeutxo height)
+#   SNAPSHOT_HEIGHT   default 840000 (a baked-in assumeutxo height in Core 29-31)
 #   BITCOIN_CLI       path to bitcoin-cli (default: bitcoin-cli on PATH)
 #   BTC_ARGS          extra args for bitcoin-cli (datadir / conf / rpc creds)
 #
 # Alternative if you can't run an archival node: download a community-produced
-# utxo-880000.dat and just re-host it. Core verifies it against its baked-in hash on
+# utxo-840000.dat and just re-host it. Core verifies it against its baked-in hash on
 # load, so the source does not need to be trusted — only correct. (See base hash below.)
 set -euo pipefail
 
-HEIGHT="${SNAPSHOT_HEIGHT:-880000}"
-EXPECTED_BLOCKHASH="000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880"
+HEIGHT="${SNAPSHOT_HEIGHT:-840000}"
+# block hash at each baked-in assumeutxo height (Core 31), to sanity-check the dump
+case "$HEIGHT" in
+  840000) EXPECTED_BLOCKHASH="0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5" ;;
+  880000) EXPECTED_BLOCKHASH="000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880" ;;
+  *)      EXPECTED_BLOCKHASH="" ;;  # unknown height → skip the block-hash check
+esac
 OUT="${1:-$PWD/utxo-${HEIGHT}.dat}"
 CLI="${BITCOIN_CLI:-bitcoin-cli}"
 read -r -a EXTRA <<< "${BTC_ARGS:-}"
@@ -66,9 +71,11 @@ BASEHASH="$(rjget base_hash)"; BASEHEIGHT="$(rjget base_height)"
 
 echo "→ verifying the dump…"
 [ "$BASEHEIGHT" = "$HEIGHT" ] || { echo "✗ base_height $BASEHEIGHT != $HEIGHT" >&2; exit 1; }
-[ "$BASEHASH" = "$EXPECTED_BLOCKHASH" ] || { echo "✗ base_hash mismatch:
+if [ -n "$EXPECTED_BLOCKHASH" ] && [ "$BASEHASH" != "$EXPECTED_BLOCKHASH" ]; then
+  echo "✗ base_hash mismatch:
   got      $BASEHASH
-  expected $EXPECTED_BLOCKHASH" >&2; exit 1; }
+  expected $EXPECTED_BLOCKHASH" >&2; exit 1
+fi
 
 SZ="$(du -h "$OUT" | cut -f1)"; SHA="$(shasum -a 256 "$OUT" 2>/dev/null | cut -d' ' -f1 || sha256sum "$OUT" | cut -d' ' -f1)"
 cat <<EOF
