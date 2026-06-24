@@ -100,7 +100,7 @@
   .tip-card.primary { border-color: rgba(255,153,26,0.35); box-shadow: 0 0 40px -28px rgba(255,153,26,0.8); }
   .tip-card .tlabel { font-family: var(--mono); font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--muted); }
   .tip-card.primary .tlabel { color: var(--orange); }
-  .tip-card .qr { background: #fff; padding: 11px; border-radius: 12px; line-height: 0; box-shadow: 0 8px 30px -12px rgba(0,0,0,0.7); }
+  .tip-card .qr { background: #fff; padding: 6px; border-radius: 12px; line-height: 0; box-shadow: 0 8px 30px -12px rgba(0,0,0,0.7); }
   .tip-card .qr svg, .tip-card .qr img { width: 148px; height: 148px; display: block; image-rendering: pixelated; }
   .tip-card .addr { font-family: var(--mono); font-size: 12px; color: var(--ink); word-break: break-all; max-width: 26ch; line-height: 1.55; }
   .tip-card .tsub { font-family: var(--mono); font-size: 11px; color: var(--faint); }
@@ -355,9 +355,10 @@
   function makeQR(elId, text) {
     if (typeof qrcode === "undefined") return;
     const qr = qrcode(0, "M"); qr.addData(text); qr.make();
-    const el = document.getElementById(elId);
-    try { el.innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true }); }
-    catch (_) { el.innerHTML = qr.createImgTag(4, 0); }
+    // Render as a RASTER <img> (not SVG) with a white quiet-zone baked into the
+    // image itself. Dark-mode extensions (Dark Reader) and forced-dark leave raster
+    // images alone, so the QR stays black-on-white and scannable everywhere.
+    document.getElementById(elId).innerHTML = qr.createImgTag(4, 16);
   }
   makeQR("qr-ln", "LNURL1DP68GURN8GHJ7CM0D9HX7UEWD9HJ7TNHV4KXCTTTDEHHWM30D3H82UNVWQHHXURFWFSKCMMRV4SKUN0U0YZ");
   makeQR("qr-btc", "bitcoin:bc1q9xh66pje85h6ah723py768j4syq7kapeflunqn");
