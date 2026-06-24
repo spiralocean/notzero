@@ -56,8 +56,8 @@ function buildMenu() {
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
     { role: "help", submenu: [
-      { label: "Tip the Developer ⚡", click: () => shell.openExternal("https://notzero.spiralocean.com/#tip") },
-      { label: "notzero.spiralocean.com", click: () => shell.openExternal("https://notzero.spiralocean.com") },
+      { label: "Tip the Developer ⚡", click: () => shell.openExternal("https://getnotzero.com/#tip") },
+      { label: "getnotzero.com", click: () => shell.openExternal("https://getnotzero.com") },
     ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));

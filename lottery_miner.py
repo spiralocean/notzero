@@ -428,7 +428,7 @@ def build_coinbase_transaction(
     # the operator's vanity tag (or the default). The BIP34 height push must come first; consensus caps the
     # whole scriptSig at 100 bytes, so trim the tag to whatever room is left after the height push.
     height_push = _encode_height(height)
-    tag_bytes = (coinbase_tag or "").strip().encode("utf-8") or b"/BitcoinLottery/0.1/notzero.spiralocean.com/"
+    tag_bytes = (coinbase_tag or "").strip().encode("utf-8") or b"/BitcoinLottery/0.1/getnotzero.com/"
     tag_bytes = tag_bytes[: max(0, 100 - len(height_push))]
     script_sig = height_push + tag_bytes
     tx = struct.pack("<I", 2)

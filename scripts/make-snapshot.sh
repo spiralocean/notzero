@@ -90,5 +90,5 @@ Next:
        rclone copy "$OUT" r2:notzero-snapshots/
        # or: aws s3 cp "$OUT" s3://notzero-snapshots/ --endpoint-url https://<acct>.r2.cloudflarestorage.com
   2) Set ASSUMEUTXO.snapshotUrl in desktop/node-provision.js to the public URL
-     (e.g. https://dl.notzero.spiralocean.com/utxo-$HEIGHT.dat).
+     (e.g. https://dl.getnotzero.com/utxo-$HEIGHT.dat).
 EOF

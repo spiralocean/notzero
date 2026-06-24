@@ -4,7 +4,7 @@
 
 A real Bitcoin **solo-mining lottery**. Your own node races the entire network for the block reward — every block, it builds the real block template, picks your one ticket, and submits a real block if it ever wins. The odds are astronomical (~1 in 10²³ per block), so realistically you never will. **That's the point:** a free, non-custodial lottery ticket, a way to actually *learn how Bitcoin works*, and a tiny, real, non-zero chance in a game that otherwise belongs to data centers.
 
-**▶ Live demo: [notzero.spiralocean.com](https://notzero.spiralocean.com)**
+**▶ Live demo: [demo.getnotzero.com](https://demo.getnotzero.com)**
 
 ![The dashboard](docs/dashboard.png)
 
