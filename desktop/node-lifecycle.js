@@ -113,8 +113,15 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     if (info.blocks >= P.ASSUMEUTXO.height) return;      // already past the snapshot height
     if (!P.ASSUMEUTXO.snapshotUrl) return;               // Phase 2 stub: no hosted snapshot yet → normal IBD
     const snap = path.join(paths.node, `utxo-${P.ASSUMEUTXO.height}.dat`);
-    if (!fs.existsSync(snap)) { emit(STATES.LOADING_SNAPSHOT, 0); await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p)); }
-    emit(STATES.LOADING_SNAPSHOT, 1);
+    const DL_MSG = "Downloading the verified snapshot (about 9 GB) — the longest part of setup.";
+    if (!fs.existsSync(snap)) {
+      emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
+      await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p, DL_MSG));
+    }
+    // loadtxoutset is the heavy step and reports no progress, so a determinate bar would sit
+    // frozen at 100% (looks crashed to a non-technical user). Emit null → the UI shows an
+    // animated "working" bar instead, with a message that it's busy and to leave the app open.
+    emit(STATES.LOADING_SNAPSHOT, null, "Loading the snapshot into your node — this can take several minutes. Please leave the app open.");
     await rpc("loadtxoutset", [snap], 0);                // Core verifies vs its baked-in hash; long-running
   }
 

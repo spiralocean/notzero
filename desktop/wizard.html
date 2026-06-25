@@ -231,7 +231,7 @@
       "downloading-core": ["Downloading Bitcoin Core", "Fetching the official release…"],
       "extracting": ["Verifying & installing", "✓ Signature verified — unpacking…"],
       "starting": ["Starting your private node", "Launching it locally…"],
-      "loading-snapshot": ["Loading a verified chain snapshot", "Your node checks this itself…"],
+      "loading-snapshot": ["Getting the verified chain snapshot", "Your node verifies this itself…"],
       "syncing": ["Syncing the blockchain", "This can take a while — you can keep using your computer."],
       "ready": ["Ready!", "Starting mining…"],
       "error": ["Something went wrong", ""],
@@ -241,7 +241,10 @@
         const [t, sub] = STEP[s.state] || ["Working…", ""];
         const isErr = s.state === "error";
         $("p-title").textContent = t;
-        $("p-sub").textContent = isErr ? (s.detail || "Please try again — and see the log below.") : sub;
+        // during the snapshot step the backend sends a live sub-message (downloading vs loading);
+        // prefer it so the long, progress-less load step reads as "working", not stuck.
+        const liveSub = (s.state === "loading-snapshot" && s.detail) ? s.detail : sub;
+        $("p-sub").textContent = isErr ? (s.detail || "Please try again — and see the log below.") : liveSub;
         $("p-sub").className = "hint" + (isErr ? " err" : "");
         const pct = s.progress != null ? Math.round(s.progress * 100) : null;
         const bar = $("p-bar");
