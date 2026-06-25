@@ -198,13 +198,25 @@ window.addEventListener("resize", resize);
 
 // accessibility / battery: honour prefers-reduced-motion (calm the ambient rain) and pause the
 // animation loop entirely while the tab is hidden (no point burning CPU/battery on an unseen page)
-let reduceMotion = false;
+// motion preference: the OS reduce-motion setting ∪ a user-chosen level (Full / Calm / Off), toggled
+// from the dashboard and remembered. Full = rain + all motion · Calm = no rain, panels still animate ·
+// Off = static (freezes everything; the render loop also throttles to ~4fps to actually spare CPU).
+const MOTION_LEVELS = ["full", "calm", "off"];
+function loadMotion() { try { const m = localStorage.getItem("bl.motion"); return MOTION_LEVELS.includes(m) ? m : "full"; } catch (_) { return "full"; } }
+let motionLevel = loadMotion(), osReduceMotion = false, reduceMotion = false, showRain = true;
+let rafId = 0, lastDraw = 0;
+function applyMotion() {
+  reduceMotion = osReduceMotion || motionLevel === "off"; // the "freeze all motion" flag used throughout
+  showRain = !osReduceMotion && motionLevel === "full";   // the matrix rain only runs at Full
+}
+function setMotion(level) { motionLevel = level; try { localStorage.setItem("bl.motion", level); } catch (_) {} applyMotion(); lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
+function cycleMotion() { setMotion(MOTION_LEVELS[(MOTION_LEVELS.indexOf(motionLevel) + 1) % MOTION_LEVELS.length]); }
 try {
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
-  reduceMotion = mq.matches;
-  mq.addEventListener("change", (e) => { reduceMotion = e.matches; });
+  osReduceMotion = mq.matches;
+  mq.addEventListener("change", (e) => { osReduceMotion = e.matches; applyMotion(); });
 } catch (_) { /* matchMedia unavailable */ }
-let rafId = 0;
+applyMotion();
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { cancelAnimationFrame(rafId); rafId = 0; }
   else if (!rafId) { rafId = requestAnimationFrame(render); } // resume where we left off
@@ -262,7 +274,7 @@ function drawRain() {
   const g = ctx.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, "#06040c"); g.addColorStop(1, "#0a0603");
   ctx.fillStyle = g; ctx.fillRect(0, 0, W, H);
-  if (reduceMotion) return; // reduced-motion: keep the calm gradient backdrop, skip the falling rain
+  if (!showRain) return; // Calm/Off (or OS reduce-motion): keep the gradient backdrop, skip the falling rain
   ensureRain();
   const pool = rainPool();
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -384,7 +396,7 @@ let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
-let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null;
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
@@ -1811,6 +1823,20 @@ function drawGear() {
 }
 const gearHit0 = (gx, gy) => ({ x: gx - 12, y: gy - 12, w: 24, h: 24 });
 
+// animation toggle (top-left) → cycles Full → Calm → Off, for weak machines / personal preference.
+function drawMotionToggle() {
+  const icon = motionLevel === "full" ? "✦" : motionLevel === "calm" ? "◐" : "○";
+  const lbl = `${icon} motion: ${motionLevel}`;
+  ctx.font = "600 11px ui-monospace, monospace";
+  const w = ctx.measureText(lbl).width + 16, h = 20, x = PAD, y = 11;
+  const hover = inHit({ x, y, w, h }, mouseX, mouseY);
+  ctx.fillStyle = `rgba(255,255,255,${hover ? 0.1 : 0.045})`; roundRect(x, y, w, h, 5); ctx.fill();
+  ctx.strokeStyle = `rgba(${ACCENT},${hover ? 0.5 : 0.2})`; ctx.lineWidth = 1; roundRect(x, y, w, h, 5); ctx.stroke();
+  text(lbl, x + w / 2, y + h / 2, { size: 11, weight: 600, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle", mono: true });
+  if (hover) text("click to dial down animation (saves CPU)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+  motionHit = { x, y, w, h };
+}
+
 // persistent network-win notice (fixed, above the footer) — so you know even if you missed the moment
 function drawNetWinBadge(wins) {
   netWinHit = null;
@@ -1912,7 +1938,10 @@ function drawCelebration() {
   text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
 }
 
-function render() {
+function render(ts) {
+  rafId = requestAnimationFrame(render);
+  if (reduceMotion && lastDraw && ts && ts - lastDraw < 240) return; // no motion to draw → redraw at ~4fps, sparing CPU
+  lastDraw = ts || lastDraw;
   if (syncDemo) model.node = demoNode(); // override with the simulated IBD node for preview
   drawRain(); // fixed background
 
@@ -2014,7 +2043,7 @@ function render() {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawPreviewTrigger(); drawGear(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
@@ -2022,7 +2051,7 @@ function render() {
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
   else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
   window.__q = { phase: quotePhase, idx: quoteIdx, next: quoteNext, bag: quoteBag.length };
-  rafId = requestAnimationFrame(render);
+  // (the next frame is already scheduled at the top of render so the throttle/early-return path keeps looping)
 }
 
 // ---- interaction ----
@@ -2036,6 +2065,7 @@ canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
+  if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle animation level (Full/Calm/Off)
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup"; return; } // settings (desktop app)
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
@@ -2049,7 +2079,7 @@ canvas.addEventListener("click", (e) => {
 canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
