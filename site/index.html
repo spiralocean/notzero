@@ -321,8 +321,8 @@
 <script src="qrcode.min.js"></script>
 <script>
   // ---- OS-aware download ----
-  // macOS (Apple Silicon) is live (signed + notarized .dmg on R2). Intel Mac / Windows / Linux: coming soon.
-  const MAC_URL = "https://dl.getnotzero.com/notzero-mac-arm64.dmg";
+  // macOS universal (Intel + Apple Silicon) is live (signed + notarized .dmg on R2). Windows / Linux: coming soon.
+  const MAC_URL = "https://dl.getnotzero.com/notzero-mac.dmg";
   const SOON = { win: "Windows", linux: "Linux" };
   function detectOS() {
     const ua = navigator.userAgent, p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
@@ -335,7 +335,7 @@
     const arr = btn.querySelector(".arr"), lbl = btn.querySelector(".lbl"), sub = btn.querySelector("small");
     if (os === "mac") {
       btn.href = MAC_URL; btn.classList.remove("soon"); arr.textContent = "↓";
-      lbl.childNodes[0].nodeValue = "Download for Mac "; sub.textContent = "Apple Silicon (M1–M4) only";
+      lbl.childNodes[0].nodeValue = "Download for Mac "; sub.textContent = "Intel & Apple Silicon";
     } else {
       btn.classList.add("soon"); btn.setAttribute("href", "#"); btn.addEventListener("click", (e) => e.preventDefault());
       arr.textContent = "◴"; lbl.childNodes[0].nodeValue = "Coming soon for " + SOON[os] + " "; sub.textContent = "Mac available now ↓";
@@ -344,8 +344,8 @@
   configBtn(document.getElementById("dl"));
   configBtn(document.getElementById("dl2"));
   document.getElementById("others").innerHTML = os === "mac"
-    ? 'This build runs on <b>Apple Silicon</b> Macs only (M1–M4). Intel Mac, Windows &amp; Linux — <span class="soon-tag">coming soon</span>. <span style="opacity:.65">Not sure which you have? Apple menu → About This Mac.</span>'
-    : `Available now: <a href="${MAC_URL}">Mac · Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
+    ? 'Works on <b>any Mac</b> — Intel and Apple Silicon. Windows &amp; Linux — <span class="soon-tag">coming soon</span>.'
+    : `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
 
   // ---- tip jar: QR codes + copy ----
   // Lightning QR = the LNURL-pay for spiralocean@coinos.io (any Lightning wallet scans it).
