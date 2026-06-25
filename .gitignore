@@ -28,3 +28,9 @@ playwright-report/
 # Electron packaged output
 desktop/dist/
 desktop/resources/
+
+# local release credentials (never commit)
+release.env
+
+# large local UTXO snapshot artifact (never commit)
+scripts/utxo-snapshot-*.dat
