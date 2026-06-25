@@ -1503,8 +1503,8 @@ function drawSync(r) {
   text(pruning ? "pruning ♻" : "prune ♻", prX, cy + 40, { size: 10, weight: pruning ? 700 : 400, color: `rgba(255,150,60,${pruning ? 0.95 : 0.7})`, align: "center", baseline: "middle" });
 
   // ---- conveyor: blocks born at center, step left, prune at far left ----
-  // persistent empty slot directly under the node — kept neutral so the next-to-fill block isn't highlighted
-  { const fy = cy - bh / 2; ctx.setLineDash([4, 3]); ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; roundRect(birthX, fy, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]); }
+  // (No static dashed slot under the node: the conveyor's own incoming empty block slides in from the
+  // right to occupy center — a second static slot here read as a duplicate empty block during the step.)
   const span = Math.ceil((birthX - leftExit) / spacing) + 4, pruneTarget = syncState.prunedBelow + 1;
   for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
     const x = blockX(k);
