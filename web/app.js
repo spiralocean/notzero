@@ -454,10 +454,15 @@ const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the 
 // While the node is still syncing, the mining panels (next block / mempool / closeness / hash build)
 // only show "come back once synced" placeholders. Collapse the dashboard to just the BLOCKCHAIN SYNC
 // visualization + the NETWORK panel so the syncing screen is focused, not a wall of waiting panels.
-function nodeSyncing() {
+// live sync figures, shared by the sync panel, its collapsed-header progress bar, and the focus logic
+function syncInfo() {
   const n = model.node;
-  return !!(n && n.reachable !== false && (n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)));
+  if (!(n && n.reachable !== false && (n.headers || n.blocks))) return null;
+  const tip = n.headers || 0, head = Math.floor(n.blocks || 0), behind = Math.max(0, tip - head);
+  const prog = n.verificationprogress != null ? n.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
+  return { tip, head, behind, prog, syncing: behind > 0 || !!n.initialblockdownload };
 }
+function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
 function visibleSections() {
   return nodeSyncing() ? ["sync", "network"] : SECTIONS;
 }
@@ -492,7 +497,19 @@ function drawHeader(s, r, isExpanded, hovered) {
   const accent = `rgba(${ACCENT}, ${hovered ? 1 : 0.85})`;
   text(isExpanded ? "▾" : "▸", r.x + 16, r.y + r.h / 2, { size: 18, weight: 700, color: accent, align: "center", baseline: "middle" });
   text(SECTION_TITLE[s], r.x + 34, r.y + r.h / 2, { size: 15, weight: 700, color: accent, baseline: "middle" });
-  if (!isExpanded) text(summary(s), r.x + r.w - 14, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.62)", align: "right", baseline: "middle" });
+  if (!isExpanded) {
+    // collapsed sync panel: show a live progress bar in the header, so progress stays visible even with
+    // the (heavier) animation closed — handy on weak machines.
+    const si = s === "sync" ? syncInfo() : null;
+    if (si && si.syncing) {
+      const bw2 = 110, bx = r.x + r.w - 14 - bw2, byc = r.y + r.h / 2;
+      text(`${(si.prog * 100).toFixed(1)}%`, bx - 8, byc, { size: 12, weight: 600, color: "rgba(255,255,255,0.7)", align: "right", baseline: "middle" });
+      ctx.fillStyle = "rgba(255,255,255,0.12)"; roundRect(bx, byc - 3, bw2, 6, 3); ctx.fill();
+      ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(bx, byc - 3, Math.max(4, bw2 * si.prog), 6, 3); ctx.fill();
+    } else {
+      text(summary(s), r.x + r.w - 14, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.62)", align: "right", baseline: "middle" });
+    }
+  }
 }
 
 function drawContent(s, r) {
