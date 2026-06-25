@@ -94,7 +94,7 @@
           ✓ Runs <b>privately on your machine</b> (localhost only) — <b>no wallet, no keys</b> are held here.<br/>
           ✓ Uses about <b>20 GB</b> of disk (a pruned node), and you can remove it anytime.<br/>
           ✓ <b>One lottery ticket per block</b> — it barely touches your CPU.<br/><br/>
-          The first sync downloads and checks part of the blockchain, which can take a while. You can keep using your computer the whole time.
+          The first sync downloads and checks part of the blockchain — a <b>one-time</b> setup that runs your computer busy for a while, then quiets down to near-idle. You can keep using your computer the whole time.
         </div>
         <div class="hint" id="disk-free" style="margin-top:10px"></div>
       </div>
@@ -125,7 +125,7 @@
       <button class="ghost" id="cancel" style="display:none">Cancel</button>
     </div>
     <div class="err" id="err"></div>
-    <div class="foot">Open source · non-custodial · this never holds your keys, only a receive address.<br/>You can change any of this later.</div>
+    <div class="foot">Open source · non-custodial · this never holds your keys, only a receive address.<br/>You can change any of this later.<br/>Free software, provided as-is with no warranty — by setting up, you agree to the <a href="https://getnotzero.com/#terms" target="_blank" style="color:rgba(255,153,26,0.8)">terms</a>. Questions? <a href="mailto:support@getnotzero.com" target="_blank" style="color:rgba(255,153,26,0.8)">support@getnotzero.com</a></div>
 
     <div id="progress" style="display:none">
       <div class="section">
@@ -235,7 +235,7 @@
       "extracting": ["Verifying & installing", "✓ Signature verified — unpacking…"],
       "starting": ["Starting your private node", "Launching it locally…"],
       "loading-snapshot": ["Getting the verified chain snapshot", "Your node verifies this itself…"],
-      "syncing": ["Syncing the blockchain", "This can take a while — you can keep using your computer."],
+      "syncing": ["Syncing the blockchain", "A one-time catch-up — your computer runs busy now and quiets down to near-idle once synced. You can keep using it meanwhile."],
       "ready": ["Ready!", "Starting mining…"],
       "error": ["Something went wrong", ""],
     };

@@ -496,7 +496,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
-  if (s === "hashBuild") { return model.ticket ? "0x" + model.ticket.hashHex.slice(0, 10) + "…" : "—"; }
+  if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";

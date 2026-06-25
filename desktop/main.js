@@ -75,6 +75,9 @@ function buildMenu() {
     { role: "help", submenu: [
       { label: "Check for Updates…", click: () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); } },
       { type: "separator" },
+      { label: "Email Support", click: () => shell.openExternal("mailto:support@getnotzero.com") },
+      { label: "Terms & Privacy", click: () => shell.openExternal("https://getnotzero.com/#terms") },
+      { type: "separator" },
       { label: "Tip the Developer ⚡", click: () => shell.openExternal("https://getnotzero.com/#tip") },
       { label: "getnotzero.com", click: () => shell.openExternal("https://getnotzero.com") },
     ] },
@@ -418,6 +421,8 @@ async function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
+  // open http(s)/mailto links (terms, support email) in the user's browser/mail client, not a new app window
+  win.webContents.setWindowOpenHandler(({ url }) => { if (/^(https?|mailto):/i.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // first run → wizard. Managed mode → setup screen too, so the install progress is visible
   // (the wizard redirects to the dashboard once the node is ready).
   let startPath = "/setup";
