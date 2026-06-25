@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-lottery-desktop",
-  "version": "0.1.3",
+  "version": "0.1.4",
   "private": true,
   "description": "Desktop app (Electron) for the Bitcoin Lottery — wraps the dashboard and (in later phases) downloads/manages bitcoind + runs the miner, so non-technical users never touch a terminal.",
   "main": "main.js",
@@ -50,8 +50,8 @@
     ],
     "mac": {
       "target": [
-        "dmg",
-        "zip"
+        { "target": "dmg", "arch": "universal" },
+        { "target": "zip", "arch": "universal" }
       ],
       "artifactName": "notzero-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.finance",

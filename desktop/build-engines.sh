@@ -39,12 +39,18 @@ else
   fi
 fi
 
+# Build a universal2 (x86_64 + arm64) binary by default so one app runs on both Intel and Apple
+# Silicon — an arm64-only engine simply can't launch on an Intel Mac. Requires a universal2 Python
+# (Xcode's is); override with ENGINE_TARGET_ARCH=arm64 for a faster native-only dev build.
+TARGET_ARCH="${ENGINE_TARGET_ARCH:-universal2}"
+
 build() {                      # build <name> <entry.py> [extra pyinstaller args...]
   local name="$1" entry="$2"; shift 2
-  echo "── building $name from $entry"
+  echo "── building $name from $entry  (target-arch: $TARGET_ARCH)"
   python3 -m PyInstaller \
     --onefile --clean --noconfirm \
     --name "$name" \
+    --target-arch "$TARGET_ARCH" \
     --distpath "$OUT" \
     --workpath "$WORK/build" \
     --specpath "$WORK" \

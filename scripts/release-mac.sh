@@ -63,13 +63,13 @@ sed -i '' "/- url: $DMGBASE/,+2d" "$YML" 2>/dev/null || true
 echo "-> uploading to $BUCKET ..."
 # dmg + yml use STABLE urls that change each release → no-cache so the CDN always serves the latest.
 # the zip url is version-specific (immutable) → fine to cache.
-rclone copyto "$DMG" "$BUCKET/notzero-mac-arm64.dmg" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
+rclone copyto "$DMG" "$BUCKET/notzero-mac.dmg" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 rclone copyto "$ZIP" "$BUCKET/$ZIPBASE" --s3-no-check-bucket --s3-chunk-size 64M -q
 [ -f "$ZIP.blockmap" ] && rclone copyto "$ZIP.blockmap" "$BUCKET/$ZIPBASE.blockmap" --s3-no-check-bucket -q
 rclone copyto "$YML" "$BUCKET/latest-mac.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 
 echo
 echo "ok: released."
-echo "   download : https://dl.getnotzero.com/notzero-mac-arm64.dmg"
+echo "   download : https://dl.getnotzero.com/notzero-mac.dmg"
 echo "   feed     : https://dl.getnotzero.com/latest-mac.yml  ($ZIPBASE)"
 echo "   Bump the version in desktop/package.json before the next release so updates trigger."
