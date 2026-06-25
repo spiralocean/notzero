@@ -296,6 +296,11 @@ async function startManagedNode() {
   managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; logManaged(s); } });
   try {
     await managed.start(); // download → verify → launch → snapshot → first sync sample
+    // The node is reachable now (still syncing). Wire its RPC into config and start the BRIDGE so
+    // the dashboard shows the live blockchain-sync animation while we wait — the bridge's RPCs all
+    // work during IBD. The miner waits for `mineable` (getblocktemplate fails during IBD anyway).
+    wireManagedRpcConfig();
+    if (!procs.bridge) startEngine("bridge");
     const tick = async () => {
       if (!managed) return;
       let s = null;
@@ -309,14 +314,20 @@ async function startManagedNode() {
     logManaged(managedState);
   }
 }
-// Node is synced enough to mine → write its RPC config into config.json and start the engines.
-function onManagedReady() {
+// Write the managed node's RPC connection (localhost cookie auth) into config.json so the engines reach it.
+function wireManagedRpcConfig() {
   try {
     const cfg = JSON.parse(fs.readFileSync(configPath(), "utf8"));
     Object.assign(cfg, managed.rpcConfig(), { mode: "live" });
     fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 });
   } catch (_) {}
-  if (enginesStarted) restartEngines(); else startEngines();
+}
+// Node is synced enough to mine → make sure config is current and start the miner. The bridge is
+// already running from the sync phase, so only the miner is added here.
+function onManagedReady() {
+  wireManagedRpcConfig();
+  enginesStarted = true;
+  if (!procs.miner) startEngine("miner");
 }
 // The wizard's "Set one up for me" choice: save intent + payout, then kick off provisioning (progress via /node-status).
 function handleNodeSetup(req, res) {
