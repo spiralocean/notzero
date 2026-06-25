@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, shell } = require("electron");
+const { app, BrowserWindow, Menu, shell, Notification } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -73,6 +73,8 @@ function buildMenu() {
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
     { role: "help", submenu: [
+      { label: "Check for Updates…", click: () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); } },
+      { type: "separator" },
       { label: "Tip the Developer ⚡", click: () => shell.openExternal("https://getnotzero.com/#tip") },
       { label: "getnotzero.com", click: () => shell.openExternal("https://getnotzero.com") },
     ] },
@@ -85,10 +87,17 @@ function buildMenu() {
 // check must never bother a non-technical user). No-op in dev (no app-update.yml). ----
 function initAutoUpdate() {
   if (!app.isPackaged) return;
-  autoUpdater.on("error", () => {});
-  const check = () => autoUpdater.checkForUpdatesAndNotify().catch(() => {});
+  autoUpdater.autoDownload = true;
+  autoUpdater.on("error", () => {}); // a failed update check must never bother the user
+  autoUpdater.on("update-downloaded", () => {
+    // auto-apply: a quick relaunch onto the new version (mining resumes on restart), so a published
+    // fix reaches every running install within the check interval — no manual download needed.
+    try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: "Installing the latest version — back in a moment." }).show(); } catch (_) {}
+    setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (_) {} }, 4000);
+  });
+  const check = () => autoUpdater.checkForUpdates().catch(() => {});
   check();
-  setInterval(check, 6 * 60 * 60 * 1000); // every 6 hours
+  setInterval(check, 2 * 60 * 60 * 1000); // every 2 hours
 }
 
 // ---- engine: our own miner + bridge, in an isolated data dir ----
