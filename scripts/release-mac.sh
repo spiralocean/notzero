@@ -40,7 +40,16 @@ DMGBASE="$(basename "$DMG")"; ZIPBASE="$(basename "$ZIP")"
 
 echo "-> signing + notarizing + stapling the dmg ($DMGBASE)..."
 codesign --force --sign "$SIGN_ID" --timestamp "$DMG"
-xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait
+# notarytool occasionally fails on a transient network timeout to Apple — retry rather than
+# leaving a built-but-unpublished dmg (which then needs a manual resume).
+notar_ok=0
+for attempt in 1 2 3 4 5; do
+  echo "   notarizing dmg (attempt $attempt of 5)..."
+  if xcrun notarytool submit "$DMG" --key "$APPLE_API_KEY" --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" --wait; then notar_ok=1; break; fi
+  echo "   attempt $attempt failed (likely a transient timeout) — retrying in 15s..."
+  sleep 15
+done
+[ "$notar_ok" = 1 ] || { echo "x dmg notarization failed after 5 attempts" >&2; exit 1; }
 xcrun stapler staple "$DMG"
 if spctl -a -t open --context context:primary-signature "$DMG" >/dev/null 2>&1; then
   echo "   ok: dmg passes Gatekeeper (Notarized Developer ID)"
