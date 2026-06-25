@@ -451,13 +451,25 @@ const VERSION = "web v0.118.0";
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
+// While the node is still syncing, the mining panels (next block / mempool / closeness / hash build)
+// only show "come back once synced" placeholders. Collapse the dashboard to just the BLOCKCHAIN SYNC
+// visualization + the NETWORK panel so the syncing screen is focused, not a wall of waiting panels.
+function nodeSyncing() {
+  const n = model.node;
+  return !!(n && n.reachable !== false && (n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)));
+}
+function visibleSections() {
+  return nodeSyncing() ? ["sync", "network"] : SECTIONS;
+}
+
 function layoutSections() {
   let y = TOP; const frames = [];
-  for (const s of SECTIONS) {
+  for (const s of visibleSections()) {
     const header = { x: PAD, y, w: W - PAD * 2, h: HEADER_H };
     y += HEADER_H;
     let content = null;
-    if (expanded.has(s)) { const h = CONTENT_H[s]; content = { x: PAD, y: y + 4, w: W - PAD * 2, h }; y += 4 + h; }
+    const open = expanded.has(s) || (s === "sync" && nodeSyncing()); // keep the sync panel open while syncing
+    if (open) { const h = CONTENT_H[s]; content = { x: PAD, y: y + 4, w: W - PAD * 2, h }; y += 4 + h; }
     y += GAP;
     frames.push({ section: s, header, content });
   }
