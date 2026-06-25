@@ -198,19 +198,17 @@ window.addEventListener("resize", resize);
 
 // accessibility / battery: honour prefers-reduced-motion (calm the ambient rain) and pause the
 // animation loop entirely while the tab is hidden (no point burning CPU/battery on an unseen page)
-// motion preference: the OS reduce-motion setting ∪ a user-chosen level (Full / Calm / Off), toggled
-// from the dashboard and remembered. Full = rain + all motion · Calm = no rain, panels still animate ·
-// Off = static (freezes everything; the render loop also throttles to ~4fps to actually spare CPU).
-const MOTION_LEVELS = ["full", "calm", "off"];
-function loadMotion() { try { const m = localStorage.getItem("bl.motion"); return MOTION_LEVELS.includes(m) ? m : "full"; } catch (_) { return "full"; } }
-let motionLevel = loadMotion(), osReduceMotion = false, reduceMotion = false, showRain = true;
+// The matrix rain is the heaviest ambient effect; let users switch it off (remembered) while keeping the
+// panel animations, which are informative (hash build, sync conveyor). The OS "reduce motion" accessibility
+// setting still freezes panel motion for those who ask for it.
+let rainOff = false; try { rainOff = localStorage.getItem("bl.rainoff") === "1"; } catch (_) {}
+let osReduceMotion = false, reduceMotion = false, showRain = true;
 let rafId = 0, lastDraw = 0;
 function applyMotion() {
-  reduceMotion = osReduceMotion || motionLevel === "off"; // the "freeze all motion" flag used throughout
-  showRain = !osReduceMotion && motionLevel === "full";   // the matrix rain only runs at Full
+  reduceMotion = osReduceMotion;            // OS reduce-motion freezes panel animations (accessibility)
+  showRain = !osReduceMotion && !rainOff;   // the matrix rain: off under OS reduce-motion or the user toggle
 }
-function setMotion(level) { motionLevel = level; try { localStorage.setItem("bl.motion", level); } catch (_) {} applyMotion(); lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
-function cycleMotion() { setMotion(MOTION_LEVELS[(MOTION_LEVELS.indexOf(motionLevel) + 1) % MOTION_LEVELS.length]); }
+function setRain(off) { rainOff = off; try { localStorage.setItem("bl.rainoff", off ? "1" : "0"); } catch (_) {} applyMotion(); lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
 try {
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
   osReduceMotion = mq.matches;
@@ -312,6 +310,7 @@ function drawRain() {
 // ---- quotes ---- (strings are original; {q, src} carries a movie/source attribution)
 const QUOTES = [
   { q: "So you're tellin' me there's a chance?", src: "Lloyd Christmas, Dumb and Dumber" },
+  { q: "You've got to ask yourself one question: do I feel lucky? Well, do ya, punk?", src: "Dirty Harry" },
   "Someone wins every block. Why not you?",
   "One ticket per block. One shot at glory.",
   "The lottery is hope with a timestamp.",
@@ -1825,15 +1824,14 @@ const gearHit0 = (gx, gy) => ({ x: gx - 12, y: gy - 12, w: 24, h: 24 });
 
 // animation toggle (top-left) → cycles Full → Calm → Off, for weak machines / personal preference.
 function drawMotionToggle() {
-  const icon = motionLevel === "full" ? "✦" : motionLevel === "calm" ? "◐" : "○";
-  const lbl = `${icon} motion: ${motionLevel}`;
+  const lbl = `${rainOff ? "○" : "✦"} rain: ${rainOff ? "off" : "on"}`;
   ctx.font = "600 11px ui-monospace, monospace";
   const w = ctx.measureText(lbl).width + 16, h = 20, x = PAD, y = 11;
   const hover = inHit({ x, y, w, h }, mouseX, mouseY);
   ctx.fillStyle = `rgba(255,255,255,${hover ? 0.1 : 0.045})`; roundRect(x, y, w, h, 5); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},${hover ? 0.5 : 0.2})`; ctx.lineWidth = 1; roundRect(x, y, w, h, 5); ctx.stroke();
   text(lbl, x + w / 2, y + h / 2, { size: 11, weight: 600, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle", mono: true });
-  if (hover) text("click to dial down animation (saves CPU)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+  if (hover) text("toggle the background rain (lighter on older machines)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
   motionHit = { x, y, w, h };
 }
 
@@ -2065,7 +2063,7 @@ canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
-  if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle animation level (Full/Calm/Off)
+  if (inHit(motionHit, e.offsetX, e.offsetY)) { setRain(!rainOff); return; } // toggle the matrix rain background
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup"; return; } // settings (desktop app)
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
