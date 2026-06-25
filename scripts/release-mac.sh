@@ -52,10 +52,12 @@ echo "-> trimming the now-stale dmg entry from latest-mac.yml (the updater uses 
 sed -i '' "/- url: $DMGBASE/,+2d" "$YML" 2>/dev/null || true
 
 echo "-> uploading to $BUCKET ..."
-rclone copyto "$DMG" "$BUCKET/notzero-mac-arm64.dmg" --s3-no-check-bucket --s3-chunk-size 64M -q
+# dmg + yml use STABLE urls that change each release → no-cache so the CDN always serves the latest.
+# the zip url is version-specific (immutable) → fine to cache.
+rclone copyto "$DMG" "$BUCKET/notzero-mac-arm64.dmg" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 rclone copyto "$ZIP" "$BUCKET/$ZIPBASE" --s3-no-check-bucket --s3-chunk-size 64M -q
 [ -f "$ZIP.blockmap" ] && rclone copyto "$ZIP.blockmap" "$BUCKET/$ZIPBASE.blockmap" --s3-no-check-bucket -q
-rclone copyto "$YML" "$BUCKET/latest-mac.yml" --s3-no-check-bucket -q
+rclone copyto "$YML" "$BUCKET/latest-mac.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 
 echo
 echo "ok: released."
