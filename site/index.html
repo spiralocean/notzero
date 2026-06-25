@@ -335,7 +335,7 @@
     const arr = btn.querySelector(".arr"), lbl = btn.querySelector(".lbl"), sub = btn.querySelector("small");
     if (os === "mac") {
       btn.href = MAC_URL; btn.classList.remove("soon"); arr.textContent = "↓";
-      lbl.childNodes[0].nodeValue = "Download for Mac "; sub.textContent = "Apple Silicon · free";
+      lbl.childNodes[0].nodeValue = "Download for Mac "; sub.textContent = "Apple Silicon (M1–M4) only";
     } else {
       btn.classList.add("soon"); btn.setAttribute("href", "#"); btn.addEventListener("click", (e) => e.preventDefault());
       arr.textContent = "◴"; lbl.childNodes[0].nodeValue = "Coming soon for " + SOON[os] + " "; sub.textContent = "Mac available now ↓";
@@ -344,7 +344,7 @@
   configBtn(document.getElementById("dl"));
   configBtn(document.getElementById("dl2"));
   document.getElementById("others").innerHTML = os === "mac"
-    ? 'Intel Mac, Windows &amp; Linux — <span class="soon-tag">coming soon</span>'
+    ? 'This build runs on <b>Apple Silicon</b> Macs only (M1–M4). Intel Mac, Windows &amp; Linux — <span class="soon-tag">coming soon</span>. <span style="opacity:.65">Not sure which you have? Apple menu → About This Mac.</span>'
     : `Available now: <a href="${MAC_URL}">Mac · Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
 
   // ---- tip jar: QR codes + copy ----
