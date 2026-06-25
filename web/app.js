@@ -388,8 +388,8 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false;
-fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") isDesktop = true; }).catch(() => {});
+let isDesktop = false, appVersion = "";
+fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; } }).catch(() => {});
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -1954,12 +1954,13 @@ function render() {
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
   const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
   let fmsg, fcol;
-  if (!node) { fmsg = `◷ live demo · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
-  else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${VERSION}`; fcol = "rgba(255,255,255,0.5)"; }
-  else if (!reachable) { fmsg = `○ node unreachable — check your node · ${VERSION}`; fcol = "rgba(255,150,80,0.95)"; }
-  else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
-  else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${VERSION}`; fcol = "rgba(255,180,80,0.95)"; }
-  else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${VERSION}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
+  const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
+  if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
+  else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
+  else if (!reachable) { fmsg = `○ node unreachable — check your node · ${ver}`; fcol = "rgba(255,150,80,0.95)"; }
+  else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
+  else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
+  else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });

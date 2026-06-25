@@ -388,6 +388,7 @@ function startServer() {
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
         const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
+        out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
