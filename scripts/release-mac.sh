@@ -24,11 +24,16 @@ BUCKET="${R2_BUCKET:-r2:notzero-dl}"
 : "${APPLE_API_ISSUER:?set APPLE_API_ISSUER}"
 : "${LOTTERY_DATA_DIR:?set LOTTERY_DATA_DIR to a reachable synced node data dir}"
 
+echo "-> cleaning dist to avoid stale artifacts from a previous version..."
+rm -rf "$DIST"
+
 echo "-> building (engines + dmg + zip; the .app is notarized by the afterSign hook)..."
 ( cd "$DESKTOP" && npm run dist )
 
-DMG="$(ls "$DIST"/notzero-*-mac-*.dmg 2>/dev/null | head -1)"
-ZIP="$(ls "$DIST"/notzero-*-mac-*.zip 2>/dev/null | head -1)"
+# select artifacts by the exact version being built (never let an old version sneak through)
+VERSION="$(node -p "require('$DESKTOP/package.json').version")"
+DMG="$(ls "$DIST"/notzero-"$VERSION"-mac-*.dmg 2>/dev/null | head -1)"
+ZIP="$(ls "$DIST"/notzero-"$VERSION"-mac-*.zip 2>/dev/null | head -1)"
 YML="$DIST/latest-mac.yml"
 { [ -f "$DMG" ] && [ -f "$ZIP" ] && [ -f "$YML" ]; } || { echo "x build artifacts missing in $DIST" >&2; exit 1; }
 DMGBASE="$(basename "$DMG")"; ZIPBASE="$(basename "$ZIP")"
