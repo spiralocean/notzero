@@ -255,7 +255,9 @@
           L.innerHTML = s.log.map((l) => `<div${/wrong|stopped|couldn|failed|timed out|not enough|rejected|missing/i.test(l) ? ' class="err"' : ""}>${l.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</div>`).join("");
           L.scrollTop = L.scrollHeight;
         }
-        if (s.state === "ready") { window.location = "/"; return; }
+        // once the snapshot is loaded and the chain is syncing, hand off to the main app so the user
+        // watches the sync there (with its animation), not the installer. ready also lands in the app.
+        if (s.state === "ready" || s.state === "syncing") { window.location = "/"; return; }
         if (isErr) { $("p-actions").style.display = "flex"; return; }
         setTimeout(pollStatus, 1500);
       }).catch(() => setTimeout(pollStatus, 2000));

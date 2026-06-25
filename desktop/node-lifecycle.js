@@ -27,6 +27,20 @@ const STATES = {
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
+// Read the last `bytes` of a file as text — for tailing Core's debug.log without loading it all.
+function tailFile(p, bytes = 16384) {
+  try {
+    const fd = fs.openSync(p, "r");
+    try {
+      const size = fs.fstatSync(fd).size;
+      const len = Math.min(bytes, size);
+      const buf = Buffer.alloc(len);
+      fs.readSync(fd, buf, 0, len, Math.max(0, size - bytes));
+      return buf.toString("utf8");
+    } finally { fs.closeSync(fd); }
+  } catch (_) { return ""; }
+}
+
 // JSON-RPC to the managed node using its auto-generated cookie (localhost only).
 function rpcOverCookie(rpcUrl, cookiePath, method, params = [], timeoutMs = 30000) {
   return new Promise((resolve, reject) => {
@@ -118,11 +132,22 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
       emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
       await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p, DL_MSG));
     }
-    // loadtxoutset is the heavy step and reports no progress, so a determinate bar would sit
-    // frozen at 100% (looks crashed to a non-technical user). Emit null → the UI shows an
-    // animated "working" bar instead, with a message that it's busy and to leave the app open.
-    emit(STATES.LOADING_SNAPSHOT, null, "Loading the snapshot into your node — this can take several minutes. Please leave the app open.");
-    await rpc("loadtxoutset", [snap], 0);                // Core verifies vs its baked-in hash; long-running
+    // loadtxoutset has no RPC progress callback, but Core logs "[snapshot] N coins loaded (X%…)"
+    // to debug.log. Tail it so this heavy ~10-15 min step shows a REAL progress bar — a frozen bar
+    // here reads as "crashed" to a non-technical user, the exact moment they'd force-quit.
+    const LOAD_MSG = "Loading the snapshot into your node — the heavy step, a few minutes. Please leave the app open.";
+    emit(STATES.LOADING_SNAPSHOT, 0, LOAD_MSG);
+    const debugLog = path.join(paths.datadir, "debug.log");
+    let loadingSnap = true;
+    (async () => {
+      while (loadingSnap) {
+        const m = [...tailFile(debugLog).matchAll(/\[snapshot\]\s+\d+\s+coins loaded\s+\(([\d.]+)%/g)].pop();
+        if (m) emit(STATES.LOADING_SNAPSHOT, Math.min(0.999, parseFloat(m[1]) / 100), LOAD_MSG);
+        await sleep(2000);
+      }
+    })();
+    try { await rpc("loadtxoutset", [snap], 0); }        // Core verifies vs its baked-in hash; long-running
+    finally { loadingSnap = false; }
   }
 
   // Bring the node up to "started + snapshot attempted". Caller then polls sync().
