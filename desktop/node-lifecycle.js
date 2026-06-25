@@ -83,8 +83,17 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
   }
 
   function launch() {
-    child = spawn(paths.bitcoind, [`-datadir=${paths.datadir}`], { stdio: "ignore" });
-    child.on("exit", (code) => { const was = child; child = null; if (!stopping && was) emit(STATES.ERROR, null, `bitcoind exited (code ${code})`); });
+    child = spawn(paths.bitcoind, [`-datadir=${paths.datadir}`], { stdio: ["ignore", "ignore", "pipe"] });
+    let errTail = "";
+    if (child.stderr) child.stderr.on("data", (d) => { errTail = (errTail + d.toString()).slice(-800); }); // keep bitcoind's own error output
+    child.on("error", (e) => { const was = child; child = null; if (!stopping && was) emit(STATES.ERROR, null, `couldn't start the node: ${e.message}`); });
+    child.on("exit", (code) => {
+      const was = child; child = null;
+      if (!stopping && was) {
+        const why = errTail.trim().split("\n").filter(Boolean).pop();
+        emit(STATES.ERROR, null, `the node stopped unexpectedly (code ${code})${why ? `: ${why}` : ""}`);
+      }
+    });
   }
 
   async function waitForRpc(timeoutMs = 90000) {

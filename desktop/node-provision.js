@@ -100,6 +100,7 @@ function downloadFile(url, dest, onProgress, _redirects = 0) {
       out.on("finish", () => out.close(() => resolve(dest)));
     });
     req.on("error", (e) => { out.close(); fs.rm(dest, { force: true }, () => reject(e)); });
+    req.setTimeout(45000, () => req.destroy(new Error("download timed out — couldn't reach the server"))); // don't hang forever on a stalled connection
   });
 }
 

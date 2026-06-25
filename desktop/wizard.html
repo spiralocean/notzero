@@ -44,6 +44,11 @@
     .detect { font-size: 12px; color: rgb(90,220,140); margin-bottom: 10px; min-height: 0; }
     .bar { height: 8px; background: rgba(255,255,255,0.1); border-radius: 5px; overflow: hidden; margin: 14px 0 4px; }
     .bar-fill { height: 100%; background: var(--orange); width: 0%; transition: width .4s ease; }
+    .bar-fill.indet { width: 35%; animation: indet 1.25s ease-in-out infinite; }
+    @keyframes indet { 0% { transform: translateX(-115%); } 100% { transform: translateX(320%); } }
+    .plog { margin-top: 16px; font-family: ui-monospace, Menlo, monospace; font-size: 12px; line-height: 1.7; color: rgba(255,255,255,0.5); max-height: 190px; overflow-y: auto; border: 1px solid rgba(255,255,255,0.12); border-radius: 10px; padding: 12px 14px; background: rgba(0,0,0,0.25); text-align: left; }
+    .plog div.err { color: rgb(255,140,90); }
+    .hint.err { color: rgb(255,140,90); }
     .reassure { font-size: 12.5px; color: rgba(255,255,255,0.6); line-height: 1.7; }
     .reassure b { color: rgba(255,255,255,0.85); }
   </style>
@@ -127,9 +132,13 @@
         <div class="hint" id="p-sub" style="margin-bottom:0"></div>
         <div class="bar"><div class="bar-fill" id="p-bar"></div></div>
         <div class="hint" id="p-pct" style="text-align:right;margin:0"></div>
+        <div class="plog" id="p-log"></div>
       </div>
       <div class="foot">You can close this window — setup keeps running, and mining starts automatically when your node is ready.</div>
-      <button class="ghost" id="p-retry" style="display:none;margin-top:10px" onclick="location.reload()">Try again</button>
+      <div id="p-actions" style="display:none; gap:10px; justify-content:center; margin-top:14px">
+        <button class="ghost btn-sm" id="p-retry" type="button">Try again</button>
+        <button class="ghost btn-sm" id="p-remove" type="button" style="color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove &amp; start over</button>
+      </div>
     </div>
   </div>
 
@@ -188,7 +197,7 @@
           $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
           $("start").textContent = "Save changes";
           $("cancel").style.display = "block";
-          if (c.node_mode === "managed") showManagedSettings();
+          if (c.node_mode === "managed") { showInstallProgress(); return; } // show the live install status, not a static form
         }
       } catch (_) {}
       if (!settingsMode) {
@@ -206,11 +215,18 @@
         const res = await fetch("/node-setup", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ payout_address: $("payout").value.trim(), coinbase_tag: $("coinbase_tag").value.trim() }) });
         const b = await res.json();
         if (!b.ok) { $("err").textContent = b.error || "Couldn't start setup."; $("start").disabled = false; $("start").textContent = "Set up my node & start"; return; }
-        document.querySelectorAll(".section, .actions, .err, .foot").forEach((e) => (e.style.display = "none"));
-        $("progress").style.display = "block";
-        pollStatus();
+        showInstallProgress();
       } catch (_) { $("err").textContent = "Couldn't start setup."; $("start").disabled = false; }
     }
+    // Show the live install/progress screen. Hide the setup form — but NOT the progress view's
+    // own .section/.foot (the original blanket hide also hid the progress content → blank screen).
+    function showInstallProgress() {
+      document.querySelectorAll(".section, .actions, .err, .foot, .detect, .choice").forEach((e) => { if (!e.closest("#progress")) e.style.display = "none"; });
+      $("progress").style.display = "block";
+      pollStatus();
+    }
+    $("p-retry").onclick = () => { $("p-actions").style.display = "none"; fetch("/node-retry", { method: "POST" }).catch(() => {}).finally(() => setTimeout(pollStatus, 800)); };
+    $("p-remove").onclick = async () => { if (!confirm("Remove the node and start over from scratch?")) return; try { await fetch("/node-remove", { method: "POST" }); } catch (_) {} window.location = "/setup"; };
     const STEP = {
       "downloading-core": ["Downloading Bitcoin Core", "Fetching the official release…"],
       "extracting": ["Verifying & installing", "✓ Signature verified — unpacking…"],
@@ -223,13 +239,21 @@
     function pollStatus() {
       fetch("/node-status").then((r) => r.json()).then((s) => {
         const [t, sub] = STEP[s.state] || ["Working…", ""];
+        const isErr = s.state === "error";
         $("p-title").textContent = t;
-        $("p-sub").textContent = s.state === "error" ? (s.detail || "Please try again.") : sub;
+        $("p-sub").textContent = isErr ? (s.detail || "Please try again — and see the log below.") : sub;
+        $("p-sub").className = "hint" + (isErr ? " err" : "");
         const pct = s.progress != null ? Math.round(s.progress * 100) : null;
-        $("p-bar").style.width = pct != null ? pct + "%" : "30%";
-        $("p-pct").textContent = pct != null ? pct + "%" : "";
+        const bar = $("p-bar");
+        if (pct != null) { bar.classList.remove("indet"); bar.style.width = pct + "%"; $("p-pct").textContent = pct + "%"; }
+        else { bar.classList.add("indet"); $("p-pct").textContent = ""; }
+        if (Array.isArray(s.log)) {
+          const L = $("p-log");
+          L.innerHTML = s.log.map((l) => `<div${/wrong|stopped|couldn|failed|timed out|not enough|rejected|missing/i.test(l) ? ' class="err"' : ""}>${l.replace(/[<>&]/g, (c) => ({ "<": "&lt;", ">": "&gt;", "&": "&amp;" }[c]))}</div>`).join("");
+          L.scrollTop = L.scrollHeight;
+        }
         if (s.state === "ready") { window.location = "/"; return; }
-        if (s.state === "error") { $("p-retry").style.display = "block"; return; }
+        if (isErr) { $("p-actions").style.display = "flex"; return; }
         setTimeout(pollStatus, 1500);
       }).catch(() => setTimeout(pollStatus, 2000));
     }

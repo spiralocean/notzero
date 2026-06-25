@@ -35,6 +35,22 @@ const MIME = {
 
 let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null, mainWindow = null;
 let managed = null, managedState = { state: "idle", progress: null, detail: null }; // managed-node provisioning state
+let managedLog = []; // human-readable step log, shown in the wizard + written to install.log
+let lastLogKey = "";
+const STEP_LABEL = {
+  "downloading-core": "Downloading Bitcoin Core", "extracting": "Verifying & installing Bitcoin Core",
+  "starting": "Starting your private node", "loading-snapshot": "Loading the verified chain snapshot",
+  "syncing": "Syncing the blockchain", "ready": "Ready", "error": "Something went wrong",
+};
+function logManaged(s) {
+  const key = `${s.state}|${s.detail || ""}`; // log on step/detail change — not on every progress tick
+  if (key === lastLogKey) return;
+  lastLogKey = key;
+  const t = new Date().toTimeString().slice(0, 8);
+  const line = `${t}  ${STEP_LABEL[s.state] || s.state}${s.detail ? `: ${s.detail}` : ""}`;
+  managedLog.push(line);
+  try { fs.appendFileSync(path.join(DATA_DIR, "install.log"), line + "\n"); } catch (_) {}
+}
 const configPath = () => path.join(DATA_DIR, "config.json");
 async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
 
@@ -267,7 +283,8 @@ async function detectExistingNode() {
 // ---- managed node: provision + run a private Bitcoin Core, then point the miner at it ----
 async function startManagedNode() {
   if (managed) return;
-  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; } });
+  managedLog = []; lastLogKey = "";
+  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; logManaged(s); } });
   try {
     await managed.start(); // download → verify → launch → snapshot → first sync sample
     const tick = async () => {
@@ -278,7 +295,10 @@ async function startManagedNode() {
       setTimeout(tick, 5000);
     };
     tick();
-  } catch (e) { managedState = { state: "error", detail: e.message }; }
+  } catch (e) {
+    managedState = { state: "error", detail: (e && e.message) || String(e) };
+    logManaged(managedState);
+  }
 }
 // Node is synced enough to mine → write its RPC config into config.json and start the engines.
 function onManagedReady() {
@@ -324,6 +344,12 @@ async function removeManagedNode() {
 function handleNodeRemove(req, res) {
   removeManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); });
 }
+// Retry: tear down the (failed) attempt and start provisioning fresh.
+async function retryManagedNode() {
+  try { if (managed) await managed.stop(); } catch (_) {}
+  managed = null; managedState = { state: "idle", progress: null, detail: null };
+  startManagedNode();
+}
 
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
 function startServer() {
@@ -334,9 +360,10 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-address") { handleNodeAddress(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-setup") { handleNodeSetup(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
+      if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
       if (urlPath === "/disk") { const free = freeBytes(DATA_DIR); res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ freeGB: free == null ? null : gb(free), requiredGB: gb(REQUIRED_FREE_BYTES), ok: free == null || free >= REQUIRED_FREE_BYTES })); return; }
       if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }
-      if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(managedState)); return; }
+      if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ ...managedState, log: managedLog.slice(-60) })); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
@@ -370,7 +397,11 @@ async function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
-  win.loadURL(`http://127.0.0.1:${port}${fs.existsSync(configPath()) ? "/" : "/setup"}`); // first run → wizard
+  // first run → wizard. Managed mode → setup screen too, so the install progress is visible
+  // (the wizard redirects to the dashboard once the node is ready).
+  let startPath = "/setup";
+  if (fs.existsSync(configPath())) { let c = {}; try { c = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {} startPath = c.node_mode === "managed" ? "/setup" : "/"; }
+  win.loadURL(`http://127.0.0.1:${port}${startPath}`);
 }
 
 app.whenReady().then(() => {
