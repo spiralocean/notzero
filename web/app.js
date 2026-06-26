@@ -1923,11 +1923,13 @@ function drawBestToast() {
   if (!bestToast.active) { bestToastHit = null; return; }
   bestToast.t += 1 / 60;
   const t = bestToast.t, inP = Math.min(1, t / 0.3);
-  // a "best" is measured in zero BITS; spell out what that means for the hash you'd actually see —
-  // every 4 bits = one hex "0", so N bits ⇒ ⌊N/4⌋ leading "0" characters (the rest is a partial nibble).
+  // a "best" is measured in zero BITS (finer-grained than whole hex "0"s, so the record ticks up more
+  // often). every 4 bits = one hex "0", so N bits ⇒ ⌊N/4⌋ leading "0" characters (the rest is a partial
+  // nibble). Keep the two units from being compared cross-unit: the headline's leading-"0" count and the
+  // "needs ~19" target are BOTH hex chars; the zero-bits figure is shown separately and clearly labelled.
   const hz = Math.floor(bestToast.bits / 4);
-  const label = `🎯 new best · ${bestToast.bits} leading zero bits`;
-  const sub = `the hash now starts with ${hz} “0”${hz === 1 ? "" : "s"} — a winner needs ~19`;
+  const label = `🎯 new best · ${hz} leading “0”${hz === 1 ? "" : "s"} (${bestToast.bits} zero bits)`;
+  const sub = `a winning block needs about 19 leading “0”s`;
   ctx.font = "700 13px -apple-system, system-ui, sans-serif"; const tw = ctx.measureText(label).width;
   ctx.font = "600 11px -apple-system, system-ui, sans-serif"; const sw = ctx.measureText(sub).width;
   const pw = Math.max(tw, sw) + 50, ph = 46, slide = reduceMotion ? 0 : (1 - inP) * 18;
