@@ -399,8 +399,8 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "";
-fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; } }).catch(() => {});
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "";
+fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; } }).catch(() => {});
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -1743,7 +1743,7 @@ function drawNetwork(r) {
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
-  if (isDesktop && nodeMode === "managed") { text("Closing this window keeps your node + mining running in the background. Quitting the app (⌘Q) stops your node.", r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 18; }
+  if (isDesktop && nodeMode === "managed") { const quitHint = desktopPlatform === "win32" ? "Quitting from the tray icon" : desktopPlatform === "linux" ? "Quitting the app" : "Quitting the app (⌘Q)"; text(`Closing this window keeps your node + mining running in the background. ${quitHint} stops your node.`, r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 18; }
   // all three indicators in one row: BTC price (left) · mining power vs difficulty (middle) · halving (right)
   const gap = 16, ch = r.y + r.h - y - 6;
   const hasBw = !!(model.node && model.node.nettotals); // node bandwidth → add a 4th card (desktop only)

@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, shell, Notification } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification } = require("electron");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -34,6 +34,7 @@ const MIME = {
 };
 
 let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null, mainWindow = null;
+let tray = null, isQuitting = false; // Windows: window close hides to tray (keeps mining); only Quit sets isQuitting
 let managed = null, managedState = { state: "idle", progress: null, detail: null }; // managed-node provisioning state
 let managedLog = []; // human-readable step log, shown in the wizard + written to install.log
 let lastLogKey = "";
@@ -115,6 +116,7 @@ function engineCmd(name) {
 }
 function startEngine(name) {
   if (stopping) return;
+  if (procs[name]) return; // already running — don't spawn a duplicate (an orphaned proc would keep its own respawn chain alive, multiplying engines)
   const { cmd, args } = engineCmd(name);
   const p = spawn(cmd, args, { env: ENGINE_ENV, stdio: "ignore" });
   procs[name] = p;
@@ -392,6 +394,7 @@ function startServer() {
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
         const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
+        out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
@@ -412,6 +415,26 @@ function startServer() {
   });
 }
 
+// ---- Windows system tray: lets the app keep the node + miner running after the window is closed,
+// matching macOS's "closing keeps it running" behavior. Mac keeps its dock; Windows gets a tray. ----
+function showMainWindow() {
+  if (mainWindow && !mainWindow.isDestroyed()) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
+  else createWindow();
+}
+function createTray() {
+  if (process.platform !== "win32" || tray) return;
+  let img = nativeImage.createFromPath(ICON);
+  if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 }); // ICON is 1024² → shrink for the tray
+  tray = new Tray(img.isEmpty() ? ICON : img);
+  tray.setToolTip("Bitcoin Lottery — mining in the background");
+  tray.setContextMenu(Menu.buildFromTemplate([
+    { label: "Open Dashboard", click: showMainWindow },
+    { type: "separator" },
+    { label: "Quit Bitcoin Lottery", click: () => { isQuitting = true; app.quit(); } }, // the only way to really stop mining on Windows
+  ]));
+  tray.on("double-click", showMainWindow);
+}
+
 async function createWindow() {
   if (!app.isPackaged && process.platform === "darwin" && app.dock) app.dock.setIcon(ICON);
   const port = await ensureServer();
@@ -421,6 +444,9 @@ async function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
+  // Windows: the X button hides to the tray and keeps the node + miner running in the background
+  // (like macOS keeping the app in the dock). Only the tray's Quit / menu Exit really stops it.
+  win.on("close", (e) => { if (process.platform === "win32" && !isQuitting) { e.preventDefault(); win.hide(); } });
   // open http(s)/mailto links (terms, support email) in the user's browser/mail client, not a new app window
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^(https?|mailto):/i.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // first run → wizard. Managed mode → setup screen too, so the install progress is visible
@@ -430,22 +456,32 @@ async function createWindow() {
   win.loadURL(`http://127.0.0.1:${port}${startPath}`);
 }
 
-app.whenReady().then(() => {
-  DATA_DIR = app.getPath("userData"); // the app's own isolated config/state/node.json
-  try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
-  NODE_JSON = path.join(DATA_DIR, "node.json");
-  ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
-  if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up
-    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-    if (cfg.node_mode === "managed") startManagedNode(); // provision/resume our own node, then start engines when it's mineable
-    else startEngines();
-  }
-  buildMenu();
-  createWindow();
-  initAutoUpdate();
-});
+// Single-instance lock: the app survives window-close in the tray (Windows), so a second launch must
+// just reveal the running instance — never spin up a second miner + managed node (which would clash on
+// the RPC port). The secondary process exits immediately; the primary focuses its window.
+if (!app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", showMainWindow);
+  app.whenReady().then(() => {
+    DATA_DIR = app.getPath("userData"); // the app's own isolated config/state/node.json
+    try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
+    NODE_JSON = path.join(DATA_DIR, "node.json");
+    ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
+    if (process.platform === "win32") ENGINE_ENV.PYTHONUTF8 = "1"; // belt-and-suspenders for DEV (real python3): engines print ₿/→ and a Windows pipe defaults to cp1252 → UnicodeEncodeError. NOTE: PyInstaller-frozen exes IGNORE this env var, so the packaged engines force UTF-8 in their own source (sys.std*.reconfigure).
+    if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up
+      let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+      if (cfg.node_mode === "managed") startManagedNode(); // provision/resume our own node, then start engines when it's mineable
+      else startEngines();
+    }
+    buildMenu();
+    createTray(); // Windows: tray icon so closing the window keeps mining (no-op elsewhere)
+    createWindow();
+    initAutoUpdate();
+  });
+}
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
-app.on("before-quit", () => { stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / real quit → stop mining (+ our node)
+app.on("before-quit", () => { isQuitting = true; stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node)
 // On macOS, closing the window keeps the miner running in the background (app stays in the dock; reopen
-// from the dock). Only ⌘Q stops it. On Windows/Linux, closing the last window quits the app.
-app.on("window-all-closed", () => { if (process.platform !== "darwin") { stopEngines(); app.quit(); } });
+// from the dock). On Windows, the window hides to the tray (same effect). Only Linux quits on last close.
+app.on("window-all-closed", () => { if (process.platform !== "darwin" && process.platform !== "win32") { stopEngines(); app.quit(); } });

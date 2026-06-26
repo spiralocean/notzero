@@ -17,17 +17,41 @@ import sys
 import time
 import urllib.request
 
+# PyInstaller-frozen builds ignore PYTHONUTF8, and Windows pipes/consoles default to cp1252 — so any
+# non-Latin-1 char we print (the → below, ₿, …) crashes with UnicodeEncodeError. Force UTF-8 on our streams.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 REPO = pathlib.Path(__file__).resolve().parent.parent
+
+# Cross-platform process stats for the miner (CPU%/RAM). Bundled in the packaged app; if unavailable,
+# miner_proc just reports null instead of failing. (Replaces the old Unix-only pgrep/ps, absent on Windows.)
+try:
+    import psutil
+except Exception:  # noqa: BLE001
+    psutil = None
 
 
 def miner_proc_stats():
-    """CPU% / RAM the lottery miner daemon is using — to show it's a lottery ticket, not a mining rig."""
-    try:
-        pid = subprocess.check_output(["pgrep", "-f", "lottery_miner.py"], text=True).split()[0]
-        cpu, rss = subprocess.check_output(["ps", "-o", "%cpu=,rss=", "-p", pid], text=True).split()
-        return {"cpu": round(float(cpu), 1), "mem_mb": round(int(rss) / 1024, 1)}
-    except Exception:  # noqa: BLE001 — daemon not running / not found
+    """CPU% / RAM the lottery miner daemon is using — to show it's a lottery ticket, not a mining rig.
+    Matches the packaged 'miner'/'miner.exe' binary or a dev 'python lottery_miner.py'. None if not found."""
+    if psutil is None:
         return None
+    me = os.getpid()
+    try:
+        for p in psutil.process_iter(["name", "cmdline"]):
+            if p.pid == me:
+                continue  # never count the bridge itself
+            name = (p.info.get("name") or "").lower()
+            cmd = " ".join(p.info.get("cmdline") or []).lower()
+            if name in ("miner", "miner.exe") or "lottery_miner" in cmd:
+                return {"cpu": round(p.cpu_percent(interval=0.2), 1), "mem_mb": round(p.memory_info().rss / (1024 * 1024), 1)}
+    except Exception:  # noqa: BLE001 — process vanished mid-scan / access denied
+        return None
+    return None
 sys.path.insert(0, str(REPO))  # import the miner's real bech32 validator (single source of truth)
 try:
     from lottery_miner import validate_payout_address as _validate_payout
@@ -82,7 +106,7 @@ def rpc(url, user, pw, method, params=None):
     payload = json.dumps({"jsonrpc": "1.0", "id": "bridge", "method": method, "params": params or []}).encode()
     auth = "Basic " + base64.b64encode(f"{user}:{pw}".encode()).decode()
     req = urllib.request.Request(url, data=payload, headers={"Content-Type": "application/json", "Authorization": auth})
-    with urllib.request.urlopen(req, timeout=30) as resp:
+    with urllib.request.urlopen(req, timeout=10) as resp:  # short: a busy node (IBD flush) must not freeze node.json
         body = json.loads(resp.read().decode())
     if body.get("error"):
         raise RuntimeError(body["error"])
@@ -163,11 +187,15 @@ def build(url, user, pw, cookie=""):
     node_ok = True
     chain, peers_raw, mempool = {}, [], None
     try:
-        chain = rpc(url, user, pw, "getblockchaininfo")
-        peers_raw = rpc(url, user, pw, "getpeerinfo")
+        chain = rpc(url, user, pw, "getblockchaininfo")  # the ONLY call that decides reachability — keep it cheap
     except Exception:  # noqa: BLE001
         node_ok = False
     if node_ok:
+        try:
+            peers_raw = rpc(url, user, pw, "getpeerinfo")
+        except Exception:  # noqa: BLE001 — peers are best-effort; a hiccup here must not flip the node to "unreachable"
+            peers_raw = []
+    if node_ok and not chain.get("initialblockdownload", False):  # mempool isn't shown during sync — skip its 2 RPC calls so a busy node doesn't stall the poll
         # mempool: transactions flowing in while the next block is mined (the "data coming in")
         try:
             mp = rpc(url, user, pw, "getmempoolinfo")
@@ -272,7 +300,9 @@ def build(url, user, pw, cookie=""):
         "nettotals": nettotals,
         "miner": miner,
         "miner_proc": miner_proc_stats(),  # CPU%/RAM the miner daemon uses — calms 'is this a mining rig?' fears
-        "lottery_blocks": scan_lottery_blocks(url, user, pw),  # recent blocks carrying the /BitcoinLottery/ coinbase tag
+        # recent blocks carrying the /BitcoinLottery/ coinbase tag. Skipped during IBD: it's ~24 RPC calls that
+        # stall on a busy syncing node (freezing node.json → "waiting for node"), and there's nothing to find yet.
+        "lottery_blocks": (scan_lottery_blocks(url, user, pw) if node_ok and not chain.get("initialblockdownload", False) else []),
         "payout": payout,
         "peers": peers,
     }
@@ -284,17 +314,41 @@ def write(obj):
     tmp.replace(OUT)
 
 
+# A busy syncing node periodically blocks RPC (cache flushes), so an occasional poll fails. Don't flap the
+# dashboard to "disconnected" on a single miss — hold the last-known-good state for a few polls, and only
+# declare the node unreachable after a sustained outage. Eliminates the connect/disconnect cycling during IBD.
+_last_good = None
+_consec_fail = 0
+FAIL_GRACE = 5  # tolerate this many consecutive failed/unreachable polls before showing "disconnected" (~50s; covers long end-of-IBD chainstate flushes)
+
+
+def publish(obj):
+    """obj = a build() result, or None if build() raised. Debounces transient unreachability."""
+    global _last_good, _consec_fail
+    if obj is not None and obj.get("reachable"):
+        _last_good, _consec_fail = obj, 0
+        write(obj)
+        return
+    _consec_fail += 1
+    if _last_good is not None and _consec_fail <= FAIL_GRACE:
+        held = dict(_last_good)           # re-publish the last good state so the dashboard stays connected
+        held["ts"] = int(time.time())
+        held["stale"] = True             # flag it (dashboard ignores; useful for debugging)
+        write(held)
+    else:
+        write(obj if obj is not None else {"ts": int(time.time()), "reachable": False, "error": "node unreachable", "peers": []})
+
+
 def main():
     url0, _, _, _ = load_rpc()
     print(f"node bridge → {OUT}  (rpc {url0}, every {POLL_SEC}s)")
     while True:
         try:
             url, user, pw, cookie = load_rpc()  # re-read each poll so wizard edits + cookie rotation are picked up live
-            write(build(url, user, pw, cookie))
+            publish(build(url, user, pw, cookie))
         except Exception as e:  # noqa: BLE001 — keep running through transient RPC errors
-            # generic message in the web-served file; the detail (which can carry the RPC host/port) goes to stderr only
-            print(f"bridge: node unreachable — {str(e)[:200]}", file=sys.stderr)
-            write({"ts": int(time.time()), "reachable": False, "error": "node unreachable", "peers": []})
+            print(f"bridge: poll failed — {str(e)[:200]}", file=sys.stderr)  # detail (may carry RPC host/port) → stderr only
+            publish(None)
         time.sleep(POLL_SEC)
 
 
