@@ -1395,7 +1395,14 @@ function drawSync(r) {
   syncState.streams = syncState.streams || {};
   // two-stage flow: a peer's water reaches the NODE only when its stream's leading edge is at the node (head≈1).
   const nodeFed = minedAnim || peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
-  const fillPerSec = !flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000))); // rate-driven; mined block commits briskly
+  // how far the real node is ahead of what the conveyor has shown → race to catch up (fill fast) instead
+  // of jumping the numbers. Heights come from the conveyor's own count (dispHeight below), so they stay
+  // smooth; this just speeds the chain along when there's ground to cover, and never passes the real head.
+  const convH0 = (syncState.headStart != null ? syncState.headStart : Math.floor(head)) + (syncState.shown || 0);
+  const gap = Math.max(0, Math.floor(head) - convH0);
+  const catchUp = gap > 1 ? Math.min(30, 1 + gap / 8) : 1;
+  const fed = nodeFed || gap > 1; // catching up blocks the node already has → don't wait for a live peer stream
+  const fillPerSec = gap > 1 ? Math.min(6, 0.6 * catchUp) : (!flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)))); // catch-up: brisk · else rate-driven
   const downloading = behind > 0 || minedAnim;
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
@@ -1419,7 +1426,7 @@ function drawSync(r) {
   const rr = rh.length >= 2 ? (rh[rh.length - 1].h - rh[0].h) / Math.max(0.5, rh[rh.length - 1].t - rh[0].t) : 0;
   syncState.rateSmooth = syncState.rateSmooth == null ? rr : syncState.rateSmooth + (rr - syncState.rateSmooth) * 0.04;
   const paceMul = Math.max(0.6, Math.min(2.0, syncState.rateSmooth / 4)); // ~4 blk/s → 1×
-  const pruneDur = Math.max(1.0, Math.min(2.5, PRUNE_SEC / paceMul)), stepDur = Math.max(0.28, 0.42 / paceMul); // variable with sync rate, capped 1–2.5s so it's always visible
+  const pruneDur = Math.max(0.3, Math.min(2.5, PRUNE_SEC / paceMul) / catchUp), stepDur = Math.max(0.1, (0.42 / paceMul) / catchUp); // dead-time shrinks while catching up
   // The block is a container; its level (fp) only changes as the node→block stream actually delivers water.
   //   arrive : tap open, the stream's leading edge descends to the empty block — level NOT moving yet
   //   fill   : water landing, level rises at the throughput-driven rate up to FP_CUT
@@ -1433,10 +1440,10 @@ function drawSync(r) {
   if (downloading) {
     if (syncState.phase === "arrive") {
       // node → block only starts once the node has actually been fed (peer water reached it)
-      if (nodeFed) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
+      if (fed) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
       else if (syncState.nh > 0) { syncState.nt = Math.min(1, syncState.nt + edgeStep); if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; } } // not fed: drain the partial pipe and wait
     } else if (syncState.phase === "fill") {
-      if (nodeFed) {
+      if (fed) {
         syncState.nh = 1; syncState.nt = 0;
         syncState.fp += fillPerSec / 60;
         if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
@@ -1471,7 +1478,7 @@ function drawSync(r) {
   const filling = downloading && flowing && (syncState.phase === "fill" || syncState.phase === "topoff");
   const newestFill = (downloading || atTip) ? syncState.fp : 0; // IBD: rises with the water · mining: rises with mining progress
   const blockX = (k) => birthX - (hs - k) * spacing;
-  const dispHeight = (k) => Math.floor(head) + 1 - (syncState.shown - k); // center (k=shown) = head+1, the block being obtained; left = head, head-1 …
+  const dispHeight = (k) => (syncState.headStart != null ? syncState.headStart : Math.floor(head)) + 1 + k; // heights from the conveyor's OWN count (anchored at sync start) → smooth, never jumps/reverts with the live head
 
   // current synced block vs the block the network is mining right now (tip + 1)
   const mining = tip + 1;
@@ -1789,14 +1796,14 @@ if (syncDemo) expanded.add("sync"); // ?syncdemo=1 → open the sync panel for t
 let demoHead = null, demoTip = null, demoStage = "ibd", demoT0 = 0, demoBlkMs = 0, demoMined = 0;
 function demoNode() {
   const realTip = model.tipHeight || 900000, now = Date.now();
-  if (demoHead == null || demoTip == null || demoTip < realTip - 1 || demoTip > realTip + 60) { demoTip = realTip; demoHead = realTip - 48000; demoStage = "ibd"; demoT0 = now; demoBlkMs = now; demoMined = 0; }
+  if (demoHead == null || demoTip == null || demoTip < realTip - 1 || demoTip > realTip + 60) { demoTip = realTip; demoHead = realTip - 60; demoStage = "ibd"; demoT0 = now; demoBlkMs = now; demoMined = 0; }
   if (demoStage === "ibd") {
-    const prog = Math.min(1, (now - demoT0) / 12000); // catch up over ~12 real seconds (time-based, fps-independent)
-    demoHead = (demoTip - 48000) + prog * 48000;
+    const prog = Math.min(1, (now - demoT0) / 16000); // catch up over ~16 real seconds (time-based, fps-independent)
+    demoHead = (demoTip - 60) + prog * 60;
     if (prog >= 1) { demoHead = demoTip; demoStage = "mining"; demoBlkMs = now; } // caught up → mining the tip
   } else { // mining: caught up; the network finds a new block every ~5s (head & tip advance together)
     if (now - demoBlkMs > 5000) { demoTip += 1; demoHead += 1; demoBlkMs = now; demoMined += 1; }
-    if (demoMined >= 5) { demoStage = "ibd"; demoTip = realTip; demoHead = realTip - 48000; demoT0 = now; demoMined = 0; } // loop back to show IBD again
+    if (demoMined >= 5) { demoStage = "ibd"; demoTip = realTip; demoHead = realTip - 60; demoT0 = now; demoMined = 0; } // loop back to show IBD again
   }
   const ibd = demoStage === "ibd", sinceBlk = (now - demoBlkMs) / 1000;
   const peers = [];
