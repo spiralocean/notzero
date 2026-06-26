@@ -60,6 +60,7 @@
     },
     "win": {
       "target": "nsis",
+      "artifactName": "notzero-win.${ext}",
       "icon": "assets/icon.png"
     },
     "linux": {
