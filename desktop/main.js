@@ -109,7 +109,7 @@ let stopping = false, enginesStarted = false;
 
 function engineCmd(name) {
   const minerArgs = name === "miner" ? ["--daemon"] : [];
-  if (app.isPackaged) return { cmd: path.join(process.resourcesPath, "engine", name), args: minerArgs }; // bundled binary, no Python
+  if (app.isPackaged) return { cmd: path.join(process.resourcesPath, "engine", name + (process.platform === "win32" ? ".exe" : "")), args: minerArgs }; // bundled binary (.exe on Windows), no Python
   const script = name === "bridge" ? path.join(__dirname, "..", "scripts", "node_bridge.py") : path.join(__dirname, "..", "lottery_miner.py");
   return { cmd: "python3", args: [script, ...minerArgs] };
 }
