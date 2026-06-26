@@ -35,5 +35,12 @@ release.env
 # large local UTXO snapshot artifact (never commit)
 scripts/utxo-snapshot-*.dat
 
+# built installers / release binaries — these go to R2 (dl.getnotzero.com), never git
+*.exe
+*.dmg
+*.zip
+*.AppImage
+*.deb
+
 # wrangler local state
 .wrangler/
