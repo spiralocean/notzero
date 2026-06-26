@@ -127,27 +127,44 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     if (info.blocks >= P.ASSUMEUTXO.height) return;      // already past the snapshot height
     if (!P.ASSUMEUTXO.snapshotUrl) return;               // Phase 2 stub: no hosted snapshot yet → normal IBD
     const snap = path.join(paths.node, `utxo-${P.ASSUMEUTXO.height}.dat`);
-    const DL_MSG = "Downloading the verified snapshot (about 9 GB) — the longest part of setup.";
-    if (!fs.existsSync(snap)) {
-      emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
-      await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p, DL_MSG));
-    }
-    // loadtxoutset has no RPC progress callback, but Core logs "[snapshot] N coins loaded (X%…)"
-    // to debug.log. Tail it so this heavy ~10-15 min step shows a REAL progress bar — a frozen bar
-    // here reads as "crashed" to a non-technical user, the exact moment they'd force-quit.
-    const LOAD_MSG = "Loading the snapshot into your node — the heavy step, a few minutes. Please leave the app open.";
-    emit(STATES.LOADING_SNAPSHOT, 0, LOAD_MSG);
-    const debugLog = path.join(paths.datadir, "debug.log");
-    let loadingSnap = true;
-    (async () => {
-      while (loadingSnap) {
-        const m = [...tailFile(debugLog).matchAll(/\[snapshot\]\s+\d+\s+coins loaded\s+\(([\d.]+)%/g)].pop();
-        if (m) emit(STATES.LOADING_SNAPSHOT, Math.min(0.999, parseFloat(m[1]) / 100), LOAD_MSG);
-        await sleep(2000);
+    try {
+      const DL_MSG = "Downloading the verified snapshot (about 9 GB) — the longest part of setup.";
+      if (!fs.existsSync(snap)) {
+        emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
+        await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p, DL_MSG));
       }
-    })();
-    try { await rpc("loadtxoutset", [snap], 0); }        // Core verifies vs its baked-in hash; long-running
-    finally { loadingSnap = false; }
+      // loadtxoutset needs the snapshot's base block header (at ASSUMEUTXO.height) to ALREADY be in the
+      // node's headers chain — otherwise it errors "base block header must appear in the headers chain".
+      // Headers sync quickly from peers; wait for them to pass the snapshot height before loading.
+      let headersOk = false;
+      for (let i = 0; i < 600 && !headersOk; i++) {      // up to ~10 min
+        let ci; try { ci = await rpc("getblockchaininfo"); } catch { ci = null; }
+        const h = (ci && ci.headers) || 0;
+        if (h >= P.ASSUMEUTXO.height) { headersOk = true; break; }
+        emit(STATES.LOADING_SNAPSHOT, null, `Catching up block headers — ${h.toLocaleString()} / ${P.ASSUMEUTXO.height.toLocaleString()}…`);
+        await sleep(1000);
+      }
+      if (!headersOk) throw new Error("block headers didn't reach the snapshot height — check your internet/firewall");
+      // loadtxoutset has no RPC progress callback, but Core logs "[snapshot] N coins loaded (X%…)" to
+      // debug.log. Tail it so this heavy step shows a REAL progress bar instead of a frozen one.
+      const LOAD_MSG = "Loading the snapshot into your node — the heavy step, a few minutes. Please leave the app open.";
+      emit(STATES.LOADING_SNAPSHOT, 0, LOAD_MSG);
+      const debugLog = path.join(paths.datadir, "debug.log");
+      let loadingSnap = true;
+      (async () => {
+        while (loadingSnap) {
+          const m = [...tailFile(debugLog).matchAll(/\[snapshot\]\s+\d+\s+coins loaded\s+\(([\d.]+)%/g)].pop();
+          if (m) emit(STATES.LOADING_SNAPSHOT, Math.min(0.999, parseFloat(m[1]) / 100), LOAD_MSG);
+          await sleep(2000);
+        }
+      })();
+      try { await rpc("loadtxoutset", [snap], 0); }      // Core verifies vs its baked-in hash; long-running
+      finally { loadingSnap = false; }
+    } catch (e) {
+      // assumeutxo fast-start failed — don't dead-end in an error. bitcoind is already doing IBD, so fall
+      // back to a normal full sync from genesis and let sync() carry on: slower, but the node still works.
+      emit(STATES.SYNCING, null, `Couldn't fast-start from the snapshot (${(e && e.message) || "unknown error"}). Syncing the full chain from scratch instead — this works, but takes much longer.`);
+    }
   }
 
   // Bring the node up to "started + snapshot attempted". Caller then polls sync().
