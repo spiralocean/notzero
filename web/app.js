@@ -1447,7 +1447,12 @@ function drawSync(r) {
     } else if (syncState.phase === "topoff") {
       syncState.nt = Math.min(1, syncState.nt + edgeStep);
       syncState.fp = syncState.fpCut + (1 - syncState.fpCut) * syncState.nt;
-      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "prune"; syncState.pruneT = 0; }
+      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "wait"; }
+    } else if (syncState.phase === "wait") {
+      // don't make a duplicate block: only advance once the node's head reaches the block we're showing
+      // (a real new tip). If the head hasn't moved, hold here (filled) and wait for the next tip update.
+      const cur = syncState.kHeight ? syncState.kHeight[syncState.shown] : null;
+      if (cur == null || Math.floor(head) >= cur) { syncState.phase = "prune"; syncState.pruneT = 0; }
     } else if (syncState.phase === "prune") {
       syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; }
     } else {
