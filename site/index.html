@@ -332,9 +332,10 @@
 <script src="qrcode.min.js"></script>
 <script>
   // ---- OS-aware download ----
-  // macOS universal (Intel + Apple Silicon) is live (signed + notarized .dmg on R2). Windows / Linux: coming soon.
+  // macOS universal (signed + notarized .dmg) and Windows (NSIS .exe) are live on R2. Linux: coming soon.
   const MAC_URL = "https://dl.getnotzero.com/notzero-mac.dmg";
-  const SOON = { win: "Windows", linux: "Linux" };
+  const WIN_URL = "https://dl.getnotzero.com/notzero-win.exe";
+  const SOON = { linux: "Linux" };
   function detectOS() {
     const ua = navigator.userAgent, p = (navigator.userAgentData && navigator.userAgentData.platform) || navigator.platform || "";
     if (/Win/i.test(p) || /Windows/i.test(ua)) return "win";
@@ -347,9 +348,12 @@
     if (os === "mac") {
       btn.href = MAC_URL; btn.classList.remove("soon"); arr.textContent = "↓";
       lbl.childNodes[0].nodeValue = "Download for Mac "; sub.textContent = "Intel & Apple Silicon";
+    } else if (os === "win") {
+      btn.href = WIN_URL; btn.classList.remove("soon"); arr.textContent = "↓";
+      lbl.childNodes[0].nodeValue = "Download for Windows "; sub.textContent = "Windows 10 & 11 · 64-bit";
     } else {
       btn.classList.add("soon"); btn.setAttribute("href", "#"); btn.addEventListener("click", (e) => e.preventDefault());
-      arr.textContent = "◴"; lbl.childNodes[0].nodeValue = "Coming soon for " + SOON[os] + " "; sub.textContent = "Mac available now ↓";
+      arr.textContent = "◴"; lbl.childNodes[0].nodeValue = "Coming soon for " + SOON[os] + " "; sub.textContent = "Mac & Windows available now ↓";
     }
   }
   configBtn(document.getElementById("dl"));
@@ -365,11 +369,13 @@
   })();
   // show the current downloadable version next to the button (auto-pulled from the update feed)
   fetch("/api/version").then((r) => r.json()).then((d) => {
-    if (os === "mac" && d.version) ["dl-sub", "dl-sub2"].forEach((id) => { const s = document.getElementById(id); if (s) s.textContent = s.textContent + " · v" + d.version; });
+    if ((os === "mac" || os === "win") && d.version) ["dl-sub", "dl-sub2"].forEach((id) => { const s = document.getElementById(id); if (s) s.textContent = s.textContent + " · v" + d.version; });
   }).catch(() => {});
   document.getElementById("others").innerHTML = os === "mac"
-    ? 'Works on <b>any Mac</b> — Intel and Apple Silicon. Windows &amp; Linux — <span class="soon-tag">coming soon</span>.'
-    : `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
+    ? 'Works on <b>any Mac</b> (Intel &amp; Apple Silicon) and <b>Windows 10/11</b>. Linux — <span class="soon-tag">coming soon</span>.'
+    : os === "win"
+    ? `Available now: <a href="${WIN_URL}">Windows 10/11</a><span class="sep">·</span><a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span>Linux <span class="soon-tag">coming soon</span>`
+    : `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span><a href="${WIN_URL}">Windows 10/11</a><span class="sep">·</span>Linux <span class="soon-tag">coming soon</span>`;
 
   // ---- tip jar: QR codes + copy ----
   // Lightning QR = the LNURL-pay for spiralocean@coinos.io (any Lightning wallet scans it).
