@@ -399,8 +399,8 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "";
-fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; } }).catch(() => {});
+let isDesktop = false, appVersion = "", nodeMode = "";
+fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; } }).catch(() => {});
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -1425,7 +1425,7 @@ function drawSync(r) {
   //   fill   : water landing, level rises at the throughput-driven rate up to FP_CUT
   //   topoff : tap closed; the water still in the pipe drains in, level tops off to 1 exactly as the tail lands
   //   prune  : leftmost block digests   ·   step : chain advances
-  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.pruneT = 0; syncState.nh = 0; syncState.nt = 0; }
+  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.pruneT = 0; syncState.nh = 0; syncState.nt = 0; syncState.headStart = Math.floor(head); }
   const flowRate = Math.min(1, syncState.flow / 2_000_000);
   syncState.nph = ((syncState.nph || 0) + (0.9 + 2.0 * flowRate) / 60) % 1; // glyph scroll along the node→block pipe
   const edgeStep = (1.6 + 1.4 * flowRate) / 60;                            // stream leading/trailing edge travel per frame
@@ -1447,7 +1447,13 @@ function drawSync(r) {
     } else if (syncState.phase === "topoff") {
       syncState.nt = Math.min(1, syncState.nt + edgeStep);
       syncState.fp = syncState.fpCut + (1 - syncState.fpCut) * syncState.nt;
-      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "prune"; syncState.pruneT = 0; }
+      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "wait"; }
+    } else if (syncState.phase === "wait") {
+      // realism: don't advance the chain faster than the node actually obtains blocks. Hold the filled block
+      // until the node's head moves past what we've shown — so no phantom empty block appears and the head
+      // number never repeats/goes backward. If the node is far ahead, this passes immediately and the heights
+      // skip forward (the conveyor keeps its watchable pace; it just never gets ahead of reality).
+      if (syncState.shown < Math.floor(head) - (syncState.headStart || 0)) { syncState.phase = "prune"; syncState.pruneT = 0; }
     } else if (syncState.phase === "prune") {
       syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; }
     } else {
@@ -1726,6 +1732,7 @@ function drawNetwork(r) {
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
+  if (isDesktop && nodeMode === "managed") { text("Closing this window keeps your node + mining running in the background. Quitting the app (⌘Q) stops your node.", r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 18; }
   // all three indicators in one row: BTC price (left) · mining power vs difficulty (middle) · halving (right)
   const gap = 16, ch = r.y + r.h - y - 6;
   const hasBw = !!(model.node && model.node.nettotals); // node bandwidth → add a 4th card (desktop only)
