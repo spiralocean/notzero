@@ -1399,10 +1399,10 @@ function drawSync(r) {
   // of jumping the numbers. Heights come from the conveyor's own count (dispHeight below), so they stay
   // smooth; this just speeds the chain along when there's ground to cover, and never passes the real head.
   const convH0 = (syncState.headStart != null ? syncState.headStart : Math.floor(head)) + (syncState.shown || 0);
-  const gap = Math.max(0, Math.floor(head) - convH0);
-  const catchUp = gap > 1 ? Math.min(30, 1 + gap / 8) : 1;
-  const fed = nodeFed || gap > 1; // catching up blocks the node already has → don't wait for a live peer stream
-  const fillPerSec = gap > 1 ? Math.min(6, 0.6 * catchUp) : (!flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)))); // catch-up: brisk · else rate-driven
+  const headGap = Math.max(0, Math.floor(head) - convH0);
+  const catchUp = headGap > 1 ? Math.min(30, 1 + headGap / 8) : 1;
+  const fed = nodeFed || headGap > 1; // catching up blocks the node already has → don't wait for a live peer stream
+  const fillPerSec = headGap > 1 ? Math.min(6, 0.6 * catchUp) : (!flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)))); // catch-up: brisk · else rate-driven
   const downloading = behind > 0 || minedAnim;
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
