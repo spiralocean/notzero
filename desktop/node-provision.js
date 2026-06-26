@@ -124,7 +124,9 @@ async function downloadAndVerifyCore(destDir, onProgress) {
 function extractCore(archive, destDir, kind = "targz") {
   fs.mkdirSync(destDir, { recursive: true });
   const r = kind === "zip"
-    ? spawnSync("unzip", ["-oq", archive, "-d", destDir], { stdio: "ignore" })
+    ? (process.platform === "win32"
+        ? spawnSync("tar", ["-xf", archive, "-C", destDir], { stdio: "ignore" }) // Windows has no `unzip`; its bundled bsdtar (system32\tar.exe) auto-detects + extracts zip
+        : spawnSync("unzip", ["-oq", archive, "-d", destDir], { stdio: "ignore" }))
     : spawnSync("tar", ["-xzf", archive, "-C", destDir], { stdio: "ignore" });
   if (r.status !== 0) throw new Error(`Failed to extract ${path.basename(archive)}`);
   const top = fs.readdirSync(destDir).find((n) => n.startsWith(`bitcoin-${CORE_VERSION}`));

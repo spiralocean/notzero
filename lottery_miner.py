@@ -16,6 +16,7 @@ import argparse
 import hashlib
 import json
 import os
+import platform
 import struct
 import sys
 import time
@@ -25,6 +26,14 @@ from dataclasses import asdict, dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
+
+# PyInstaller-frozen builds ignore PYTHONUTF8, and Windows pipes/consoles default to cp1252 — so any
+# non-Latin-1 char we print (₿, →, …) crashes with UnicodeEncodeError. Force UTF-8 on our streams.
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
 
 MEMPOOL_API = "https://mempool.space/api"
 
@@ -219,7 +228,7 @@ def save_winning_block(height: int, block_hex: str) -> Path:
 def log_daemon(message: str) -> None:
     ensure_app_support()
     line = f"[{utc_now()}] {message}\n"
-    with LOG_FILE.open("a") as f:
+    with LOG_FILE.open("a", encoding="utf-8") as f:  # messages can carry ₿/—; default cp1252 on Windows would crash
         f.write(line)
     if not getattr(log_daemon, "_quiet", False):
         print(line, end="")
@@ -1077,7 +1086,7 @@ def resolve_runtime_settings(
         # default seed is a HASH of the hostname, not the hostname itself — it's published in node.json
         # (which is web-served) and shown in the nonce pane, so a raw hostname would leak the device name.
         # Deterministic (stable nonce per host) and identical on daemon + dashboard. A user-set seed wins.
-        "machine_seed": seed or config.get("machine_seed") or hashlib.sha256(os.uname().nodename.encode()).hexdigest()[:16],
+        "machine_seed": seed or config.get("machine_seed") or hashlib.sha256((platform.node() or "bitcoin-lottery").encode()).hexdigest()[:16],  # platform.node() = hostname, cross-platform (os.uname() is Unix-only → crashed on Windows)
         "payout_address": payout_address if payout_address is not None else config.get("payout_address", ""),
     }
     # default to the owner's address when no wallet is set, so live mode mines to a valid address
