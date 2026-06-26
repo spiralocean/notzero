@@ -1547,6 +1547,7 @@ function drawSync(r) {
     const st = { head: syncState.nh, tail: syncState.nt, phase: syncState.nph };
     drawStream(cx, dropTop, cx, surfaceY, st, 0.95);
     if (syncState.phase === "fill" && flowing) { const sp2 = 2 + 1.5 * Math.abs(Math.sin(frame * 0.4)); ctx.beginPath(); ctx.arc(cx, surfaceY, sp2, 0, 7); ctx.fillStyle = "rgba(255,215,140,0.9)"; ctx.fill(); } // splash while water is landing
+    else if (atTip && !reduceMotion) { const hp = (syncState.t * 0.5) % 1, py = dropTop + (surfaceY - dropTop) * hp; ctx.beginPath(); ctx.arc(cx, py, 2, 0, 7); ctx.fillStyle = `rgba(${ACCENT},${0.45 * (1 - hp)})`; ctx.fill(); } // idle "assembling" pulse: a soft dot drifts node→block so delivery never looks frozen while waiting at the tip
   }
 
   // ---- pruner at the far left ----
@@ -1577,6 +1578,11 @@ function drawSync(r) {
   if (downloading) {
     const lbl = arriving ? "incoming ▾" : filling ? `filling ▾ ${Math.round(newestFill * 100)}% · ${(syncState.flow / 1e6).toFixed(1)} MB/s` : (!flowing ? "⏸ waiting for data — block held partial" : "");
     if (lbl) text(lbl, cx, cy - bh / 2 - 8, { size: 10, color: `rgba(${ACCENT},${filling ? 0.7 : 0.45})`, align: "center", baseline: "middle" });
+  } else if (atTip) {
+    // synced and waiting: the candidate fills by elapsed time (capped at 92%), so it can sit still for minutes.
+    // Say so explicitly and pulse the label so it reads as "waiting for the next block", not "stuck".
+    const pulse = reduceMotion ? 0.6 : 0.5 + 0.2 * Math.abs(Math.sin(syncState.t * 1.6));
+    text(`◴ assembling the next block · ${Math.round(newestFill * 100)}% · completes when the network finds it (~10 min)`, cx, cy - bh / 2 - 8, { size: 10, color: `rgba(${ACCENT},${pulse})`, align: "center", baseline: "middle" });
   }
   if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 10, color: "#0f0", baseline: "alphabetic", mono: true });
 
