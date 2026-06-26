@@ -40,13 +40,14 @@ const CORE_ARTIFACTS = {
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
 // height/hash baked into the release, so the CDN host need not be trusted.
-// Core 31 has both 840000 and 880000 baked in; we use 840000 because a verified
-// snapshot is publicly available to re-host (blog.lopp.net) — no archival node needed.
+// Core 31 has both 840000 and 880000 baked in; we use 880000 — fewer blocks to sync
+// from the snapshot to the tip. The file is the canonical one published with Core PR
+// #31969 (Sjors), SHA256 43b3b1ad…5f89de4 — re-hosted on our CDN.
 const ASSUMEUTXO = {
-  height: 840000,
-  blockhash: "0000000000000000000320283a032748cef8227873ff4872689bf23f1cda83a5", // block 840000 (the halving block)
+  height: 880000,
+  blockhash: "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880", // block 880000
   // our CDN URL for the loadtxoutset snapshot file (utxo-<height>.dat); null → full IBD fallback.
-  snapshotUrl: "https://dl.getnotzero.com/utxo-840000.dat",
+  snapshotUrl: "https://dl.getnotzero.com/utxo-880000.dat",
 };
 
 const PRUNE_MIB = 10000; // ~10 GB of recent blocks; min allowed is 550. Chainstate (~snapshot) is on top.
