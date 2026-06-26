@@ -200,7 +200,12 @@
           $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
           $("start").textContent = "Save changes";
           $("cancel").style.display = "block";
-          if (c.node_mode === "managed") { showInstallProgress(); return; } // show the live install status, not a static form
+          if (c.node_mode === "managed") {
+            // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
+            // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
+            if (new URLSearchParams(location.search).has("settings")) showManagedSettings(); else showInstallProgress();
+            return;
+          }
         }
       } catch (_) {}
       if (!settingsMode) {
