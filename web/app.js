@@ -477,6 +477,12 @@ function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
 function visibleSections() {
   return nodeSyncing() ? ["sync", "network"] : SECTIONS;
 }
+// open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
+let syncAutoExpanded = false;
+function autoExpandSync() {
+  if (nodeSyncing()) { if (!syncAutoExpanded) { expanded.add("sync"); syncAutoExpanded = true; } }
+  else syncAutoExpanded = false;
+}
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -484,7 +490,7 @@ function layoutSections() {
     const header = { x: PAD, y, w: W - PAD * 2, h: HEADER_H };
     y += HEADER_H;
     let content = null;
-    const open = expanded.has(s) || (s === "sync" && nodeSyncing()); // keep the sync panel open while syncing
+    const open = expanded.has(s);
     if (open) { const h = CONTENT_H[s]; content = { x: PAD, y: y + 4, w: W - PAD * 2, h }; y += 4 + h; }
     y += GAP;
     frames.push({ section: s, header, content });
@@ -1468,6 +1474,7 @@ function drawSync(r) {
   text(`mining #${mining.toLocaleString()}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
   text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  if (behind > 0) text("Your computer runs warm during this one-time catch-up (you may hear the fan) — it settles down once synced.", r.x + r.w / 2, r.y + 72, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
@@ -1566,12 +1573,17 @@ function drawSync(r) {
   const mineX = synced ? birthX + spacing : (r.x + r.w - m - bw), mineCx = mineX + bw / 2;
   if (!synced) {
     const lastX = mineX - spacing, lastCx = lastX + bw / 2; // latest already-mined block (#tip), beside the one being mined
-    let fx = birthX + spacing, fh = Math.floor(head) + 2, lastRight = birthX + bw;
+    let fx = birthX + spacing, fh = Math.floor(head) + 2, lastRight = birthX + bw, firstSlot = true;
     while (fx + bw <= lastX - spacing * 0.8) {
-      ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // neutral: future blocks aren't confirmed
-      ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
-      text("#" + (fh % 100000), fx + bw / 2, cy, { size: 10, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
-      lastRight = fx + bw; fx += spacing; fh += 1;
+      // during a conveyor step the incoming empty block slides through this first slot — don't also draw a
+      // dashed "upcoming" box here, or you briefly see two empty blocks at the same spot
+      if (!(firstSlot && syncState.phase === "step")) {
+        ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // neutral: future blocks aren't confirmed
+        ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
+        text("#" + (fh % 100000), fx + bw / 2, cy, { size: 10, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
+        lastRight = fx + bw;
+      }
+      fx += spacing; fh += 1; firstSlot = false;
     }
     text("upcoming →", birthX + spacing + 2, my - 8, { size: 10, color: "rgba(255,255,255,0.35)", baseline: "middle" });
     // dashed gap: the blocks between my synced block and the tip (what's left to download)
@@ -1943,6 +1955,7 @@ function render(ts) {
   if (syncDemo) model.node = demoNode(); // override with the simulated IBD node for preview
   drawRain(); // fixed background
 
+  autoExpandSync();
   const { frames, total } = layoutSections();
   window.__frames = Object.fromEntries(frames.filter((f) => f.content).map((f) => [f.section, f.content])); // expose panel rects (for snapshot tests to clip exactly)
   maxScroll = Math.max(0, total + FOOTER_PAD - H); // FOOTER_PAD leaves clearance so the last panel's bottom clears the fixed footer
