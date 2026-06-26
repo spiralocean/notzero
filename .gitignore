@@ -34,3 +34,6 @@ release.env
 
 # large local UTXO snapshot artifact (never commit)
 scripts/utxo-snapshot-*.dat
+
+# wrangler local state
+.wrangler/
