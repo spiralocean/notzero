@@ -1395,14 +1395,7 @@ function drawSync(r) {
   syncState.streams = syncState.streams || {};
   // two-stage flow: a peer's water reaches the NODE only when its stream's leading edge is at the node (head≈1).
   const nodeFed = minedAnim || peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
-  // how far the real node is ahead of what the conveyor has shown → race to catch up (fill fast) instead
-  // of jumping the numbers. Heights come from the conveyor's own count (dispHeight below), so they stay
-  // smooth; this just speeds the chain along when there's ground to cover, and never passes the real head.
-  const convH0 = (syncState.headStart != null ? syncState.headStart : Math.floor(head)) + (syncState.shown || 0);
-  const headGap = Math.max(0, Math.floor(head) - convH0);
-  const catchUp = headGap > 1 ? Math.min(30, 1 + headGap / 8) : 1;
-  const fed = nodeFed || headGap > 1; // catching up blocks the node already has → don't wait for a live peer stream
-  const fillPerSec = headGap > 1 ? Math.min(6, 0.6 * catchUp) : (!flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000)))); // catch-up: brisk · else rate-driven
+  const fillPerSec = !flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000))); // throughput-driven fill rate (kept at a watchable pace)
   const downloading = behind > 0 || minedAnim;
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
@@ -1426,13 +1419,13 @@ function drawSync(r) {
   const rr = rh.length >= 2 ? (rh[rh.length - 1].h - rh[0].h) / Math.max(0.5, rh[rh.length - 1].t - rh[0].t) : 0;
   syncState.rateSmooth = syncState.rateSmooth == null ? rr : syncState.rateSmooth + (rr - syncState.rateSmooth) * 0.04;
   const paceMul = Math.max(0.6, Math.min(2.0, syncState.rateSmooth / 4)); // ~4 blk/s → 1×
-  const pruneDur = Math.max(0.3, Math.min(2.5, PRUNE_SEC / paceMul) / catchUp), stepDur = Math.max(0.1, (0.42 / paceMul) / catchUp); // dead-time shrinks while catching up
+  const pruneDur = Math.max(1.0, Math.min(2.5, PRUNE_SEC / paceMul)), stepDur = Math.max(0.28, 0.42 / paceMul); // watchable fill/prune cadence
   // The block is a container; its level (fp) only changes as the node→block stream actually delivers water.
   //   arrive : tap open, the stream's leading edge descends to the empty block — level NOT moving yet
   //   fill   : water landing, level rises at the throughput-driven rate up to FP_CUT
   //   topoff : tap closed; the water still in the pipe drains in, level tops off to 1 exactly as the tail lands
   //   prune  : leftmost block digests   ·   step : chain advances
-  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.pruneT = 0; syncState.nh = 0; syncState.nt = 0; syncState.headStart = Math.floor(head); }
+  if (syncState.shown == null) { syncState.shown = 0; syncState.prunedBelow = -L - 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.pruneT = 0; syncState.nh = 0; syncState.nt = 0; syncState.headStart = Math.floor(head); syncState.kHeight = {}; for (let kk = 0; kk >= -(L + 3); kk--) syncState.kHeight[kk] = Math.floor(head) + 1 + kk; }
   const flowRate = Math.min(1, syncState.flow / 2_000_000);
   syncState.nph = ((syncState.nph || 0) + (0.9 + 2.0 * flowRate) / 60) % 1; // glyph scroll along the node→block pipe
   const edgeStep = (1.6 + 1.4 * flowRate) / 60;                            // stream leading/trailing edge travel per frame
@@ -1440,10 +1433,10 @@ function drawSync(r) {
   if (downloading) {
     if (syncState.phase === "arrive") {
       // node → block only starts once the node has actually been fed (peer water reached it)
-      if (fed) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
+      if (nodeFed) { syncState.nt = 0; syncState.nh = Math.min(1, syncState.nh + edgeStep); if (syncState.nh >= 1) syncState.phase = "fill"; }
       else if (syncState.nh > 0) { syncState.nt = Math.min(1, syncState.nt + edgeStep); if (syncState.nt >= 1) { syncState.nh = 0; syncState.nt = 0; } } // not fed: drain the partial pipe and wait
     } else if (syncState.phase === "fill") {
-      if (fed) {
+      if (nodeFed) {
         syncState.nh = 1; syncState.nt = 0;
         syncState.fp += fillPerSec / 60;
         if (syncState.fp >= FP_CUT) { syncState.fp = FP_CUT; syncState.fpCut = FP_CUT; syncState.phase = "topoff"; }
@@ -1454,17 +1447,11 @@ function drawSync(r) {
     } else if (syncState.phase === "topoff") {
       syncState.nt = Math.min(1, syncState.nt + edgeStep);
       syncState.fp = syncState.fpCut + (1 - syncState.fpCut) * syncState.nt;
-      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "wait"; }
-    } else if (syncState.phase === "wait") {
-      // realism: don't advance the chain faster than the node actually obtains blocks. Hold the filled block
-      // until the node's head moves past what we've shown — so no phantom empty block appears and the head
-      // number never repeats/goes backward. If the node is far ahead, this passes immediately and the heights
-      // skip forward (the conveyor keeps its watchable pace; it just never gets ahead of reality).
-      if (syncState.shown < Math.floor(head) - (syncState.headStart || 0)) { syncState.phase = "prune"; syncState.pruneT = 0; }
+      if (syncState.nt >= 1) { syncState.fp = 1; syncState.nh = 0; syncState.nt = 0; syncState.phase = "prune"; syncState.pruneT = 0; }
     } else if (syncState.phase === "prune") {
       syncState.pruneT += (1 / 60) / pruneDur; if (syncState.pruneT >= 1) { syncState.pruneT = 1; syncState.prunedBelow += 1; syncState.phase = "step"; syncState.sp = 0; }
     } else {
-      syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; if (syncState.pending > 0) syncState.pending -= 1; } // one mined block committed
+      syncState.sp += (1 / 60) / stepDur; if (syncState.sp >= 1) { syncState.shown += 1; syncState.kHeight[syncState.shown] = Math.floor(head) + 1; delete syncState.kHeight[syncState.shown - L - 6]; syncState.phase = "arrive"; syncState.fp = 0; syncState.nh = 0; syncState.nt = 0; if (syncState.pending > 0) syncState.pending -= 1; } // born: lock its height to the real head (skip-forward), drop the off-screen one
     }
   } else if (atTip) { // caught up: assemble the next block under the node, filling slowly over the ~10-min interval
     // capped below full — the candidate isn't a confirmed block; it only completes (and steps in) when the network finds it
@@ -1478,7 +1465,7 @@ function drawSync(r) {
   const filling = downloading && flowing && (syncState.phase === "fill" || syncState.phase === "topoff");
   const newestFill = (downloading || atTip) ? syncState.fp : 0; // IBD: rises with the water · mining: rises with mining progress
   const blockX = (k) => birthX - (hs - k) * spacing;
-  const dispHeight = (k) => (syncState.headStart != null ? syncState.headStart : Math.floor(head)) + 1 + k; // heights from the conveyor's OWN count (anchored at sync start) → smooth, never jumps/reverts with the live head
+  const dispHeight = (k) => (syncState.kHeight && syncState.kHeight[k] != null) ? syncState.kHeight[k] : Math.floor(head) + 1 + (k - syncState.shown); // each block's number locked at birth → smooth, never reverts; tracks the head via skips
 
   // current synced block vs the block the network is mining right now (tip + 1)
   const mining = tip + 1;
@@ -1566,7 +1553,7 @@ function drawSync(r) {
   // (No static dashed slot under the node: the conveyor's own incoming empty block slides in from the
   // right to occupy center — a second static slot here read as a duplicate empty block during the step.)
   const span = Math.ceil((birthX - leftExit) / spacing) + 4, pruneTarget = syncState.prunedBelow + 1;
-  for (let k = Math.ceil(hs); k > Math.floor(hs) - span; k--) {
+  for (let k = Math.min(syncState.shown, Math.ceil(hs)); k > Math.floor(hs) - span; k--) { // ≤ shown: the train slides forward first, the new empty block appears at center after the step (no block pushing in from the right)
     const x = blockX(k);
     if (x > cx + bw || x + bw < r.x + m + bw * 0.5) continue; // cull once a block is more than half off the left edge (no clipped-glyph sliver)
     const fill = k < syncState.shown ? 1 : (k === syncState.shown ? newestFill : 0);
