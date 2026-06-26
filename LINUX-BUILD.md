@@ -1,7 +1,7 @@
 # Linux build — handoff
 
 Context for a Claude Code session building + testing the **Linux** package of **notzero** (Bitcoin
-Lottery). macOS is fully shipped (0.1.11, https://dl.getnotzero.com); Windows is in progress (see
+Lottery). macOS is fully shipped (0.1.12, https://dl.getnotzero.com); Windows is in progress (see
 `WINDOWS-BUILD.md`); **Linux is the last platform.** Read `WINDOWS-BUILD.md` first for the shared app
 overview — this doc only covers Linux specifics.
 

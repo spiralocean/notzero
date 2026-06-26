@@ -201,24 +201,39 @@ window.addEventListener("resize", resize);
 // The matrix rain is the heaviest ambient effect; let users switch it off (remembered) while keeping the
 // panel animations, which are informative (hash build, sync conveyor). The OS "reduce motion" accessibility
 // setting still freezes panel motion for those who ask for it.
-let rainOff = false; try { rainOff = localStorage.getItem("bl.rainoff") === "1"; } catch (_) {}
-let osReduceMotion = false, reduceMotion = false, showRain = true;
+// Motion has three user-selectable levels (cycled via the top-left toggle), for weak machines / preference:
+//   full → matrix rain + animated panels (~30fps)
+//   calm → no rain, panels still animate (~30fps)
+//   off  → nothing animates; the loop idles at a 1fps heartbeat and only repaints on real change
+//          (new data / hover / scroll / resize) — near-zero CPU, the right setting for older Intel Macs.
+let motionMode = "full";
+try { motionMode = localStorage.getItem("bl.motion") || (localStorage.getItem("bl.rainoff") === "1" ? "calm" : "full"); } catch (_) {}
+let osReduceMotion = false, reduceMotion = false, showRain = true, motionOff = false, winFocused = true;
 let rafId = 0, lastDraw = 0;
 function applyMotion() {
-  reduceMotion = osReduceMotion;            // OS reduce-motion freezes panel animations (accessibility)
-  showRain = !osReduceMotion && !rainOff;   // the matrix rain: off under OS reduce-motion or the user toggle
+  motionOff = motionMode === "off";
+  reduceMotion = osReduceMotion || motionOff;       // freeze panel animation (OS accessibility OR user "off")
+  showRain = !reduceMotion && motionMode === "full"; // matrix rain only in Full (and not under OS reduce-motion)
 }
-function setRain(off) { rainOff = off; try { localStorage.setItem("bl.rainoff", off ? "1" : "0"); } catch (_) {} applyMotion(); lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
+// force a single repaint on the next frame (used when nothing is animating but state changed)
+function requestRender() { lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
+function setMotion(mode) { motionMode = mode; try { localStorage.setItem("bl.motion", mode); } catch (_) {} applyMotion(); requestRender(); }
+function cycleMotion() { setMotion(motionMode === "full" ? "calm" : motionMode === "calm" ? "off" : "full"); }
 try {
   const mq = window.matchMedia("(prefers-reduced-motion: reduce)");
   osReduceMotion = mq.matches;
-  mq.addEventListener("change", (e) => { osReduceMotion = e.matches; applyMotion(); });
+  mq.addEventListener("change", (e) => { osReduceMotion = e.matches; applyMotion(); requestRender(); });
 } catch (_) { /* matchMedia unavailable */ }
 applyMotion();
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { cancelAnimationFrame(rafId); rafId = 0; }
   else if (!rafId) { rafId = requestAnimationFrame(render); } // resume where we left off
 });
+try { winFocused = document.hasFocus(); } catch (_) {}
+// B) throttle hard when the window is open but not focused — Electron keeps painting at full rate in the
+// background otherwise. Snap back to a fresh frame the moment focus returns.
+window.addEventListener("focus", () => { winFocused = true; requestRender(); });
+window.addEventListener("blur", () => { winFocused = false; });
 
 function text(s, x, y, { size = 16, weight = 400, color = "#fff", align = "left", baseline = "alphabetic", mono = false } = {}) {
   ctx.font = `${weight} ${size}px ${mono ? "ui-monospace, SFMono-Regular, Menlo, monospace" : "-apple-system, system-ui, sans-serif"}`;
@@ -1853,15 +1868,17 @@ function drawGear() {
 const gearHit0 = (gx, gy) => ({ x: gx - 12, y: gy - 12, w: 24, h: 24 });
 
 // animation toggle (top-left) → cycles Full → Calm → Off, for weak machines / personal preference.
+const MOTION_UI = { full: { icon: "✦", name: "full" }, calm: { icon: "◐", name: "calm" }, off: { icon: "○", name: "off" } };
 function drawMotionToggle() {
-  const lbl = `${rainOff ? "○" : "✦"} rain: ${rainOff ? "off" : "on"}`;
+  const m = MOTION_UI[motionMode] || MOTION_UI.full;
+  const lbl = `${m.icon} motion: ${m.name}`;
   ctx.font = "600 11px ui-monospace, monospace";
   const w = ctx.measureText(lbl).width + 16, h = 20, x = PAD, y = 11;
   const hover = inHit({ x, y, w, h }, mouseX, mouseY);
   ctx.fillStyle = `rgba(255,255,255,${hover ? 0.1 : 0.045})`; roundRect(x, y, w, h, 5); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},${hover ? 0.5 : 0.2})`; ctx.lineWidth = 1; roundRect(x, y, w, h, 5); ctx.stroke();
   text(lbl, x + w / 2, y + h / 2, { size: 11, weight: 600, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle", mono: true });
-  if (hover) text("toggle the background rain (lighter on older machines)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+  if (hover) text("click to cycle motion · full → calm → off (off is lightest on older machines)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
   motionHit = { x, y, w, h };
 }
 
@@ -1968,7 +1985,14 @@ function drawCelebration() {
 
 function render(ts) {
   rafId = requestAnimationFrame(render);
-  if (reduceMotion && lastDraw && ts && ts - lastDraw < 240) return; // no motion to draw → redraw at ~4fps, sparing CPU
+  // Frame-rate governor. The loop is always scheduled, but we only actually repaint when enough time has
+  // passed for the current mode — the early-return is essentially free, so idle CPU tracks the draw rate:
+  //   off      → 1fps heartbeat (a safety net; real changes repaint instantly via requestRender)
+  //   reduced  → ~4fps (OS reduce-motion: animations frozen, nothing to draw fast)
+  //   unfocused→ ~8fps (B: window visible but in the background)
+  //   focused  → 30fps cap (A: was an uncapped ~60fps full-canvas redraw — the original CPU hog)
+  const minInterval = motionOff ? 1000 : reduceMotion ? 240 : winFocused ? 33 : 120;
+  if (lastDraw && ts && ts - lastDraw < minInterval) return;
   lastDraw = ts || lastDraw;
   if (syncDemo) model.node = demoNode(); // override with the simulated IBD node for preview
   drawRain(); // fixed background
@@ -2094,7 +2118,7 @@ canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
-  if (inHit(motionHit, e.offsetX, e.offsetY)) { setRain(!rainOff); return; } // toggle the matrix rain background
+  if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
@@ -2115,6 +2139,11 @@ canvas.addEventListener("wheel", (e) => {
   e.preventDefault();
   scrollY = Math.max(0, Math.min(scrollY + e.deltaY, maxScroll));
 }, { passive: false });
+// In "motion: off" the loop idles at 1fps, so poke an immediate repaint on any interaction — hover
+// highlights, scrolling, clicks and key handling stay instant without keeping the animation loop hot.
+["mousemove", "wheel", "click", "pointerdown"].forEach((ev) => canvas.addEventListener(ev, requestRender, { passive: true }));
+window.addEventListener("keydown", requestRender);
+window.addEventListener("resize", requestRender);
 
 // ---- boot ----
 resize();
