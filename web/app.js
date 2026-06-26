@@ -1479,7 +1479,19 @@ function drawSync(r) {
   text(`synced #${Math.floor(head).toLocaleString()}`, r.x + 16, r.y + 34, { size: 11, weight: 600, color: "rgba(255,255,255,0.72)", baseline: "middle" });
   text(`mining #${mining.toLocaleString()}`, r.x + r.w - 16, r.y + 34, { size: 11, weight: 700, color: `rgba(${ACCENT},0.85)`, align: "right", baseline: "middle" });
   const spX = r.x + 16, spW = r.w - 32; ctx.fillStyle = "rgba(255,255,255,0.1)"; roundRect(spX, r.y + 44, spW, 6, 3); ctx.fill(); ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(spX, r.y + 44, Math.max(4, spW * prog), 6, 3); ctx.fill();
-  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  // rough ETA from the block-count rate over a ~90s window (verificationprogress sits at ~99% from the
+  // snapshot on, so block count is the honest basis for the 880k→tip catch-up). Steadies/“estimating…” early.
+  syncState.etaHist = syncState.etaHist || [];
+  const eh = syncState.etaHist, nowMs = Date.now();
+  if (!eh.length || nowMs - eh[eh.length - 1].ts > 3000) eh.push({ ts: nowMs, h: Math.floor(head) });
+  while (eh.length > 2 && nowMs - eh[0].ts > 90000) eh.shift();
+  let etaStr = "";
+  if (behind > 0 && eh.length >= 2) {
+    const bps = (eh[eh.length - 1].h - eh[0].h) / Math.max(1, (eh[eh.length - 1].ts - eh[0].ts) / 1000);
+    if (bps > 0.02) { const s = behind / bps; etaStr = s > 172800 ? ` · ~${(s / 86400).toFixed(1)} days left` : s > 3600 ? ` · ~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left` : s > 90 ? ` · ~${Math.round(s / 60)} min left` : " · almost caught up"; }
+    else etaStr = " · estimating time…";
+  }
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 72, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
 
   // ---- peer arch (dome) ----
