@@ -356,6 +356,10 @@
     const bump = () => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads"); } catch (_) {} };
     ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(); }); });
   })();
+  // show the current downloadable version next to the button (auto-pulled from the update feed)
+  fetch("/api/version").then((r) => r.json()).then((d) => {
+    if (os === "mac" && d.version) ["dl-sub", "dl-sub2"].forEach((id) => { const s = document.getElementById(id); if (s) s.textContent = s.textContent + " · v" + d.version; });
+  }).catch(() => {});
   document.getElementById("others").innerHTML = os === "mac"
     ? 'Works on <b>any Mac</b> — Intel and Apple Silicon. Windows &amp; Linux — <span class="soon-tag">coming soon</span>.'
     : `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span>Windows &amp; Linux <span class="soon-tag">coming soon</span>`;
