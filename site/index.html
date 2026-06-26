@@ -7,6 +7,8 @@
 <meta name="description" content="A tiny app that takes one lottery ticket on every Bitcoin block, mined on your own computer. The odds are staggering. They aren't zero." />
 <meta property="og:title" content="notzero — the odds aren't zero" />
 <meta property="og:description" content="Solo-mine Bitcoin from your own computer. One lottery ticket per block. Almost no one wins. It still isn't zero." />
+<link rel="icon" href="favicon.svg" type="image/svg+xml" />
+<link rel="apple-touch-icon" href="favicon.svg" />
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=IBM+Plex+Mono:wght@400;500;600&family=Hanken+Grotesk:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -165,6 +167,10 @@
   .foot .f-links a { color: var(--faint); text-decoration: none; transition: color .2s; }
   .foot .f-links a:hover { color: var(--ink); }
   .foot-fine { font-family: var(--mono); font-size: 11.5px; color: rgba(236,232,240,0.22); margin-top: 26px; letter-spacing: 0.3px; }
+  .colophon { font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: lowercase; margin-top: 24px; text-align: center; }
+  .colophon a { color: rgba(236,232,240,0.30); text-decoration: none; transition: color .3s; }
+  .colophon a span { color: var(--muted); }
+  .colophon a:hover, .colophon a:hover span { color: var(--orange); }
 
   /* load reveal */
   .rise { opacity: 0; transform: translateY(16px); animation: rise .9s cubic-bezier(.2,.8,.2,1) forwards; }
@@ -320,6 +326,7 @@
   </div>
   <div class="foot-fine" id="terms">Open source · non-custodial · this never holds your keys, only a receiving address. © 2026 Spiral Ocean.<br/><br/>
     <b>Terms &amp; disclaimer.</b> notzero is free, open-source software, provided <b>as-is with no warranty</b> — you run it at your own risk. By downloading and running it, you agree to these terms. It is <b>not financial advice</b>. notzero is <b>solo Bitcoin mining</b>, not a wager or betting service — no money is paid in, and there is no operator or house taking bets. Finding a block solo is <b>astronomically unlikely</b>; never spend money expecting to win. notzero is <b>non-custodial</b> — it never holds your private keys or wallet, only a receiving address you control. You are responsible for your own device's security and for any taxes on rewards in your jurisdiction. Questions: <a href="mailto:support@getnotzero.com">support@getnotzero.com</a>.</div>
+  <div class="colophon"><a href="https://spiralocean.com" target="_blank" rel="noopener">a <span>spiralocean</span> project</a></div>
 </footer>
 
 <script src="qrcode.min.js"></script>
