@@ -7,10 +7,13 @@
 #     build-engines.sh is macOS-only, so this builds them directly)
 #   - rclone with an 'r2' remote pointing at the notzero-dl bucket (same remote release-mac.sh uses)
 #
-# Publishes (stable URLs, re-uploaded each release → Cache-Control: no-cache so the CDN serves the latest):
-#   notzero-win.exe          the download (site link) AND the electron-updater target
-#   notzero-win.exe.blockmap delta-update map
-#   latest.yml               the electron-updater feed (references notzero-win.exe)
+# Publishes (mirrors release-mac.sh — versioned installer is immutable/cacheable; the feed + the website
+# alias are stable URLs that change each release, so they upload Cache-Control: no-cache):
+#   notzero-${version}-win.exe          the electron-updater target (version-specific URL → cache forever)
+#   notzero-${version}-win.exe.blockmap delta-update map (version-specific → cacheable)
+#   latest.yml                          the electron-updater feed (references the versioned exe) → no-cache
+#   notzero-win.exe                     stable alias for the website download button only → no-cache
+#                                       (cache-ruled fresh; the updater never uses this URL)
 $ErrorActionPreference = "Stop"
 $ROOT = Split-Path -Parent $PSScriptRoot
 $DESKTOP = Join-Path $ROOT "desktop"
@@ -29,24 +32,30 @@ python -m PyInstaller --onefile --clean --noconfirm --name bridge --paths . --hi
 Pop-Location
 if (-not (Test-Path (Join-Path $RES "miner.exe")) -or -not (Test-Path (Join-Path $RES "bridge.exe"))) { throw "engine build failed" }
 
-# 2) installer (electron-builder reads win.artifactName = notzero-win.${ext}); produces notzero-win.exe + latest.yml
+# 2) installer (electron-builder reads win.artifactName = notzero-${version}-win.${ext});
+#    produces notzero-$VERSION-win.exe + latest.yml (the feed references the versioned exe)
 Write-Host "-> building NSIS installer..."
 Push-Location $DESKTOP
 npx electron-builder --win
 Pop-Location
 
-$exe = Join-Path $DIST "notzero-win.exe"
+$exe = Join-Path $DIST "notzero-$VERSION-win.exe"
 $blockmap = "$exe.blockmap"
 $yml = Join-Path $DIST "latest.yml"
 foreach ($f in @($exe, $yml)) { if (-not (Test-Path $f)) { throw "missing build artifact: $f" } }
 
 # 3) publish to R2
 Write-Host "-> uploading to $BUCKET ..."
-rclone copyto $exe "$BUCKET/notzero-win.exe" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
-if (Test-Path $blockmap) { rclone copyto $blockmap "$BUCKET/notzero-win.exe.blockmap" --s3-no-check-bucket -q }
+# versioned installer + blockmap → version-specific (immutable) URLs, fine to cache at the edge
+rclone copyto $exe "$BUCKET/notzero-$VERSION-win.exe" --s3-no-check-bucket --s3-chunk-size 64M -q
+if (Test-Path $blockmap) { rclone copyto $blockmap "$BUCKET/notzero-$VERSION-win.exe.blockmap" --s3-no-check-bucket -q }
+# feed (references the versioned exe) → stable URL, no-cache so the CDN always serves the latest
 rclone copyto $yml "$BUCKET/latest.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
+# stable alias for the website download button → no-cache (cache-ruled fresh); the updater does NOT use this
+rclone copyto $exe "$BUCKET/notzero-win.exe" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 
 Write-Host ""
 Write-Host "ok: released notzero-win $VERSION"
-Write-Host "   download : https://dl.getnotzero.com/notzero-win.exe"
+Write-Host "   download : https://dl.getnotzero.com/notzero-win.exe          (stable, website button)"
+Write-Host "   updater  : https://dl.getnotzero.com/notzero-$VERSION-win.exe (versioned, cacheable)"
 Write-Host "   feed     : https://dl.getnotzero.com/latest.yml"
