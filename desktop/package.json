@@ -65,6 +65,7 @@
     },
     "linux": {
       "target": "AppImage",
+      "artifactName": "notzero-${version}-linux-${arch}.${ext}",
       "category": "Finance",
       "icon": "assets/icon.png"
     }
