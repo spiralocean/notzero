@@ -1,8 +1,32 @@
 # Windows build — handoff
 
+> ## ⚡ READ FIRST — current status (updated 2026-06-27)
+> **Windows is SHIPPED.** notzero **0.1.13** is live (download + auto-update) at https://dl.getnotzero.com,
+> linked from getnotzero.com. mac + Windows both ship from a unified `main`. **Linux (AppImage) is the only
+> remaining platform.** The manual "Build steps" / "After it builds" sections below are now **historical
+> reference** — the release is one script.
+>
+> ### To cut a Windows release (whole flow = one script)
+> 1. `git pull origin main` — gets the latest dashboard/engines/fixes **and** the release script.
+> 2. If shipping a new version, bump `"version"` in `desktop/package.json` (shared across mac/win/linux;
+>    each platform publishes its own feed, so the same version number is fine).
+> 3. `pwsh ./scripts/release-win.ps1` (or `powershell -File scripts\release-win.ps1`).
+>    Builds engines (PyInstaller) + the NSIS installer, then publishes to R2 (`r2:notzero-dl`):
+>    - `notzero-<version>-win.exe` (+ `.blockmap`) — **versioned, cacheable** → the electron-updater target
+>    - `latest.yml` — the updater feed (`no-cache`), references the versioned exe
+>    - `notzero-win.exe` — **stable alias** for the website download button only (`no-cache`)
+>    Requires: Node, Python 3.9+ with PyInstaller, and `rclone` with an `r2` remote (bucket `notzero-dl`).
+>
+> ### Integration / coordination (how mac-Claude and you stay in sync)
+> - **git is the channel.** `git pull` before you start; `git push origin main` when you commit, so the
+>   mac side + website can integrate. The dashboard (`web/app.js`) is the single shared source — already merged.
+> - **Never commit build artifacts** — `*.exe/.dmg/.zip/.blockmap/latest*.yml` are gitignored (they go to R2).
+> - Versioned-exe naming + a Cloudflare cache rule (keeps `notzero-win.exe` + `latest.yml` fresh) are already
+>   set up; `release-win.ps1` handles caching correctly — nothing to configure.
+
 Context for a Claude Code session **running on a Windows laptop** to build + test the Windows
 installer for **notzero** (a.k.a. Bitcoin Lottery). The macOS side is fully built, signed, notarized,
-and shipping (current release 0.1.10 at https://dl.getnotzero.com). Windows is the remaining target.
+and shipping at https://dl.getnotzero.com.
 
 ## What this app is
 A desktop app (Electron, in `desktop/`) that lets non-technical people **solo-mine Bitcoin** — one
