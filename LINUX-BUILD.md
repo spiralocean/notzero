@@ -7,8 +7,14 @@
 > qemu emulation, and a native arm64 build wouldn't run on most Linux desktops. The release is one script.
 >
 > ### To cut the Linux release (whole flow = one script)
-> 1. In WSL2/Ubuntu (or any x86_64 Linux): install Node LTS, Python 3.9+, `pip install pyinstaller`,
->    `sudo apt install libfuse2`. Clone the repo, then once: `cd desktop && npm install`.
+> 1. On **x86_64 Linux with a display** (a real Ubuntu 24 desktop — local, VM, or remote-with-GUI — is
+>    ideal: native arch + you can GUI-test "Set one up for me" on the same box). One-time setup:
+>    - **Node 20 LTS** via nvm or NodeSource — *not* `apt install nodejs` (Ubuntu's is too old for electron-builder).
+>    - `sudo apt install -y libfuse2t64 git build-essential` (FUSE — the AppImage won't mount without it).
+>    - **PyInstaller in a venv** (Ubuntu 24 blocks system pip — PEP 668):
+>      `python3 -m venv ~/.venv && source ~/.venv/bin/activate && pip install pyinstaller`
+>      (activate that venv in the shell that runs the release script).
+>    - Clone the repo, then once: `cd desktop && npm install`.
 > 2. `git pull origin main`; bump `"version"` in `desktop/package.json` if shipping a new version.
 > 3. `./scripts/release-linux.sh` — builds engines (PyInstaller) + the AppImage, then publishes to R2:
 >    - `notzero-<version>-linux-<arch>.AppImage` (+ `.blockmap`) — versioned, cacheable → updater target
