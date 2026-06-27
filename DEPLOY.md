@@ -11,8 +11,10 @@ here on the mac, push, then the other boxes pull and build.** This single-origin
 diverge-and-merge mess of parallel edits.
 
 1. **Mac (origin + ship mac):** edit shared source → **bump `desktop/package.json` version once** (shared
-   across all three) → commit → **`git push origin main`** ← load-bearing → `source release.env &&
-   scripts/release-mac.sh`. If `web/` or `site/` changed, also deploy the website (below).
+   across all three) → **move `CHANGELOG.md` "Unreleased" under the new version** → commit →
+   **`git push origin main`** ← load-bearing → `source release.env && scripts/release-mac.sh`. If `web/` or
+   `site/` changed, also deploy the website (below). As you make changes between releases, add them to the
+   `CHANGELOG.md` **Unreleased** section so nothing is lost when it's time to cut the build.
 2. **Windows:** `git pull origin main` → `./scripts/release-win.ps1` (see `WINDOWS-BUILD.md`).
 3. **Linux:** `git pull origin main` → `./scripts/release-linux.sh` (see `LINUX-BUILD.md`).
 

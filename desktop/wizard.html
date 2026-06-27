@@ -123,6 +123,13 @@
       </div>
     </div>
 
+    <div id="autostart-row" style="display:none; margin-top:6px">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+        <input id="auto_start" type="checkbox" style="width:auto" />
+        <span>Start automatically when I log in <span style="opacity:.6">— keeps mining after a reboot</span></span>
+      </label>
+    </div>
+
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
       <button class="ghost" id="cancel" style="display:none">Cancel</button>
@@ -203,6 +210,10 @@
           $("rpc_pass").placeholder = c.has_rpc_pass ? "•••••• — leave blank to keep current" : (c.uses_cookie ? "(using your node's cookie login)" : "");
           $("start").textContent = "Save changes";
           $("cancel").style.display = "block";
+          // auto-start toggle (shown in settings for both managed + existing nodes) — live-saves on change
+          $("autostart-row").style.display = "block";
+          $("auto_start").checked = c.auto_start !== false;
+          $("auto_start").onchange = () => { fetch("/auto-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_start").checked }) }).catch(() => {}); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
