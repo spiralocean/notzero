@@ -259,6 +259,7 @@ def build(url, user, pw, cookie=""):
                     "target": la.get("target_hex"),
                     "nonce": la.get("nonce"),
                     "won": la.get("won"),
+                    "attempted_at": la.get("attempted_at"),  # ISO ts of the last ticket → dashboard "submitting?" status
                     "leading_zero_bits": prox.get("leading_zero_bits"),
                     # full header fields → the dashboard can rebuild the exact 80-byte header we hashed
                     "version": la.get("version"),

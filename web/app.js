@@ -1888,6 +1888,40 @@ function drawMotionToggle() {
   motionHit = { x, y, w, h };
 }
 
+// top-center liveness pill — answers "is it actually submitting tickets?" at a glance, so a user never has
+// to hunt or wonder. green = synced + a fresh ticket · amber = node still syncing · red = stalled/offline.
+function agoStr(sec) {
+  if (!isFinite(sec)) return "—";
+  if (sec < 45) return "just now";
+  if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
+  return `${Math.round(sec / 3600)}h ago`;
+}
+function drawMinerStatus() {
+  const n = model.node;
+  if (!isDesktop || !n) return; // real app only — not the public demo (no node; a preview could mislead)
+  const reachable = n.reachable !== false;
+  const syncing = reachable && (n.initialblockdownload || (n.headers || 0) > (n.blocks || 0));
+  const at = n.miner && n.miner.attempt;
+  const tMs = at && at.attempted_at ? Date.parse(at.attempted_at) : NaN;
+  const ageSec = isFinite(tMs) ? (Date.now() - tMs) / 1000 : Infinity;
+  const GREEN = "90,225,140", AMBER = "255,190,70", RED = "255,90,90";
+  let dot, label, sub;
+  if (!reachable) { dot = RED; label = "not submitting"; sub = "node offline"; }
+  else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
+  else if (ageSec <= 1200) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; }
+  else { dot = RED; label = "not submitting"; sub = at ? `last ticket ${agoStr(ageSec)}` : "no tickets yet"; }
+
+  const txt = `${label} · ${sub}`;
+  ctx.font = "600 11px ui-monospace, monospace";
+  const padL = 22, w = ctx.measureText(txt).width + padL + 12, h = 22, x = (W - w) / 2, y = 10;
+  ctx.fillStyle = `rgba(${dot},0.10)`; roundRect(x, y, w, h, 6); ctx.fill();
+  ctx.strokeStyle = `rgba(${dot},0.45)`; ctx.lineWidth = 1; roundRect(x, y, w, h, 6); ctx.stroke();
+  // the dot gently pulses while green so "live" reads as alive (frozen under reduced-motion)
+  const pulse = (dot === GREEN && !reduceMotion) ? 0.55 + 0.35 * (0.5 + 0.5 * Math.sin(clock * 2.2)) : 0.9;
+  ctx.fillStyle = `rgba(${dot},${pulse})`; ctx.beginPath(); ctx.arc(x + 12, y + h / 2, 4, 0, 7); ctx.fill();
+  text(txt, x + padL, y + h / 2, { size: 11, weight: 600, color: `rgba(${dot},0.95)`, baseline: "middle", mono: true });
+}
+
 // persistent network-win notice (fixed, above the footer) — so you know even if you missed the moment
 function drawNetWinBadge(wins) {
   netWinHit = null;
@@ -2104,7 +2138,7 @@ function render(ts) {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
