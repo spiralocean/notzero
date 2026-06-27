@@ -1,12 +1,21 @@
 {
   "permissions": {
     "allow": [
+      "Bash(node --check *)",
+      "Bash(python3 -m py_compile *)",
+      "Bash(dig *)",
+      "Bash(git fetch *)",
+      "Bash(rclone lsf *)",
+      "Bash(rclone ls *)",
+      "Bash(rclone cat *)",
       "PowerShell(Get-Process*)",
       "PowerShell(Get-ChildItem*)",
       "PowerShell(Get-Command*)",
       "PowerShell(Get-Content*)",
       "PowerShell(Test-Path*)",
-      "PowerShell(rclone lsf*)"
+      "PowerShell(rclone lsf*)",
+      "mcp__mempalace__mempalace_status",
+      "mcp__claude-in-chrome__tabs_context_mcp"
     ]
   }
 }

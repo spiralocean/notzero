@@ -1903,17 +1903,19 @@ function drawMinerStatus() {
   const syncing = reachable && (n.initialblockdownload || (n.headers || 0) > (n.blocks || 0));
   const at = n.miner && n.miner.attempt;
   const tMs = at && at.attempted_at ? Date.parse(at.attempted_at) : NaN;
-  const ageSec = isFinite(tMs) ? (Date.now() - tMs) / 1000 : Infinity;
+  const haveTs = isFinite(tMs);
+  const ageSec = haveTs ? (Date.now() - tMs) / 1000 : Infinity;
   const GREEN = "90,225,140", AMBER = "255,190,70", RED = "255,90,90";
   let dot, label, sub;
   if (!reachable) { dot = RED; label = "not submitting"; sub = "node offline"; }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
+  else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
   else if (ageSec <= 1200) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; }
-  else { dot = RED; label = "not submitting"; sub = at ? `last ticket ${agoStr(ageSec)}` : "no tickets yet"; }
+  else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — a real, old timestamp
 
   const txt = `${label} · ${sub}`;
   ctx.font = "600 11px ui-monospace, monospace";
-  const padL = 22, w = ctx.measureText(txt).width + padL + 12, h = 22, x = (W - w) / 2, y = 10;
+  const padL = 22, w = ctx.measureText(txt).width + padL + 12, h = 18, x = (W - w) / 2, y = 5;
   ctx.fillStyle = `rgba(${dot},0.10)`; roundRect(x, y, w, h, 6); ctx.fill();
   ctx.strokeStyle = `rgba(${dot},0.45)`; ctx.lineWidth = 1; roundRect(x, y, w, h, 6); ctx.stroke();
   // the dot gently pulses while green so "live" reads as alive (frozen under reduced-motion)
@@ -2047,7 +2049,7 @@ function render(ts) {
 
   ctx.save();
   ctx.translate(0, -scrollY);
-  text("₿ITCOIN LOTTERY", W / 2, 38, { size: 28, weight: 800, align: "center", baseline: "middle" });
+  text("₿ITCOIN LOTTERY", W / 2, 44, { size: 28, weight: 800, align: "center", baseline: "middle" }); // y=44 (was 38) so the fixed status pill above it has clearance
   text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts

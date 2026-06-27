@@ -108,7 +108,12 @@ function initAutoUpdate() {
 // Fired from the MAIN process (not the renderer) so they reach the user even when the dashboard window is
 // closed/in the tray — which is exactly when notifications matter. Watches the bridge's node.json and
 // notifies on transitions, each event gated by its own setting (master switch: notifications_enabled).
-let notifyState = null; // {winHeight, bestBits, synced} — null until the first read sets a baseline (no backlog)
+let notifyState = null;  // {winHeight, bestBits} baseline for one-shot events — null until first read
+let syncNotified = null; // the synced state we last notified about (null = baseline not set yet)
+let syncCand = null;     // {synced, since} — a candidate sync state still waiting out the debounce
+// A node can briefly drop and regain sync; a blip that recovers within a block doesn't threaten "one hash
+// per block", so sync notifications only fire once the new state has HELD for this long (flaps are ignored).
+const SYNC_NOTIFY_DELAY_MS = 5 * 60 * 1000;
 function notify(title, body) {
   try { if (Notification.isSupported()) new Notification({ title, body }).show(); } catch (_) {}
 }
@@ -117,27 +122,36 @@ function startNotifier() {
     let node; try { node = JSON.parse(fs.readFileSync(NODE_JSON, "utf8")); } catch (_) { return; } // no node.json yet → nothing to watch
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     const m = node.miner || {}, ws = m.win_status || {};
-    const cur = {
-      winHeight: ws.status === "confirmed" ? (ws.height || 0) : 0, // a win only counts once it's confirmed
-      bestBits: (m.best && m.best.zero_bits) || 0,
-      synced: node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0),
-    };
+    const winHeight = ws.status === "confirmed" ? (ws.height || 0) : 0; // a win only counts once confirmed
+    const bestBits = (m.best && m.best.zero_bits) || 0;
+    const synced = node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0);
+    const on = cfg.notifications_enabled !== false; // master switch
+
+    // --- one-shot events (win / new best): fire immediately on transition ---
     const prev = notifyState;
-    notifyState = cur; // always advance the baseline so toggling the master switch never dumps a backlog
-    if (prev === null || cfg.notifications_enabled === false) return; // baseline-only / master off → don't fire
-    // 🎯 the big one — your block, confirmed in the chain
-    if (cfg.notify_block_won !== false && cur.winHeight > prev.winHeight) {
-      notify("🎯 You found a block!", `Block #${cur.winHeight.toLocaleString()} is yours — confirmed on the chain.`);
+    notifyState = { winHeight, bestBits }; // always advance the baseline so master-off never backlogs
+    if (prev !== null && on) {
+      if (cfg.notify_block_won !== false && winHeight > prev.winHeight) {
+        notify("🎯 You found a block!", `Block #${winHeight.toLocaleString()} is yours — confirmed on the chain.`);
+      }
+      const hzNow = Math.floor(bestBits / 4), hzPrev = Math.floor(prev.bestBits / 4); // a new whole leading-"0"
+      if (cfg.notify_closeness_above_zero !== false && hzNow > hzPrev && hzNow >= 1) {
+        notify("📈 New best", `Your closest hash yet starts with ${hzNow} leading “0”${hzNow === 1 ? "" : "s"}.`);
+      }
     }
-    // 📈 a new leading-zero milestone (whole "0" gained, not every bit — keeps it rare and meaningful)
-    const hzNow = Math.floor(cur.bestBits / 4), hzPrev = Math.floor(prev.bestBits / 4);
-    if (cfg.notify_closeness_above_zero !== false && hzNow > hzPrev && hzNow >= 1) {
-      notify("📈 New best", `Your closest hash yet starts with ${hzNow} leading “0”${hzNow === 1 ? "" : "s"}.`);
-    }
-    // ✅/⚠️ node sync state changed
-    if (cur.synced !== prev.synced) {
-      if (cur.synced && cfg.notify_node_synced !== false) notify("✅ Node synced", "Caught up — now mining the current block.");
-      else if (!cur.synced && cfg.notify_node_out_of_sync !== false) notify("⚠️ Node catching up", "Your node fell behind. Mining resumes once it's synced again.");
+
+    // --- sync state: DEBOUNCED so brief flaps don't notify ---
+    if (syncNotified === null) { syncNotified = synced; syncCand = null; }       // baseline, no notify
+    else if (synced === syncNotified) { syncCand = null; }                       // reverted to the known state → cancel pending flip
+    else {
+      if (!syncCand || syncCand.synced !== synced) syncCand = { synced, since: Date.now() }; // start/refresh the candidate
+      else if (Date.now() - syncCand.since >= SYNC_NOTIFY_DELAY_MS) {            // held long enough → it's real
+        if (on) {
+          if (synced && cfg.notify_node_synced !== false) notify("✅ Node synced", "Caught up — mining the current block.");
+          else if (!synced && cfg.notify_node_out_of_sync !== false) notify("⚠️ Node out of sync", "Your node has been behind for a while. Mining resumes once it's caught up.");
+        }
+        syncNotified = synced; syncCand = null;                                  // advance even if master-off (no backlog)
+      }
     }
   };
   setInterval(tick, 5000);
@@ -411,6 +425,21 @@ function handleAutoStart(req, res) {
   });
 }
 
+// Toggle the master notifications switch from the settings UI. The notifier reads config each tick, so
+// the change takes effect within seconds — no restart, nothing else to do here.
+function handleNotifications(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 10000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    cfg.notifications_enabled = !!p.enabled;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
+    json(200, { ok: true });
+  });
+}
+
 // Remove the managed node entirely (stop it, delete Core + datadir + snapshot, reset to first-run).
 async function removeManagedNode() {
   let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
@@ -441,6 +470,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-setup") { handleNodeSetup(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
+      if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
       if (urlPath === "/disk") { const free = freeBytes(DATA_DIR); res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ freeGB: free == null ? null : gb(free), requiredGB: gb(REQUIRED_FREE_BYTES), ok: free == null || free >= REQUIRED_FREE_BYTES })); return; }
       if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }
@@ -448,7 +478,7 @@ function startServer() {
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
