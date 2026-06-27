@@ -146,7 +146,7 @@ function genRpcAuth(user = "lottery") {
 // A hardened bitcoin.conf for the managed node: localhost-only RPC (cookie auth),
 // no inbound listener, pruned. The datadir is passed via -datadir at launch.
 function buildBitcoinConf({ prune = PRUNE_MIB, rpcport = MANAGED_RPC_PORT } = {}) {
-  return [
+  const lines = [
     "# Managed by Bitcoin Lottery — a private, pruned node. Safe to delete with the app.",
     "server=1",
     `prune=${prune}`,
@@ -154,8 +154,13 @@ function buildBitcoinConf({ prune = PRUNE_MIB, rpcport = MANAGED_RPC_PORT } = {}
     "rpcbind=127.0.0.1",
     "rpcallowip=127.0.0.1",
     `rpcport=${rpcport}`,
-    "", // cookie auth (auto-generated in datadir) — no rpcuser/rpcpassword on disk
-  ].join("\n");
+  ];
+  // Intel Macs have no efficiency cores and run their fans hard during the one-time assumeutxo background
+  // validation (Core re-verifies the chain behind the snapshot across all cores). Cap script-verification
+  // threads so it stays cool and quiet — slightly slower, but it's background work.
+  if (process.platform === "darwin" && process.arch === "x64") lines.push("par=2");
+  lines.push(""); // cookie auth (auto-generated in datadir) — no rpcuser/rpcpassword on disk
+  return lines.join("\n");
 }
 
 // Filesystem layout for a managed node under a data root (e.g. app userData).
