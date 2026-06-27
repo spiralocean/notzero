@@ -104,3 +104,7 @@ python3 lottery_miner.py --daemon     # the solo miner
 ## License
 
 Released under the [MIT License](LICENSE) — free to use, modify, and run.
+
+---
+
+[a **spiralocean** project](https://spiralocean.com)
