@@ -364,11 +364,14 @@
     const vt = document.getElementById("verify-text");
     if (vt) vt.innerHTML = '<b>The Mac app is signed and notarized by Apple</b> — your computer confirms it’s genuine and untampered before it opens, with no “unknown developer” warnings. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn’t us.';
   }
-  // download counter (Pages Function + KV) — honest social proof, no tracking, no cookies
+  // download counter (Pages Function + KV) — honest social proof, no tracking, no cookies.
+  // Gated: only shown once it's a *confidence-builder*. A small number reads as anti-proof ("barely
+  // anyone uses this"), so we keep it hidden below the threshold and it appears automatically once high.
+  const DL_MIN_SHOW = 500;
   (function () {
     const el = document.getElementById("dlcount");
     fetch("/api/downloads").then((r) => r.json()).then((d) => {
-      if (el && typeof d.count === "number" && d.count > 0) el.textContent = "↓ " + d.count.toLocaleString() + (d.count === 1 ? " download so far" : " downloads so far");
+      if (el && typeof d.count === "number" && d.count >= DL_MIN_SHOW) el.textContent = "↓ " + d.count.toLocaleString() + " downloads so far";
     }).catch(() => {});
     const bump = () => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads"); } catch (_) {} };
     ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(); }); });
