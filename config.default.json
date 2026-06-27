@@ -14,5 +14,6 @@
   "notify_block_won": true,
   "notify_node_synced": true,
   "notify_node_out_of_sync": true,
-  "show_wallet_balance": false
+  "show_wallet_balance": false,
+  "auto_start": true
 }

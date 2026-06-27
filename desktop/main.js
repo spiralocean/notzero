@@ -456,6 +456,17 @@ async function createWindow() {
   win.loadURL(`http://127.0.0.1:${port}${startPath}`);
 }
 
+// Auto-start on login so mining resumes after a reboot (the "set it and forget it" promise). Registers a
+// per-user login item — HKCU \Run on Windows, a LaunchAgent on macOS, ~/.config/autostart on Linux. Default
+// on; a user can disable it via the `auto_start` setting. We launch with --hidden so a reboot opens it into
+// the tray (mining starts headless; the window is one tray click away) instead of popping a window each boot.
+const bootHidden = process.argv.includes("--hidden");
+function applyAutoStart(cfg) {
+  const enabled = !cfg || cfg.auto_start !== false; // default ON
+  try { app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true, args: ["--hidden"] }); }
+  catch (_) { /* best effort — unsupported platform just won't autostart */ }
+}
+
 // Single-instance lock: the app survives window-close in the tray (Windows), so a second launch must
 // just reveal the running instance — never spin up a second miner + managed node (which would clash on
 // the RPC port). The secondary process exits immediately; the primary focuses its window.
@@ -469,14 +480,15 @@ if (!app.requestSingleInstanceLock()) {
     NODE_JSON = path.join(DATA_DIR, "node.json");
     ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
     if (process.platform === "win32") ENGINE_ENV.PYTHONUTF8 = "1"; // belt-and-suspenders for DEV (real python3): engines print ₿/→ and a Windows pipe defaults to cp1252 → UnicodeEncodeError. NOTE: PyInstaller-frozen exes IGNORE this env var, so the packaged engines force UTF-8 in their own source (sys.std*.reconfigure).
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    applyAutoStart(cfg); // keep the login item in sync with the setting on every launch
     if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up
-      let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
       if (cfg.node_mode === "managed") startManagedNode(); // provision/resume our own node, then start engines when it's mineable
       else startEngines();
     }
     buildMenu();
-    createTray(); // Windows: tray icon so closing the window keeps mining (no-op elsewhere)
-    createWindow();
+    createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
+    if (!bootHidden) createWindow(); // boot autostart opens into the tray; a normal launch shows the window
     initAutoUpdate();
   });
 }
