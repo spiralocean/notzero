@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(Get-Process*)",
+      "PowerShell(Get-ChildItem*)",
+      "PowerShell(Get-Command*)",
+      "PowerShell(Get-Content*)",
+      "PowerShell(Test-Path*)",
+      "PowerShell(rclone lsf*)"
+    ]
+  }
+}
