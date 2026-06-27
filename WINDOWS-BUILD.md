@@ -3,8 +3,8 @@
 > ## ⚡ READ FIRST — current status (updated 2026-06-27)
 > **Windows is SHIPPED.** notzero **0.1.13** is live (download + auto-update) at https://dl.getnotzero.com,
 > linked from getnotzero.com. mac + Windows both ship from a unified `main`. **Linux (AppImage) is the only
-> remaining platform.** The manual "Build steps" / "After it builds" sections below are now **historical
-> reference** — the release is one script.
+> remaining platform.** The release is one script (`release-win.ps1`); the sections below are durable
+> reference (what the app is, prerequisites, implementation notes, known caveats).
 >
 > ### To cut a Windows release (whole flow = one script)
 > 1. `git pull origin main` — gets the latest dashboard/engines/fixes **and** the release script.
@@ -35,27 +35,10 @@ private **pruned managed node** with an **assumeutxo** fast-start snapshot (heig
 `https://dl.getnotzero.com/utxo-880000.dat`), then points a tiny miner at it. Non-custodial — it never
 holds keys, only a payout address. The dashboard is a canvas app in `web/` bundled into the desktop app.
 
-## Goal on Windows
-Produce a working **NSIS `.exe` installer**, then **test the full "Set one up for me" flow** on Windows
-(download/verify Core, run bitcoind, load the 880k snapshot, sync, mine).
-
 ## Prerequisites to install on Windows
 - **Git**, **Node.js LTS**, **Python 3.9+** (tick "Add to PATH"), then `pip install pyinstaller`.
-
-## Build steps (figure out exact commands interactively)
-1. `git clone https://github.com/spiralocean/notzero` (or the user's remote) and `cd` in.
-2. `cd desktop && npm install`
-3. **Build the engines** (`miner.exe`, `bridge.exe`) with PyInstaller into `desktop/resources/`.
-   - The macOS script is `desktop/build-engines.sh` (bash). On Windows it likely needs tweaks:
-     it calls **`python3`** (Windows usually has **`python`**), and it runs a **block-validity gate**
-     (`scripts/verify-block.py`) that needs a reachable node — for a first build set
-     **`SKIP_BLOCK_VERIFY=1`**. Either run it in Git Bash with those adjustments, or run PyInstaller
-     directly: `python -m PyInstaller --onefile --name miner lottery_miner.py` and
-     `python -m PyInstaller --onefile --name bridge --paths . --hidden-import lottery_miner scripts/node_bridge.py`
-     (output to `desktop/resources/`). They must be **`miner.exe`** + **`bridge.exe`**.
-4. `npm run dist` (in `desktop/`) → electron-builder produces a Windows **NSIS installer** in
-   `desktop/dist/` (the `win` target is already configured as `nsis` in `desktop/package.json`).
-5. Install it and test **Set one up for me**.
+- Once: `cd desktop && npm install` (so `release-win.ps1` can run electron-builder).
+- `rclone` with an `r2` remote pointing at the `notzero-dl` bucket (for the publish step).
 
 ## Already handled for Windows
 - `desktop/node-provision.js` pins the **`bitcoin-31.0-win64.zip`** Core artifact (sha256) and
@@ -71,14 +54,6 @@ Produce a working **NSIS `.exe` installer**, then **test the full "Set one up fo
 - **Code signing**: no budget → ship **unsigned** initially. Unsigned triggers **SmartScreen**
   ("Windows protected your PC" → More info → Run anyway). Add signing later if a cert is bought.
 - The Help menu uses `shell.openExternal` (mailto/https) — should work cross-platform.
-
-## After it builds + tests clean
-- Host the installer on R2: `rclone copyto <installer>.exe r2:notzero-dl/notzero-setup.exe` (the mac
-  release uses `scripts/release-mac.sh`; make an equivalent Windows step). Add a Windows entry to the
-  updater feed if doing auto-updates (`latest.yml`).
-- Update the landing page (`site/index.html`, deployed to Cloudflare **Pages** project `notzero` via
-  `npx wrangler pages deploy site --project-name=notzero`) — Windows is currently "coming soon"; flip it
-  to a real download once tested.
 
 ## Key facts
 - Releases/deploys are documented in the file-based memory and `scripts/`. The mac release is
