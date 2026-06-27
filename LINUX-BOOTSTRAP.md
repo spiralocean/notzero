@@ -76,3 +76,7 @@ All green → run `./scripts/release-linux.sh` (see `LINUX-BUILD.md`).
   none of it is needed for the build. The **project** context (`CLAUDE.md`, `LINUX-BUILD.md`, scripts) comes
   with the clone.
 - Protocol, same as the other platforms: **`git pull` before starting, `git push` when done.**
+
+---
+
+[a **spiralocean** project](https://spiralocean.com)
