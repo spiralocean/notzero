@@ -5,6 +5,8 @@
 > **Build on x86_64 Linux — the easy path is WSL2 on the Windows laptop** (native x86_64 + WSLg to
 > GUI-test). Do **not** build on the mac repo: it's arm64, so an x86_64 AppImage would need slow, flaky
 > qemu emulation, and a native arm64 build wouldn't run on most Linux desktops. The release is one script.
+> **First time on a fresh box? Do `LINUX-BOOTSTRAP.md` first** (installs Node 20, PyInstaller venv, Claude
+> Code, git/rclone creds), then come back here.
 >
 > ### To cut the Linux release (whole flow = one script)
 > 1. On **x86_64 Linux with a display** (a real Ubuntu 24 desktop — local, VM, or remote-with-GUI — is
