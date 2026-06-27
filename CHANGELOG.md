@@ -4,7 +4,11 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.14
+## Unreleased — next: 0.1.15
+
+_Nothing yet._
+
+## 0.1.14
 
 **App**
 - **Mining notifications** — native OS notifications for the events that matter, fired from the main
