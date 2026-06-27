@@ -4,7 +4,11 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.15
+## Unreleased — next: 0.1.16
+
+_Nothing yet._
+
+## 0.1.15
 
 **App**
 - Status pill: moved up so it no longer overlaps the title; and when the node is synced but there's no
