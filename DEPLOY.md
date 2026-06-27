@@ -5,6 +5,23 @@ updates an unused `*.vercel.app` URL; deploying there does **not** change the li
 Requires `wrangler` to be authenticated (the account already owns the `notzero` + `notzero-demo` Pages
 projects). No build step — these are static sites.
 
+## Release workflow — mac first, then Windows + Linux
+The desktop app (`web/` + `desktop/`) is one shared source built per platform. **Originate every change
+here on the mac, push, then the other boxes pull and build.** This single-origin order is what avoids the
+diverge-and-merge mess of parallel edits.
+
+1. **Mac (origin + ship mac):** edit shared source → **bump `desktop/package.json` version once** (shared
+   across all three) → commit → **`git push origin main`** ← load-bearing → `source release.env &&
+   scripts/release-mac.sh`. If `web/` or `site/` changed, also deploy the website (below).
+2. **Windows:** `git pull origin main` → `./scripts/release-win.ps1` (see `WINDOWS-BUILD.md`).
+3. **Linux:** `git pull origin main` → `./scripts/release-linux.sh` (see `LINUX-BUILD.md`).
+
+Two rules keep it clean: **(a) push here before the others pull** — the change reaches them only via
+GitHub; **(b) the followers only pull + build** — they don't edit source or bump the version. If a
+platform needs its own fix, it pushes and the mac pulls; avoid simultaneous edits to the same files. One
+bump → all three publish that version, each to its own updater feed (`latest-mac.yml` / `latest.yml` /
+`latest-linux.yml`), so no collision even if Windows/Linux ship a version behind.
+
 ## Landing page → getnotzero.com  (project `notzero`)
 Files live in `site/` (`index.html`, `favicon.svg`, `qrcode.min.js`, and Pages Functions in
 `site/functions/`). It has a `site/wrangler.toml` that binds a **KV namespace** for the download counter,
