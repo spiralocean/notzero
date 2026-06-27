@@ -104,6 +104,46 @@ function initAutoUpdate() {
   setInterval(check, 2 * 60 * 60 * 1000); // every 2 hours
 }
 
+// ---- OS notifications for mining events ----
+// Fired from the MAIN process (not the renderer) so they reach the user even when the dashboard window is
+// closed/in the tray — which is exactly when notifications matter. Watches the bridge's node.json and
+// notifies on transitions, each event gated by its own setting (master switch: notifications_enabled).
+let notifyState = null; // {winHeight, bestBits, synced} — null until the first read sets a baseline (no backlog)
+function notify(title, body) {
+  try { if (Notification.isSupported()) new Notification({ title, body }).show(); } catch (_) {}
+}
+function startNotifier() {
+  const tick = () => {
+    let node; try { node = JSON.parse(fs.readFileSync(NODE_JSON, "utf8")); } catch (_) { return; } // no node.json yet → nothing to watch
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    const m = node.miner || {}, ws = m.win_status || {};
+    const cur = {
+      winHeight: ws.status === "confirmed" ? (ws.height || 0) : 0, // a win only counts once it's confirmed
+      bestBits: (m.best && m.best.zero_bits) || 0,
+      synced: node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0),
+    };
+    const prev = notifyState;
+    notifyState = cur; // always advance the baseline so toggling the master switch never dumps a backlog
+    if (prev === null || cfg.notifications_enabled === false) return; // baseline-only / master off → don't fire
+    // 🎯 the big one — your block, confirmed in the chain
+    if (cfg.notify_block_won !== false && cur.winHeight > prev.winHeight) {
+      notify("🎯 You found a block!", `Block #${cur.winHeight.toLocaleString()} is yours — confirmed on the chain.`);
+    }
+    // 📈 a new leading-zero milestone (whole "0" gained, not every bit — keeps it rare and meaningful)
+    const hzNow = Math.floor(cur.bestBits / 4), hzPrev = Math.floor(prev.bestBits / 4);
+    if (cfg.notify_closeness_above_zero !== false && hzNow > hzPrev && hzNow >= 1) {
+      notify("📈 New best", `Your closest hash yet starts with ${hzNow} leading “0”${hzNow === 1 ? "" : "s"}.`);
+    }
+    // ✅/⚠️ node sync state changed
+    if (cur.synced !== prev.synced) {
+      if (cur.synced && cfg.notify_node_synced !== false) notify("✅ Node synced", "Caught up — now mining the current block.");
+      else if (!cur.synced && cfg.notify_node_out_of_sync !== false) notify("⚠️ Node catching up", "Your node fell behind. Mining resumes once it's synced again.");
+    }
+  };
+  setInterval(tick, 5000);
+  tick();
+}
+
 // ---- engine: our own miner + bridge, in an isolated data dir ----
 const procs = {};
 let stopping = false, enginesStarted = false;
@@ -506,6 +546,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
     if (!bootHidden) createWindow(); // boot autostart opens into the tray; a normal launch shows the window
     initAutoUpdate();
+    startNotifier(); // OS notifications for block won / new best / node sync changes
   });
 }
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window

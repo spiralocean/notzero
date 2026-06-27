@@ -7,6 +7,10 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.14
 
 **App**
+- **Mining notifications** — native OS notifications for the events that matter, fired from the main
+  process so they arrive even when the window is closed: 🎯 block won (confirmed), 📈 new leading-"0"
+  milestone, ✅ node synced / ⚠️ node catching up. Each gated by its existing `notify_*` setting (these
+  were config-only leftovers from the legacy Swift app — now actually wired up).
 - **Auto-start on login** — the app now registers a per-user login item so mining resumes after a reboot.
   It launches into the tray (mining starts headless; open the window from the tray). **Off via a new
   Settings toggle** ("Start automatically when I log in").
