@@ -6,7 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.15
 
-_Nothing yet._
+**App**
+- Status pill: moved up so it no longer overlaps the title; and when the node is synced but there's no
+  ticket timestamp yet (e.g. just after an update), it shows "submitting · mining the current block"
+  instead of a misleading "not submitting · last ticket —".
+- Settings: a **Show notifications** toggle (master on/off for all mining notifications).
+- Notifications: **debounce node sync changes** — a brief drop/recover no longer notifies; the
+  "out of sync" / "synced" notice only fires once the new state has held ~5 min (a blip that recovers
+  within a block doesn't threaten one hash per block).
 
 ## 0.1.14
 

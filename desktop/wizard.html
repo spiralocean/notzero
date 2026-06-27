@@ -129,6 +129,12 @@
         <span>Start automatically when I log in <span style="opacity:.6">— keeps mining after a reboot</span></span>
       </label>
     </div>
+    <div id="notif-row" style="display:none; margin-top:4px">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+        <input id="notifications_enabled" type="checkbox" style="width:auto" />
+        <span>Show notifications <span style="opacity:.6">— block won, new best, node sync</span></span>
+      </label>
+    </div>
 
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
@@ -214,6 +220,9 @@
           $("autostart-row").style.display = "block";
           $("auto_start").checked = c.auto_start !== false;
           $("auto_start").onchange = () => { fetch("/auto-start", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_start").checked }) }).catch(() => {}); };
+          $("notif-row").style.display = "block";
+          $("notifications_enabled").checked = c.notifications_enabled !== false;
+          $("notifications_enabled").onchange = () => { fetch("/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("notifications_enabled").checked }) }).catch(() => {}); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
