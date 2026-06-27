@@ -40,3 +40,7 @@ Cloudflare serves the HTML fresh (`cf-cache-status: DYNAMIC`), so no purge neede
 - **Downloads + snapshots** → Cloudflare **R2** bucket `r2:notzero-dl` (→ `dl.getnotzero.com`), uploaded
   with `rclone`. The `.dmg` + `latest-mac.yml` have a cache rule so a release serves fresh, no purge.
 - **macOS releases** → `source release.env && scripts/release-mac.sh` (bump `desktop/package.json` first).
+
+---
+
+[a **spiralocean** project](https://spiralocean.com)

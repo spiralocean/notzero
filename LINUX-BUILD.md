@@ -64,3 +64,7 @@ built on Linux to produce Linux ELF binaries. Build **x86_64** (what most Linux 
 - **Sandbox**: Electron on some Linux setups needs `--no-sandbox` or the chrome-sandbox SUID bit;
   electron-builder usually handles it, but watch for a sandbox error on first launch.
 
+---
+
+[a **spiralocean** project](https://spiralocean.com)
+

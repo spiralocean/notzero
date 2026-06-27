@@ -62,3 +62,7 @@ holds keys, only a payout address. The dashboard is a canvas app in `web/` bundl
   `notzero-demo`), NOT Vercel.
 - Verify any snapshot/Core download by hash; Core verifies the assumeutxo snapshot against its baked-in
   880k hash at load time.
+
+---
+
+[a **spiralocean** project](https://spiralocean.com)
