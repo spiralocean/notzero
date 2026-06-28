@@ -121,22 +121,32 @@ function startNotifier() {
   const tick = () => {
     let node; try { node = JSON.parse(fs.readFileSync(NODE_JSON, "utf8")); } catch (_) { return; } // no node.json yet → nothing to watch
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-    const m = node.miner || {}, ws = m.win_status || {};
-    const winHeight = ws.status === "confirmed" ? (ws.height || 0) : 0; // a win only counts once confirmed
-    const bestBits = (m.best && m.best.zero_bits) || 0;
+    const m = node.miner; // null when the node was unreachable past the bridge's grace window — see below
     const synced = node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0);
     const on = cfg.notifications_enabled !== false; // master switch
 
     // --- one-shot events (win / new best): fire immediately on transition ---
-    const prev = notifyState;
-    notifyState = { winHeight, bestBits }; // always advance the baseline so master-off never backlogs
-    if (prev !== null && on) {
-      if (cfg.notify_block_won !== false && winHeight > prev.winHeight) {
-        notify("🎯 You found a block!", `Block #${winHeight.toLocaleString()} is yours — confirmed on the chain.`);
-      }
-      const hzNow = Math.floor(bestBits / 4), hzPrev = Math.floor(prev.bestBits / 4); // a new whole leading-"0"
-      if (cfg.notify_closeness_above_zero !== false && hzNow > hzPrev && hzNow >= 1) {
-        notify("📈 New best", `Your closest hash yet starts with ${hzNow} leading “0”${hzNow === 1 ? "" : "s"}.`);
+    // Only advance/compare when we actually have miner data. A node.json with no `miner` key (node down past
+    // grace, e.g. sleep/wake) would otherwise read bestBits=0, poison the baseline, and re-fire "new best" the
+    // moment the real value reappears. `best` is monotonic upstream, so carrying the baseline forward is safe.
+    if (m) {
+      const ws = m.win_status || {};
+      const winHeight = ws.status === "confirmed" ? (ws.height || 0) : 0; // a win only counts once confirmed
+      const bestBits = (m.best && m.best.zero_bits) || 0;
+      const prev = notifyState;
+      notifyState = { winHeight, bestBits }; // advance the baseline (only on real data) so master-off never backlogs
+      if (prev !== null && on) {
+        if (cfg.notify_block_won !== false && winHeight > prev.winHeight) {
+          notify("🎯 You found a block!", `Block #${winHeight.toLocaleString()} is yours — confirmed on the chain.`);
+        }
+        // Fire on every zero-BIT gained (matching the dashboard's nibble gauge), not just whole leading-"0"
+        // jumps. The miner takes one attempt per block, so best improves every few days — per-bit is a rare,
+        // meaningful milestone, never spam, and a whole-hex-char threshold would skip weeks between alerts.
+        // Stay quiet below the first whole "0" (bits 1–3) so the very first attempts don't notify.
+        if (cfg.notify_closeness_above_zero !== false && bestBits > prev.bestBits && bestBits >= 4) {
+          const hz = Math.floor(bestBits / 4), rem = bestBits % 4, tail = rem ? ` (+${rem}/4 toward the next)` : "";
+          notify("📈 New best", `Your closest hash yet: ${hz} leading “0”${hz === 1 ? "" : "s"}${tail}.`);
+        }
       }
     }
 

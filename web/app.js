@@ -405,7 +405,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 234, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
@@ -845,13 +845,28 @@ function drawCloseness(r) {
     if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros${winPool}`);
     row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
     const best = mn.best;
-    if (best && best.hash) { const bz = leadingZeroHexChars(best.hash); row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} (${best.zero_bits} bits)`); }
+    if (best && best.hash) {
+      const bz = leadingZeroHexChars(best.hash), zb = typeof best.zero_bits === "number" ? best.zero_bits : bz * 4, rem = zb % 4;
+      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits${rem ? ` (+${rem}/4 to next)` : ""}`);
+      // NIBBLE GAUGE — bit-level progress into the NEXT leading "0", the resolution hex chars throw away.
+      // zb = 4·(full zero chars) + (zero bits of the frontier nibble); rem (= zb % 4) of 4 dots = bits toward
+      // the next whole "0". Drawn under the first non-zero char so it lines up with where the next 0 will appear.
+      if (bz < n) {
+        const fx = hx0 + sp * (bz + 0.5), fy = r.y + 122, dr = 1.5, dsp = 3.3;
+        for (let i = 0; i < 4; i++) {
+          const dx = fx + (i - 1.5) * dsp;
+          ctx.beginPath(); ctx.arc(dx, fy, dr, 0, 7);
+          if (i < rem) { ctx.fillStyle = "rgba(255,215,90,0.95)"; ctx.fill(); }
+          else { ctx.strokeStyle = "rgba(255,215,90,0.4)"; ctx.lineWidth = 1; ctx.stroke(); }
+        }
+      }
+    }
     // ---- ODDS MAP HEAT MAP — every attempt plotted by leading-zero-bits (reversed: WIN = BELOW target = LEFT) ----
     const tBits = at.target ? 256 - bigHex(at.target).toString(2).length : 76;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - bigHex(at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
     const bestZeros = best && best.hash ? leadingZeroHexChars(best.hash) : youZ;
-    const tkX = rowX, tkW = r.w - 32, tkY = r.y + 150, bandH = 24, WIN_FRAC = 0.09, BMAX = 256;
+    const tkX = rowX, tkW = r.w - 32, tkY = r.y + 164, bandH = 24, WIN_FRAC = 0.09, BMAX = 256;
     // plot by leading-zero BITS — the true rarity axis (each extra zero bit = 2× rarer). Two linear scales
     // meet at the target line: the right ~91% is the lose zone (0…target bits, where every attempt lands);
     // the left ~9% is the win zone (target…all-256-zeros) — kept deliberately THIN so it never looks like
@@ -860,7 +875,7 @@ function drawCloseness(r) {
       ? tkX + tkW * (WIN_FRAC + (1 - WIN_FRAC) * (1 - b / Math.max(1, tBits)))
       : tkX + tkW * WIN_FRAC * (1 - Math.min(1, (b - tBits) / (BMAX - tBits)));
     const winX = px(tBits);
-    text("ODDS MAP — placed by zero-bit count; WIN only LEFT of the target (an all-zeros hash = far-left edge)", tkX, r.y + 124, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    text("ODDS MAP — placed by zero-bit count; WIN only LEFT of the target (an all-zeros hash = far-left edge)", tkX, r.y + 138, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
     const wzg = ctx.createLinearGradient(tkX, 0, winX, 0); // win zone — fade to nothing leftward so it reads as a thin sliver at the line, not winnable space
     wzg.addColorStop(0, "rgba(90,210,140,0.015)"); wzg.addColorStop(1, "rgba(90,210,140,0.2)");
     ctx.fillStyle = wzg; ctx.fillRect(tkX, tkY, winX - tkX, bandH);
