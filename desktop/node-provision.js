@@ -159,6 +159,11 @@ function buildBitcoinConf({ prune = PRUNE_MIB, rpcport = MANAGED_RPC_PORT } = {}
   // validation (Core re-verifies the chain behind the snapshot across all cores). Cap script-verification
   // threads so it stays cool and quiet — slightly slower, but it's background work.
   if (process.platform === "darwin" && process.arch === "x64") lines.push("par=2");
+  // Low-RAM / shared boxes: the default 450 MiB dbcache can balloon past 800 MiB during assumeutxo
+  // background validation (two chainstates share the cache), starving the box → RPC stalls → the dashboard
+  // flaps "not connected". Cap it on constrained machines (≥8 GB keeps Core's default for fast sync).
+  const totalGB = os.totalmem() / 1e9;
+  if (totalGB < 8) lines.push(`dbcache=${totalGB < 4 ? 150 : 300}`);
   lines.push(""); // cookie auth (auto-generated in datadir) — no rpcuser/rpcpassword on disk
   return lines.join("\n");
 }
