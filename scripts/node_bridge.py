@@ -293,6 +293,7 @@ def build(url, user, pw, cookie=""):
         "reachable": node_ok,
         "blocks": chain.get("blocks", 0),
         "headers": chain.get("headers", 0),
+        "tip_time": chain.get("time", 0),  # tip block timestamp (epoch s) — lets the UI flag "behind" after sleep BEFORE headers refresh, when headers==blocks==stale tip
         "verificationprogress": chain.get("verificationprogress", 0.0),
         "initialblockdownload": chain.get("initialblockdownload", False),
         "size_on_disk": chain.get("size_on_disk", 0),
@@ -341,9 +342,18 @@ def publish(obj):
 
 
 def main():
+    global _consec_fail
     url0, _, _, _ = load_rpc()
     print(f"node bridge → {OUT}  (rpc {url0}, every {POLL_SEC}s)")
+    last_tick = time.time()
     while True:
+        now = time.time()
+        # a wall-clock jump far larger than POLL_SEC means the machine just woke from sleep: bitcoind's peers
+        # dropped and RPC may be briefly unready. Reset the failure counter so we keep showing last-good state
+        # (which the UI now renders as "catching up" via the stale tip_time) instead of flashing "disconnected".
+        if now - last_tick > max(60, POLL_SEC * 4):
+            _consec_fail = 0
+        last_tick = now
         try:
             url, user, pw, cookie = load_rpc()  # re-read each poll so wizard edits + cookie rotation are picked up live
             publish(build(url, user, pw, cookie))

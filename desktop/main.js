@@ -122,7 +122,9 @@ function startNotifier() {
     let node; try { node = JSON.parse(fs.readFileSync(NODE_JSON, "utf8")); } catch (_) { return; } // no node.json yet → nothing to watch
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     const m = node.miner; // null when the node was unreachable past the bridge's grace window — see below
-    const synced = node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0);
+    const tipTime = node.tip_time || 0;
+    const stale = tipTime ? (Date.now() / 1000 - tipTime) > 90 * 60 : false; // tip too old (e.g. just woke) → not really caught up yet
+    const synced = node.reachable !== false && !node.initialblockdownload && (node.headers || 0) <= (node.blocks || 0) && !stale;
     const on = cfg.notifications_enabled !== false; // master switch
 
     // --- one-shot events (win / new best): fire immediately on transition ---

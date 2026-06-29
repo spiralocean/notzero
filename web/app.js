@@ -486,7 +486,10 @@ function syncInfo() {
   if (!(n && n.reachable !== false && (n.headers || n.blocks))) return null;
   const tip = n.headers || 0, head = Math.floor(n.blocks || 0), behind = Math.max(0, tip - head);
   const prog = n.verificationprogress != null ? n.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
-  return { tip, head, behind, prog, syncing: behind > 0 || !!n.initialblockdownload };
+  // After wake, peers/headers haven't refreshed yet so headers==blocks==stale tip → behind reads 0 ("at the
+  // tip") while the node is really hours back. The tip BLOCK TIME catches this: a synced tip is minutes old.
+  const stale = n.tip_time ? (Date.now() / 1000 - n.tip_time) > 90 * 60 : false;
+  return { tip, head, behind, prog, stale, syncing: behind > 0 || !!n.initialblockdownload || stale };
 }
 function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
 function visibleSections() {
@@ -1412,7 +1415,9 @@ function drawSync(r) {
   // When caught up we're "mining" the tip. A newly FOUND block (head advances while synced) is animated
   // joining the chain: one quick live cycle (same fill→validate→step→prune), not the IBD bulk download.
   const behind = Math.max(0, tip - Math.floor(head));
-  const atTip = behind === 0; // caught up — the network is mining the tip; your node assembles/receives #tip+1
+  // tip block too old → we're behind even if headers haven't refreshed yet (the post-sleep "false at the tip")
+  const stale = node && node.tip_time ? (Date.now() / 1000 - node.tip_time) > 90 * 60 : false;
+  const atTip = behind === 0 && !stale; // caught up — the network is mining the tip; your node assembles/receives #tip+1
   const sinceBlock = model.block && model.block.timestamp ? Math.max(0, Date.now() / 1000 - model.block.timestamp) : 0;
   const mineProg = Math.max(0.04, Math.min(1, sinceBlock / 600)); // time since last block vs the ~10-min average
   const fHead = Math.floor(head);
@@ -1426,7 +1431,7 @@ function drawSync(r) {
   // two-stage flow: a peer's water reaches the NODE only when its stream's leading edge is at the node (head≈1).
   const nodeFed = minedAnim || peersAll.some((p, i) => { if ((p.rate || 0) <= 15_000) return false; const st = syncState.streams["peer:" + (p.addr || ("p" + i))]; return st && st.head >= 0.98 && st.head > st.tail; });
   const fillPerSec = !flowing ? 0 : (minedAnim ? 0.5 : Math.max(0.12, Math.min(0.8, syncState.flow / 4_000_000))); // throughput-driven fill rate (kept at a watchable pace)
-  const downloading = behind > 0 || minedAnim;
+  const downloading = behind > 0 || minedAnim || stale;
 
   // geometry (needed by the phase machine to know how many blocks sit left of center)
   const cx = r.x + r.w / 2;
@@ -1520,7 +1525,7 @@ function drawSync(r) {
     if (bps > 0.02) { const s = behind / bps; etaStr = s > 172800 ? ` · ~${(s / 86400).toFixed(1)} days left` : s > 3600 ? ` · ~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left` : s > 90 ? ` · ~${Math.round(s / 60)} min left` : " · almost caught up"; }
     else etaStr = " · estimating time…";
   }
-  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 72, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
 
   // ---- peer arch (dome) ----
