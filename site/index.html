@@ -377,6 +377,10 @@
   // Gated: only shown once it's a *confidence-builder*. A small number reads as anti-proof ("barely
   // anyone uses this"), so we keep it hidden below the threshold and it appears automatically once high.
   const DL_MIN_SHOW = 500;
+  // build the alternate per-OS links FIRST (they're real downloads too) so the counter can wire them
+  // alongside the two primary buttons — Win/Linux clicks from this row used to slip through uncounted.
+  document.getElementById("others").innerHTML =
+    `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span><a href="${WIN_URL}">Windows 10/11</a><span class="sep">·</span><a href="${LINUX_URL}">Linux · x86_64 AppImage</a>`;
   (function () {
     const el = document.getElementById("dlcount");
     fetch("/api/downloads").then((r) => r.json()).then((d) => {
@@ -384,13 +388,12 @@
     }).catch(() => {});
     const bump = () => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads"); } catch (_) {} };
     ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(); }); });
+    document.querySelectorAll("#others a").forEach((a) => a.addEventListener("click", bump)); // count alternate-link clicks too (deduped per browser, same as the buttons)
   })();
   // show the current downloadable version next to the button (auto-pulled from the update feed)
   fetch("/api/version").then((r) => r.json()).then((d) => {
     if (d.version) ["dl-sub", "dl-sub2"].forEach((id) => { const s = document.getElementById(id); if (s) s.textContent = s.textContent + " · v" + d.version; });
   }).catch(() => {});
-  document.getElementById("others").innerHTML =
-    `Available now: <a href="${MAC_URL}">Mac · Intel &amp; Apple Silicon</a><span class="sep">·</span><a href="${WIN_URL}">Windows 10/11</a><span class="sep">·</span><a href="${LINUX_URL}">Linux · x86_64 AppImage</a>`;
 
   // ---- tip jar: QR codes + copy ----
   // Lightning QR = the LNURL-pay for spiralocean@coinos.io (any Lightning wallet scans it).
