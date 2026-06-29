@@ -4,9 +4,27 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.16
+## Unreleased — next: 0.1.17
 
 _Nothing yet._
+
+## 0.1.16
+
+**App**
+- **"New best" notifications now speak in bits, not just whole leading-"0"s.** The miner takes one attempt
+  per block, so your best creeps up bit by bit over days; the alert now fires on each zero-bit gained and
+  reads like the dashboard gauge — *"Your closest hash yet: 1 leading "0" (+3/4 toward the next)."* Still
+  gated by the **Show notifications** toggle; stays quiet below the first whole "0".
+- **Fixed phantom "new best" alerts.** When the node went unreachable past the bridge's grace window
+  (typically laptop sleep/wake), `node.json` arrives with no miner data and the notifier read the missing
+  best as 0 — then re-fired "new best" the instant the real value reappeared. It now only advances the
+  baseline when real miner data is present (`best` is monotonic upstream, so this is safe).
+
+**Dashboard**
+- **Nibble gauge under the best hash** — four dots beneath the first non-zero hex char show bit-level
+  progress toward the next leading "0" (`zero_bits % 4` filled), the resolution that whole-"0" counts hide.
+  The best row also spells it out: *"1 zero · 7 bits (+3/4 to next)."* The closeness panel grew slightly to
+  make room below the gauge.
 
 ## 0.1.15
 
