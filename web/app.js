@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "hashBuild", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -405,7 +405,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 160, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
@@ -520,6 +520,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
+  if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -547,10 +548,41 @@ function drawHeader(s, r, isExpanded, hovered) {
   }
 }
 
+// YOUR TICKETS — a timeline of every block your node submitted a ticket to. One bar per ticket, oldest→newest;
+// bar height/colour = leading-zero bits (your own range), gold ring = your best, ★ = a win. Where consecutive
+// block heights are skipped, a dashed break with "⋯N" marks the blocks you MISSED — i.e. node downtime (sleep,
+// restart, offline). So it doubles as a downtime visualiser, straight from state.json's per-block history.
+function drawTickets(r) {
+  const pad = 16, mn = model.node && model.node.miner;
+  const hist = mn && Array.isArray(mn.history) ? mn.history.filter((e) => e && e.h != null) : [];
+  text("YOUR TICKETS — one per block your node entered · taller & greener = more leading-zero bits · gaps = downtime", r.x + pad, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  if (!hist.length) {
+    text("no tickets yet — your node submits one per block once it's caught up and mining", r.x + r.w / 2, r.y + r.h / 2 + 4, { size: 12, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    return;
+  }
+  const items = hist.slice().reverse(); // oldest → newest, left → right
+  const oldest = items[0].h, newest = items[items.length - 1].h, span = newest - oldest + 1, missed = Math.max(0, span - items.length);
+  let maxZ = 1; for (const e of items) if ((e.z || 0) > maxZ) maxZ = e.z || 0;
+  const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, n = items.length, cw = w / n;
+  const baseY = r.y + r.h - 30, topY = r.y + 42, barMax = baseY - topY;
+  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(x1, baseY); ctx.stroke();
+  for (let i = 0; i < n; i++) {
+    const e = items[i], z = e.z || 0, cx = x0 + cw * (i + 0.5), f = z / maxZ;
+    const bh = Math.max(2, f * barMax), bw = Math.max(2, Math.min(11, cw - 3));
+    if (i > 0) { const g = e.h - items[i - 1].h - 1; if (g > 0) { const gx = x0 + cw * i; ctx.strokeStyle = "rgba(255,120,80,0.45)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(gx, topY - 4); ctx.lineTo(gx, baseY); ctx.stroke(); ctx.setLineDash([]); if (cw > 20) text("⋯" + g, gx, topY - 8, { size: 9, weight: 700, color: "rgba(255,140,90,0.85)", align: "center", baseline: "middle" }); } }
+    ctx.fillStyle = e.w ? "rgba(90,235,150,1)" : `rgba(${Math.round(255 - 150 * f)},${Math.round(180 + 45 * f)},${Math.round(110 + 30 * f)},0.92)`;
+    ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh);
+    if (z === maxZ && maxZ > 0) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); }
+    if (e.w) text("★", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+  }
+  text(`${n} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`, r.x + r.w / 2, baseY + 14, { size: 10, weight: 600, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+}
+
 function drawContent(s, r) {
   if (s === "nextBlock") return drawNextBlock(r);
   if (s === "mempool") return drawMempool(r);
   if (s === "closeness") return drawCloseness(r);
+  if (s === "tickets") return drawTickets(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);

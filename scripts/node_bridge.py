@@ -275,6 +275,10 @@ def build(url, user, pw, cookie=""):
                 } if win.get("hash_hex") else None,
                 "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
                 "zhist": st.get("zhist"),  # leading-zero-bits histogram {bits: count} for the heat map
+                "history": [  # recent tickets (newest-first) for the YOUR TICKETS timeline; gaps in height = downtime
+                    {"h": e.get("height"), "z": 256 - int(e["hash_hex"], 16).bit_length(), "w": bool(e.get("won")), "at": e.get("attempted_at")}
+                    for e in (st.get("history") or []) if e.get("mode") == "live" and e.get("hash_hex")
+                ][:60],
                 "win_status": win_status(url, user, pw, st, int(chain.get("blocks", 0))),  # {height, hash, status, confirmations, needs}
             }
     except Exception:  # noqa: BLE001
