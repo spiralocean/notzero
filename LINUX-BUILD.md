@@ -1,7 +1,8 @@
 # Linux build — handoff
 
-> ## ⚡ READ FIRST — current status (updated 2026-06-27)
-> **Linux is the last platform** (not yet shipped). mac (0.1.13) + Windows both ship from a unified `main`.
+> ## ⚡ READ FIRST — current status (updated 2026-06-29)
+> **Linux is SHIPPED.** notzero **0.1.16** is live (download + auto-update) at https://dl.getnotzero.com —
+> all three platforms (mac, Windows, Linux) now ship 0.1.16 from a unified `main`.
 > **Build on x86_64 Linux — the easy path is WSL2 on the Windows laptop** (native x86_64 + WSLg to
 > GUI-test). Do **not** build on the mac repo: it's arm64, so an x86_64 AppImage would need slow, flaky
 > qemu emulation, and a native arm64 build wouldn't run on most Linux desktops. The release is one script.
@@ -32,8 +33,8 @@
 > - `git push origin main` so mac-Claude + the website integrate.
 
 Context for a Claude Code session building + testing the **Linux** package of **notzero** (Bitcoin
-Lottery). macOS (0.1.13) + Windows are shipped (https://dl.getnotzero.com); **Linux is the last
-platform.** Read `WINDOWS-BUILD.md` first for the shared app overview — this doc only covers Linux specifics.
+Lottery). **All three platforms — macOS, Windows, Linux — are shipped at 0.1.16** (https://dl.getnotzero.com).
+Read `WINDOWS-BUILD.md` first for the shared app overview — this doc only covers Linux specifics.
 
 ## Good news: Linux is the simpler target
 - **No code signing** — Linux has no SmartScreen/Gatekeeper equivalent, so unsigned ships clean.

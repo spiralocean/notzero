@@ -2,8 +2,8 @@
 
 > ## ⚡ READ FIRST — current status (updated 2026-06-29)
 > **Windows is SHIPPED.** notzero **0.1.16** is live (download + auto-update) at https://dl.getnotzero.com,
-> linked from getnotzero.com. mac + Windows both ship from a unified `main`. **Linux (AppImage) is the only
-> remaining platform.** The release is one script (`release-win.ps1`); the sections below are durable
+> linked from getnotzero.com. **All three platforms — mac, Windows, and Linux — now ship 0.1.16 from a
+> unified `main`.** The release is one script (`release-win.ps1`); the sections below are durable
 > reference (what the app is, prerequisites, implementation notes, known caveats).
 >
 > ### To cut a Windows release (whole flow = one script)
