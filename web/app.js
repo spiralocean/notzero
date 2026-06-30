@@ -492,23 +492,36 @@ function syncInfo() {
   return { tip, head, behind, prog, stale, syncing: behind > 0 || !!n.initialblockdownload || stale };
 }
 function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
+// `everSynced` (persisted): has this machine ever caught up to the tip? Gates the focused sync view.
+let everSynced = false;
+try { everSynced = localStorage.getItem("bl.everSynced") === "1"; } catch {}
 function visibleSections() {
-  return nodeSyncing() ? ["sync", "network"] : SECTIONS;
+  // Hide the mining panels ONLY during the initial sync (or a genuine re-IBD), to focus the view while the
+  // chain first downloads. Once the node has synced once, a transient desync (sleep / flush) keeps every panel
+  // in place so the dashboard never reflows/jumps — the sync panel just shows "catching up" inline.
+  const si = syncInfo(), n = model.node;
+  const initialSync = !!(si && si.syncing && (!everSynced || (n && n.initialblockdownload)));
+  return initialSync ? ["sync", "network"] : SECTIONS;
 }
 // open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
 let syncAutoExpanded = false;
 function autoExpandSync() {
-  if (nodeSyncing()) { if (!syncAutoExpanded) { expanded.add("sync"); syncAutoExpanded = true; } }
-  else syncAutoExpanded = false;
+  // auto-open the sync panel only during the initial sync (not on later transient desyncs, to avoid jumps)
+  if (nodeSyncing() && !everSynced) { if (!syncAutoExpanded) { expanded.add("sync"); syncAutoExpanded = true; } }
+  else if (!nodeSyncing()) syncAutoExpanded = false;
 }
-// syncing → mining transition: when the node finishes catching up, the section list swaps from [sync,network]
-// to the full dashboard, which silently reflows (the old "jump to top"). Detect the edge and mark the moment.
+// syncing → mining transition. The "caught up — now mining" banner + scroll-snap fire only on the FIRST sync
+// completion on this machine (when the dashboard un-collapses). Later re-syncs don't reflow, so they do neither.
 let wasSyncing = null, syncedAt = 0; // syncedAt = Date.now() when the "caught up" banner fired (0 = inactive)
 function checkSyncTransition() {
   const si = syncInfo();
   if (!si) return;                 // no real node data → don't infer a transition (a brief drop isn't "caught up")
-  if (wasSyncing === true && !si.syncing) { syncedAt = Date.now(); scrollY = 0; requestRender(); } // the payoff moment
-  wasSyncing = !!si.syncing;
+  const nowSync = !!si.syncing;
+  if (!nowSync && !everSynced) {    // first time we reach the tip on this machine = initial sync complete
+    everSynced = true; try { localStorage.setItem("bl.everSynced", "1"); } catch {}
+    if (wasSyncing === true) { syncedAt = Date.now(); scrollY = 0; requestRender(); } // payoff only if we watched it finish
+  }
+  wasSyncing = nowSync;
 }
 function drawSyncedBanner() {
   if (!syncedAt) return;
@@ -579,38 +592,44 @@ function drawHeader(s, r, isExpanded, hovered) {
 // One BAR per ticket = hash strength (height/colour, your own range); one MARKER below the baseline = a ticket
 // was entered (same size regardless of strength, so a weak z=0 hash is never mistaken for a gap). Marker colour
 // encodes submit state: amber = normal, green = won & accepted (★), red = WON but submitblock failed (⚠ — needs
-// manual resubmit). Skipped block heights render as a dashed "⋯N" break = downtime (sleep/restart/offline).
+// manual resubmit). Each block HEIGHT is its own slot, so skipped heights render as empty space = downtime.
 function drawTickets(r) {
   const pad = 16, mn = model.node && model.node.miner;
   const hist = mn && Array.isArray(mn.history) ? mn.history.filter((e) => e && e.h != null) : [];
-  text("YOUR TICKETS — bar = hash strength · ▮ below = a ticket entered · gaps = downtime", r.x + pad, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("YOUR TICKETS — one bar per block your node entered (tall/green = stronger hash) · empty space = blocks missed", r.x + pad, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   if (!hist.length) {
     text("no tickets yet — your node enters one per block once it's caught up and mining", r.x + r.w / 2, r.y + r.h / 2 + 4, { size: 12, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     return;
   }
   const items = hist.slice().reverse(); // oldest → newest, left → right
-  const oldest = items[0].h, newest = items[items.length - 1].h, span = newest - oldest + 1, missed = Math.max(0, span - items.length);
+  const oldest = items[0].h, newest = items[items.length - 1].h, fullSpan = newest - oldest + 1, missed = Math.max(0, fullSpan - items.length);
   let maxZ = 1, unsub = 0; for (const e of items) { if ((e.z || 0) > maxZ) maxZ = e.z || 0; if (e.w && !e.s) unsub++; }
-  const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, n = items.length, cw = w / n;
+  const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  // ONE SLOT PER BLOCK HEIGHT — gaps render as REAL empty space, not a compressed "⋯N" marker, so missed blocks
+  // (downtime) are visible. If a very long outage blows the span past what fits (slots < ~4px), clamp to the
+  // most recent blocks so bars stay visible (and say so) rather than compress the gaps away.
+  const MAXSLOTS = Math.max(40, Math.floor(w / 4));
+  const startH = fullSpan > MAXSLOTS ? newest - MAXSLOTS + 1 : oldest;
+  const span = newest - startH + 1, clamped = startH > oldest, cw = w / span;
   const baseY = r.y + r.h - 42, topY = r.y + 44, barMax = baseY - topY, markY = baseY + 9;
   ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(x1, baseY); ctx.stroke();
-  for (let i = 0; i < n; i++) {
-    const e = items[i], z = e.z || 0, cx = x0 + cw * (i + 0.5), f = z / maxZ;
+  const bw = Math.max(2, Math.min(cw * 0.8, 22)), mw = Math.max(2, Math.min(cw * 0.8, 12)); // fill ~80% of a slot so consecutive blocks read as a band and a gap is an obvious break
+  for (const e of items) {
+    if (e.h < startH) continue; // clamped off the left edge
+    const z = e.z || 0, f = z / maxZ, cx = x0 + cw * (e.h - startH + 0.5);
     const wonUnsub = !!(e.w && !e.s), won = !!(e.w && e.s);
-    if (i > 0) { const g = e.h - items[i - 1].h - 1; if (g > 0) { const gx = x0 + cw * i; ctx.strokeStyle = "rgba(255,120,80,0.45)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(gx, topY - 4); ctx.lineTo(gx, markY + 4); ctx.stroke(); ctx.setLineDash([]); if (cw > 20) text("⋯" + g, gx, topY - 8, { size: 9, weight: 700, color: "rgba(255,140,90,0.85)", align: "center", baseline: "middle" }); } }
-    // performance bar — min 3px so a weak hash still shows; participation is the marker below, not the bar height
-    const bh = Math.max(3, f * barMax), bw = Math.max(2, Math.min(11, cw - 3));
+    const bh = Math.max(3, f * barMax); // performance bar — min 3px so a weak hash still shows
     ctx.fillStyle = wonUnsub ? "rgba(255,90,90,0.95)" : won ? "rgba(90,235,150,1)" : `rgba(${Math.round(255 - 150 * f)},${Math.round(180 + 45 * f)},${Math.round(110 + 30 * f)},0.92)`;
     ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh);
     if (z === maxZ && maxZ > 0 && !e.w) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); } // gold ring = your best (non-win)
-    // participation marker (the "ticket") — consistent size; colour = submit state
-    const mw = Math.max(3, Math.min(8, cw - 4));
+    // participation marker (the "ticket") — only at heights with a ticket; colour = submit state
     ctx.fillStyle = wonUnsub ? "rgba(255,90,90,1)" : won ? "rgba(90,235,150,1)" : "rgba(255,200,120,0.85)";
     roundRect(cx - mw / 2, markY - 2, mw, 4, 1.2); ctx.fill();
     if (won) text("★", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
     if (wonUnsub) text("⚠", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(255,90,90)", align: "center", baseline: "middle" });
   }
-  const base = `${n} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`;
+  let base = `${items.length} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`;
+  if (clamped) base = `showing last ${span.toLocaleString()} blocks · ` + base;
   text(unsub ? base + ` · ⚠ ${unsub} WON but not submitted — resubmit` : base, r.x + r.w / 2, markY + 16, { size: 10, weight: 600, color: unsub ? "rgba(255,120,120,0.95)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
 }
 
@@ -1685,7 +1704,7 @@ function drawSync(r) {
     // synced and waiting: the candidate fills by elapsed time (capped at 92%), so it can sit still for minutes.
     // Say so explicitly and pulse the label so it reads as "waiting for the next block", not "stuck".
     const pulse = reduceMotion ? 0.6 : 0.5 + 0.2 * Math.abs(Math.sin(syncState.t * 1.6));
-    text(`◴ assembling the next block · ${Math.round(newestFill * 100)}% · completes when the network finds it (~10 min)`, cx, cy - bh / 2 - 8, { size: 10, color: `rgba(${ACCENT},${pulse})`, align: "center", baseline: "middle" });
+    text(`◴ assembling · ${Math.round(newestFill * 100)}%`, cx, cy - bh / 2 - 8, { size: 10, color: `rgba(${ACCENT},${pulse})`, align: "center", baseline: "middle" }); // short: the adjacent "network mining" label sits one block-width right, so a long string overlaps it (esp. wider Windows fonts)
   }
   if (SYNC_DEBUG) text(`DBG phase=${syncState.phase} fp=${(syncState.fp||0).toFixed(2)} fill%=${Math.round(newestFill*100)} nh=${(syncState.nh||0).toFixed(2)} nt=${(syncState.nt||0).toFixed(2)} flow=${Math.round(syncState.flow/1000)}KB/s dl=${downloading} fill=${filling} shown=${Math.floor(syncState.shown)} head=${Math.floor(head)}`, r.x + 16, r.y + r.h - 4, { size: 10, color: "#0f0", baseline: "alphabetic", mono: true });
 
