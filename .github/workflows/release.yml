@@ -1,15 +1,19 @@
 # Cross-platform release — build + publish notzero to R2 (dl.getnotzero.com) for mac, Windows, and Linux.
 #
-# TRIGGER: push a version tag that matches desktop/package.json, e.g.
-#     git tag v0.1.18 && git push origin v0.1.18
-# A deliberate tag (not every push) so a stray commit never auto-ships to all users.
+# TWO WAYS TO RUN:
+#   1. REAL RELEASE — push a version tag matching desktop/package.json:
+#        git tag v0.1.18 && git push origin v0.1.18
+#      A deliberate tag (not every push) so a stray commit never auto-ships to all users.
+#   2. DRY RUN — Actions tab → "Release" → "Run workflow" (dry_run = true, the default):
+#      builds each platform's installer with signing/publish DISABLED — no secrets needed, nothing uploaded.
+#      Use it to confirm the build pipeline before trusting it with a real tag.
 #
-# Each platform runs its existing release-*.sh / .ps1 script (build engines → electron-builder → sign/notarize
-# → rclone to R2). The node-gated block-validity check is skipped in CI via SKIP_BLOCK_VERIFY=1 — block
-# validity is platform-independent, so verify it ONCE locally (`python3 scripts/verify-block.py` against your
-# synced node) before tagging, rather than 3× on runners with no node.
+# Each real-release platform runs its existing release-*.sh / .ps1 script (build engines → electron-builder →
+# sign/notarize → rclone to R2). The node-gated block-validity check is skipped in CI (SKIP_BLOCK_VERIFY=1) —
+# block validity is platform-independent, so verify it ONCE locally (`python3 scripts/verify-block.py` against
+# your synced node) before tagging, rather than 3× on runners with no node.
 #
-# REQUIRED REPO SECRETS (Settings → Secrets and variables → Actions):
+# REQUIRED REPO SECRETS (Settings → Secrets and variables → Actions) — only needed for a REAL release:
 #   R2_ACCESS_KEY_ID         Cloudflare R2 access key id
 #   R2_SECRET_ACCESS_KEY     Cloudflare R2 secret
 #   R2_ENDPOINT              https://<account>.r2.cloudflarestorage.com
@@ -24,6 +28,12 @@ name: Release
 on:
   push:
     tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Build only — skip signing, notarizing, and the R2 upload (no secrets needed)."
+        type: boolean
+        default: true
 
 permissions:
   contents: read
@@ -43,6 +53,7 @@ jobs:
           - { os: ubuntu-latest, platform: linux }
     runs-on: ${{ matrix.os }}
     env:
+      IS_DRY: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
       SKIP_BLOCK_VERIFY: "1" # CI has no synced node; block validity is platform-independent (verify once locally)
       R2_BUCKET: "r2:notzero-dl"
       # configure rclone's `r2` remote entirely from env (no config file needed)
@@ -67,20 +78,13 @@ jobs:
         run: python -m pip install --upgrade pip pyinstaller
 
       - name: Verify tag matches package.json version
+        if: github.event_name == 'push'
         shell: bash
         run: |
           V="$(node -p "require('./desktop/package.json').version")"
           T="${GITHUB_REF_NAME#v}"
           echo "tag=$T package.json=$V"
           [ "$V" = "$T" ] || { echo "::error::tag v$T does not match desktop/package.json $V — bump package.json first"; exit 1; }
-
-      - name: Install rclone (unix)
-        if: runner.os != 'Windows'
-        run: curl -fsSL https://rclone.org/install.sh | sudo bash
-
-      - name: Install rclone (windows)
-        if: runner.os == 'Windows'
-        run: choco install rclone -y
 
       - name: Linux AppImage deps
         if: matrix.platform == 'linux'
@@ -90,25 +94,45 @@ jobs:
         working-directory: desktop
         run: npm ci
 
-      # --- macOS signing: import the Developer ID cert into a keychain + drop the App Store Connect key on disk
+      # ============================ DRY RUN: build only, no signing / upload ============================
+      - name: Build only (dry run)
+        if: env.IS_DRY == 'true'
+        working-directory: desktop
+        shell: bash
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false" # don't attempt mac code-signing in a dry run
+        run: |
+          npm run build:engines
+          npx electron-builder --publish never
+          echo "=== dry-run artifacts (NOT uploaded) ==="
+          ls -la dist | grep -iE "dmg|exe|appimage|zip|yml" || true
+
+      # ============================ REAL RELEASE: build → sign/notarize → upload ========================
+      - name: Install rclone (unix)
+        if: env.IS_DRY != 'true' && runner.os != 'Windows'
+        run: curl -fsSL https://rclone.org/install.sh | sudo bash
+
+      - name: Install rclone (windows)
+        if: env.IS_DRY != 'true' && runner.os == 'Windows'
+        run: choco install rclone -y
+
       - name: Import Apple signing cert
-        if: matrix.platform == 'mac'
+        if: env.IS_DRY != 'true' && matrix.platform == 'mac'
         uses: apple-actions/import-codesign-certs@v3
         with:
           p12-file-base64: ${{ secrets.MAC_CERT_P12_BASE64 }}
           p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
 
       - name: Write Apple API key
-        if: matrix.platform == 'mac'
+        if: env.IS_DRY != 'true' && matrix.platform == 'mac'
         shell: bash
         run: |
           mkdir -p "$RUNNER_TEMP/keys"
           echo "${{ secrets.APPLE_API_KEY_P8_BASE64 }}" | base64 --decode > "$RUNNER_TEMP/keys/AuthKey.p8"
           echo "APPLE_API_KEY=$RUNNER_TEMP/keys/AuthKey.p8" >> "$GITHUB_ENV"
 
-      # --- per-platform build + publish (the existing scripts do build → sign/notarize → rclone to R2)
       - name: Release macOS
-        if: matrix.platform == 'mac'
+        if: env.IS_DRY != 'true' && matrix.platform == 'mac'
         env:
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
@@ -117,15 +141,16 @@ jobs:
         run: bash scripts/release-mac.sh
 
       - name: Release Linux
-        if: matrix.platform == 'linux'
+        if: env.IS_DRY != 'true' && matrix.platform == 'linux'
         run: bash scripts/release-linux.sh
 
       - name: Release Windows
-        if: matrix.platform == 'win'
+        if: env.IS_DRY != 'true' && matrix.platform == 'win'
         shell: pwsh
         run: ./scripts/release-win.ps1
 
       - name: Verify the live feed
+        if: env.IS_DRY != 'true'
         shell: bash
         run: |
           feed=$([ "${{ matrix.platform }}" = mac ] && echo latest-mac.yml || ([ "${{ matrix.platform }}" = win ] && echo latest.yml || echo latest-linux.yml))
