@@ -4,9 +4,21 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.18
+## Unreleased — next: 0.1.19
 
 _Nothing yet._
+
+## 0.1.18
+
+**Dashboard**
+- **No more "jumping" when the node briefly falls behind.** The mining panels now only collapse during the
+  *initial* sync; after the node has caught up once, a transient desync (sleep / chainstate flush) keeps every
+  panel in place and the sync panel shows "catching up" inline — no reflow.
+- **YOUR TICKETS shows downtime gaps as real empty space.** The timeline now places one slot per block height,
+  so missed blocks render as actual gaps instead of a compressed "⋯N" marker; participation markers appear only
+  at heights where a ticket was entered.
+- **Fixed an overlapping label in the sync panel** — the "assembling" text no longer runs into "network mining"
+  (most visible on Windows, with its wider fonts).
 
 ## 0.1.17
 
