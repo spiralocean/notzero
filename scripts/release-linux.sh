@@ -44,7 +44,11 @@ YML="$DIST/latest-linux.yml"
 { [ -n "$APPIMG" ] && [ -f "$APPIMG" ] && [ -f "$YML" ]; } || { echo "x build artifacts missing in $DIST" >&2; exit 1; }
 APPBASE="$(basename "$APPIMG")"
 
-# 3) publish to R2
+# 3) publish to R2 (skipped on a dry run — build-only validation)
+if [ "${DRY_RUN:-}" = "1" ]; then
+  echo "-> DRY RUN — built $APPBASE (+ latest-linux.yml), skipping R2 upload."
+  exit 0
+fi
 echo "-> uploading to $BUCKET ..."
 # versioned AppImage + blockmap → version-specific (immutable) URLs, fine to cache at the edge
 rclone copyto "$APPIMG" "$BUCKET/$APPBASE" --s3-no-check-bucket --s3-chunk-size 64M -q

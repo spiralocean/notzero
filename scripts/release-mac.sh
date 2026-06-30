@@ -19,10 +19,14 @@ DESKTOP="$ROOT/desktop"; DIST="$DESKTOP/dist"
 SIGN_ID="${MAC_SIGN_ID:-Developer ID Application: Stephen Zinn (2386YZLWA2)}"
 BUCKET="${R2_BUCKET:-r2:notzero-dl}"
 
-: "${APPLE_API_KEY:?set APPLE_API_KEY to the path of the .p8 key}"
-: "${APPLE_API_KEY_ID:?set APPLE_API_KEY_ID}"
-: "${APPLE_API_ISSUER:?set APPLE_API_ISSUER}"
-: "${LOTTERY_DATA_DIR:?set LOTTERY_DATA_DIR to a reachable synced node data dir}"
+if [ "${DRY_RUN:-}" = "1" ]; then
+  export CSC_IDENTITY_AUTO_DISCOVERY=false # dry run: build unsigned, skip notarize + upload (no secrets needed)
+else
+  : "${APPLE_API_KEY:?set APPLE_API_KEY to the path of the .p8 key}"
+  : "${APPLE_API_KEY_ID:?set APPLE_API_KEY_ID}"
+  : "${APPLE_API_ISSUER:?set APPLE_API_ISSUER}"
+  : "${LOTTERY_DATA_DIR:?set LOTTERY_DATA_DIR to a reachable synced node data dir}"
+fi
 
 echo "-> cleaning dist to avoid stale artifacts from a previous version..."
 rm -rf "$DIST"
@@ -37,6 +41,11 @@ ZIP="$(ls "$DIST"/notzero-"$VERSION"-mac-*.zip 2>/dev/null | head -1)"
 YML="$DIST/latest-mac.yml"
 { [ -f "$DMG" ] && [ -f "$ZIP" ] && [ -f "$YML" ]; } || { echo "x build artifacts missing in $DIST" >&2; exit 1; }
 DMGBASE="$(basename "$DMG")"; ZIPBASE="$(basename "$ZIP")"
+
+if [ "${DRY_RUN:-}" = "1" ]; then
+  echo "-> DRY RUN — built $DMGBASE + $ZIPBASE (unsigned), skipping notarize + R2 upload."
+  exit 0
+fi
 
 echo "-> signing + notarizing + stapling the dmg ($DMGBASE)..."
 codesign --force --sign "$SIGN_ID" --timestamp "$DMG"

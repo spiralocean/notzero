@@ -44,7 +44,11 @@ $blockmap = "$exe.blockmap"
 $yml = Join-Path $DIST "latest.yml"
 foreach ($f in @($exe, $yml)) { if (-not (Test-Path $f)) { throw "missing build artifact: $f" } }
 
-# 3) publish to R2
+# 3) publish to R2 (skipped on a dry run — build-only validation)
+if ($env:DRY_RUN -eq "1") {
+  Write-Host "-> DRY RUN — built notzero-$VERSION-win.exe (+ latest.yml), skipping R2 upload."
+  exit 0
+}
 Write-Host "-> uploading to $BUCKET ..."
 # versioned installer + blockmap → version-specific (immutable) URLs, fine to cache at the edge
 rclone copyto $exe "$BUCKET/notzero-$VERSION-win.exe" --s3-no-check-bucket --s3-chunk-size 64M -q
