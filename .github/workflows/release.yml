@@ -141,6 +141,10 @@ jobs:
         shell: pwsh
         env:
           DRY_RUN: ${{ env.IS_DRY == 'true' && '1' || '' }}
+          # the runner checks out on D: but system TEMP is on C:; PyInstaller's cross-drive relpath fails.
+          # Point temp at the build drive (RUNNER_TEMP is on D:) so all paths share one mount.
+          TMP: ${{ runner.temp }}
+          TEMP: ${{ runner.temp }}
         run: ./scripts/release-win.ps1
 
       - name: Verify the live feed
