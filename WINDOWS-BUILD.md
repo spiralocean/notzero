@@ -1,8 +1,8 @@
 # Windows build — handoff
 
 > ## ⚡ READ FIRST — current status (updated 2026-06-30)
-> **Windows is SHIPPED.** notzero **0.1.17** is live (download + auto-update) at https://dl.getnotzero.com,
-> linked from getnotzero.com. **All three platforms — mac, Windows, and Linux — now ship 0.1.17 from a
+> **Windows is SHIPPED.** notzero **0.1.18** is live (download + auto-update) at https://dl.getnotzero.com,
+> linked from getnotzero.com. **All three platforms — mac, Windows, and Linux — now ship 0.1.18 from a
 > unified `main`.** The release is one script (`release-win.ps1`); the sections below are durable
 > reference (what the app is, prerequisites, implementation notes, known caveats).
 >
