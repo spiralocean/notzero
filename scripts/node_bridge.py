@@ -12,6 +12,7 @@ import hashlib
 import json
 import os
 import pathlib
+import socket
 import subprocess
 import sys
 import time
@@ -185,11 +186,18 @@ def build(url, user, pw, cookie=""):
     # the node may be unreachable (not set up yet / starting / down) — still publish the miner + payout
     # so the dashboard works during setup/sync, just with reachable=False.
     node_ok = True
+    node_busy = False
     chain, peers_raw, mempool = {}, [], None
     try:
         chain = rpc(url, user, pw, "getblockchaininfo")  # the ONLY call that decides reachability — keep it cheap
-    except Exception:  # noqa: BLE001
+    except Exception as e:  # noqa: BLE001
         node_ok = False
+        # a TIMEOUT means the node is ALIVE but busy (e.g. a chainstate flush right after sync — slow on an
+        # Intel Mac / spinning disk), NOT down. Flag it so publish() holds the last-good "synced" state instead
+        # of flapping to "not connected" the way a real connection refusal should.
+        reason = getattr(e, "reason", e)
+        if isinstance(e, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
+            node_busy = True
     if node_ok:
         try:
             peers_raw = rpc(url, user, pw, "getpeerinfo")
@@ -276,7 +284,7 @@ def build(url, user, pw, cookie=""):
                 "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
                 "zhist": st.get("zhist"),  # leading-zero-bits histogram {bits: count} for the heat map
                 "history": [  # recent tickets (newest-first) for the YOUR TICKETS timeline; gaps in height = downtime
-                    {"h": e.get("height"), "z": 256 - int(e["hash_hex"], 16).bit_length(), "w": bool(e.get("won")), "at": e.get("attempted_at")}
+                    {"h": e.get("height"), "z": 256 - int(e["hash_hex"], 16).bit_length(), "w": bool(e.get("won")), "s": bool(e.get("submitted")), "at": e.get("attempted_at")}
                     for e in (st.get("history") or []) if e.get("mode") == "live" and e.get("hash_hex")
                 ][:60],
                 "win_status": win_status(url, user, pw, st, int(chain.get("blocks", 0))),  # {height, hash, status, confirmations, needs}
@@ -295,6 +303,7 @@ def build(url, user, pw, cookie=""):
     return {
         "ts": int(time.time()),
         "reachable": node_ok,
+        "busy": node_busy,  # node alive but RPC timed out (post-sync flush) → publish() holds last-good instead of flapping
         "blocks": chain.get("blocks", 0),
         "headers": chain.get("headers", 0),
         "tip_time": chain.get("time", 0),  # tip block timestamp (epoch s) — lets the UI flag "behind" after sleep BEFORE headers refresh, when headers==blocks==stale tip
@@ -335,6 +344,12 @@ def publish(obj):
         _last_good, _consec_fail = obj, 0
         write(obj)
         return
+    # a BUSY node (RPC timed out but it's alive — e.g. a long post-sync flush) is NOT down: hold the last-good
+    # synced state without counting toward the disconnect threshold, so a flush never flaps to "not connected".
+    if obj is not None and obj.get("busy") and _last_good is not None:
+        held = dict(_last_good); held["ts"] = int(time.time()); held["stale"] = True
+        write(held)
+        return
     _consec_fail += 1
     if _last_good is not None and _consec_fail <= FAIL_GRACE:
         held = dict(_last_good)           # re-publish the last good state so the dashboard stays connected
@@ -347,10 +362,23 @@ def publish(obj):
 
 def main():
     global _consec_fail
+    lock = OUT.with_name("bridge.lock")
+    try:
+        lock.write_text(str(os.getpid()))  # claim single-writer ownership; a newer bridge overwrites this
+    except OSError:
+        pass
     url0, _, _, _ = load_rpc()
     print(f"node bridge → {OUT}  (rpc {url0}, every {POLL_SEC}s)")
     last_tick = time.time()
     while True:
+        # if a newer bridge has started (e.g. after an in-place update) it has claimed the lock — exit so two
+        # bridges never fight over node.json (the cause of the dashboard's "blinking" tickets after an update).
+        try:
+            if lock.read_text().strip() not in ("", str(os.getpid())):
+                print("bridge: superseded by a newer instance — exiting", file=sys.stderr)
+                return
+        except OSError:
+            pass
         now = time.time()
         # a wall-clock jump far larger than POLL_SEC means the machine just woke from sleep: bitcoind's peers
         # dropped and RPC may be briefly unready. Reset the failure counter so we keep showing last-good state

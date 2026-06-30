@@ -405,7 +405,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 160, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, network: 180, sync: 540 };
 let headerHits = [];
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
@@ -501,6 +501,30 @@ function autoExpandSync() {
   if (nodeSyncing()) { if (!syncAutoExpanded) { expanded.add("sync"); syncAutoExpanded = true; } }
   else syncAutoExpanded = false;
 }
+// syncing → mining transition: when the node finishes catching up, the section list swaps from [sync,network]
+// to the full dashboard, which silently reflows (the old "jump to top"). Detect the edge and mark the moment.
+let wasSyncing = null, syncedAt = 0; // syncedAt = Date.now() when the "caught up" banner fired (0 = inactive)
+function checkSyncTransition() {
+  const si = syncInfo();
+  if (!si) return;                 // no real node data → don't infer a transition (a brief drop isn't "caught up")
+  if (wasSyncing === true && !si.syncing) { syncedAt = Date.now(); scrollY = 0; requestRender(); } // the payoff moment
+  wasSyncing = !!si.syncing;
+}
+function drawSyncedBanner() {
+  if (!syncedAt) return;
+  const el = (Date.now() - syncedAt) / 1000; // seconds since "caught up"
+  if (el > 5) { syncedAt = 0; return; }
+  const slide = Math.min(1, el * 6), fade = el > 4 ? 5 - el : 1; // slide in fast, fade out over the last second
+  const label = "✅ Caught up — you're mining the tip now", sub = "your node submits a ticket every block from here";
+  ctx.save(); ctx.globalAlpha = fade;
+  ctx.font = "700 14px -apple-system, system-ui, sans-serif";
+  const tw = ctx.measureText(label).width, pw = Math.max(tw, 260) + 44, ph = 46, px = W / 2 - pw / 2, py = 118 - (1 - slide) * 16;
+  ctx.fillStyle = "rgba(14,26,18,0.96)"; roundRect(px, py, pw, ph, 10); ctx.fill();
+  ctx.strokeStyle = "rgba(90,235,150,0.8)"; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 10); ctx.stroke();
+  text(label, W / 2, py + 17, { size: 14, weight: 700, color: "rgb(120,245,170)", align: "center", baseline: "middle" });
+  text(sub, W / 2, py + 33, { size: 11, weight: 600, color: "rgba(120,245,170,0.7)", align: "center", baseline: "middle" });
+  ctx.restore();
+}
 
 function layoutSections() {
   let y = TOP; const frames = [];
@@ -520,7 +544,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
-  if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed`; }
+  if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -552,30 +576,42 @@ function drawHeader(s, r, isExpanded, hovered) {
 // bar height/colour = leading-zero bits (your own range), gold ring = your best, ★ = a win. Where consecutive
 // block heights are skipped, a dashed break with "⋯N" marks the blocks you MISSED — i.e. node downtime (sleep,
 // restart, offline). So it doubles as a downtime visualiser, straight from state.json's per-block history.
+// One BAR per ticket = hash strength (height/colour, your own range); one MARKER below the baseline = a ticket
+// was entered (same size regardless of strength, so a weak z=0 hash is never mistaken for a gap). Marker colour
+// encodes submit state: amber = normal, green = won & accepted (★), red = WON but submitblock failed (⚠ — needs
+// manual resubmit). Skipped block heights render as a dashed "⋯N" break = downtime (sleep/restart/offline).
 function drawTickets(r) {
   const pad = 16, mn = model.node && model.node.miner;
   const hist = mn && Array.isArray(mn.history) ? mn.history.filter((e) => e && e.h != null) : [];
-  text("YOUR TICKETS — one per block your node entered · taller & greener = more leading-zero bits · gaps = downtime", r.x + pad, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("YOUR TICKETS — bar = hash strength · ▮ below = a ticket entered · gaps = downtime", r.x + pad, r.y + 18, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   if (!hist.length) {
-    text("no tickets yet — your node submits one per block once it's caught up and mining", r.x + r.w / 2, r.y + r.h / 2 + 4, { size: 12, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    text("no tickets yet — your node enters one per block once it's caught up and mining", r.x + r.w / 2, r.y + r.h / 2 + 4, { size: 12, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     return;
   }
   const items = hist.slice().reverse(); // oldest → newest, left → right
   const oldest = items[0].h, newest = items[items.length - 1].h, span = newest - oldest + 1, missed = Math.max(0, span - items.length);
-  let maxZ = 1; for (const e of items) if ((e.z || 0) > maxZ) maxZ = e.z || 0;
+  let maxZ = 1, unsub = 0; for (const e of items) { if ((e.z || 0) > maxZ) maxZ = e.z || 0; if (e.w && !e.s) unsub++; }
   const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, n = items.length, cw = w / n;
-  const baseY = r.y + r.h - 30, topY = r.y + 42, barMax = baseY - topY;
-  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(x1, baseY); ctx.stroke();
+  const baseY = r.y + r.h - 42, topY = r.y + 44, barMax = baseY - topY, markY = baseY + 9;
+  ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(x1, baseY); ctx.stroke();
   for (let i = 0; i < n; i++) {
     const e = items[i], z = e.z || 0, cx = x0 + cw * (i + 0.5), f = z / maxZ;
-    const bh = Math.max(2, f * barMax), bw = Math.max(2, Math.min(11, cw - 3));
-    if (i > 0) { const g = e.h - items[i - 1].h - 1; if (g > 0) { const gx = x0 + cw * i; ctx.strokeStyle = "rgba(255,120,80,0.45)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(gx, topY - 4); ctx.lineTo(gx, baseY); ctx.stroke(); ctx.setLineDash([]); if (cw > 20) text("⋯" + g, gx, topY - 8, { size: 9, weight: 700, color: "rgba(255,140,90,0.85)", align: "center", baseline: "middle" }); } }
-    ctx.fillStyle = e.w ? "rgba(90,235,150,1)" : `rgba(${Math.round(255 - 150 * f)},${Math.round(180 + 45 * f)},${Math.round(110 + 30 * f)},0.92)`;
+    const wonUnsub = !!(e.w && !e.s), won = !!(e.w && e.s);
+    if (i > 0) { const g = e.h - items[i - 1].h - 1; if (g > 0) { const gx = x0 + cw * i; ctx.strokeStyle = "rgba(255,120,80,0.45)"; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(gx, topY - 4); ctx.lineTo(gx, markY + 4); ctx.stroke(); ctx.setLineDash([]); if (cw > 20) text("⋯" + g, gx, topY - 8, { size: 9, weight: 700, color: "rgba(255,140,90,0.85)", align: "center", baseline: "middle" }); } }
+    // performance bar — min 3px so a weak hash still shows; participation is the marker below, not the bar height
+    const bh = Math.max(3, f * barMax), bw = Math.max(2, Math.min(11, cw - 3));
+    ctx.fillStyle = wonUnsub ? "rgba(255,90,90,0.95)" : won ? "rgba(90,235,150,1)" : `rgba(${Math.round(255 - 150 * f)},${Math.round(180 + 45 * f)},${Math.round(110 + 30 * f)},0.92)`;
     ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh);
-    if (z === maxZ && maxZ > 0) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); }
-    if (e.w) text("★", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+    if (z === maxZ && maxZ > 0 && !e.w) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); } // gold ring = your best (non-win)
+    // participation marker (the "ticket") — consistent size; colour = submit state
+    const mw = Math.max(3, Math.min(8, cw - 4));
+    ctx.fillStyle = wonUnsub ? "rgba(255,90,90,1)" : won ? "rgba(90,235,150,1)" : "rgba(255,200,120,0.85)";
+    roundRect(cx - mw / 2, markY - 2, mw, 4, 1.2); ctx.fill();
+    if (won) text("★", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+    if (wonUnsub) text("⚠", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(255,90,90)", align: "center", baseline: "middle" });
   }
-  text(`${n} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`, r.x + r.w / 2, baseY + 14, { size: 10, weight: 600, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  const base = `${n} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`;
+  text(unsub ? base + ` · ⚠ ${unsub} WON but not submitted — resubmit` : base, r.x + r.w / 2, markY + 16, { size: 10, weight: 600, color: unsub ? "rgba(255,120,120,0.95)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
 }
 
 function drawContent(s, r) {
@@ -2094,6 +2130,7 @@ function render(ts) {
   drawRain(); // fixed background
 
   autoExpandSync();
+  checkSyncTransition(); // fire the "caught up — now mining" moment on the syncing→synced edge (also snaps scroll)
   const { frames, total } = layoutSections();
   window.__frames = Object.fromEntries(frames.filter((f) => f.content).map((f) => [f.section, f.content])); // expose panel rects (for snapshot tests to clip exactly)
   maxScroll = Math.max(0, total + FOOTER_PAD - H); // FOOTER_PAD leaves clearance so the last panel's bottom clears the fixed footer
@@ -2194,6 +2231,7 @@ function render(ts) {
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
   if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
+  drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
   quoteT += 1 / 60;

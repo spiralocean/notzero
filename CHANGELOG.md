@@ -4,9 +4,28 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.17
+## Unreleased — next: 0.1.18
 
 _Nothing yet._
+
+## 0.1.17
+
+**App**
+- **Fixed the dashboard "blinking" after an in-place update.** An old engine process orphaned by the update
+  kept writing `node.json` (without the new fields), fighting the new bridge. Now the bridge claims a
+  single-writer **lockfile** (a superseded instance exits), and the app **reaps stale engine processes** on
+  startup — so exactly one bridge writes `node.json`.
+- **"Caught up" no longer flaps to "not connected" during post-sync flushes.** An RPC **timeout** (node alive
+  but busy, e.g. a chainstate flush on a slower disk / Intel Mac) was treated like the node being down. It's
+  now distinguished from a real connection refusal, and the last-good "synced" state is held through the flush.
+
+**Dashboard**
+- **YOUR TICKETS now separates participation from performance.** A consistent **ticket marker** under each bar
+  means "a ticket was entered" (so a weak `z=0` hash is never mistaken for a gap); the **bar** is purely hash
+  strength. Marker colour shows submit state: amber = normal, green ★ = won & accepted, **red ⚠ = won but
+  `submitblock` failed** (saved for manual resubmit) — the one case where "not submitted" critically matters.
+- **A "caught up — now mining" moment** when sync completes, instead of the dashboard silently reflowing and
+  jumping to the top.
 
 ## 0.1.16
 

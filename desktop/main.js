@@ -189,7 +189,21 @@ function startEngine(name) {
   p.on("error", () => { delete procs[name]; });
   p.on("exit", () => { delete procs[name]; if (!stopping) setTimeout(() => startEngine(name), 2000); }); // restart on crash
 }
-function startEngines() { if (enginesStarted) return; enginesStarted = true; startEngine("miner"); startEngine("bridge"); }
+function reapStaleEngines() {
+  // Kill engine processes left over from a PRIOR app instance (orphaned by an in-place update or crash) BEFORE
+  // we spawn fresh ones. An old-version orphan predates the bridge's lockfile, so it would keep writing
+  // node.json and flicker the dashboard. Belt-and-suspenders alongside that lockfile.
+  if (!app.isPackaged) return; // dev runs python3 directly — never pkill the developer's own processes
+  try {
+    const { execFileSync } = require("node:child_process");
+    if (process.platform === "win32") {
+      execFileSync("powershell", ["-NoProfile", "-Command", "Get-CimInstance Win32_Process -Filter \"Name='miner.exe' OR Name='bridge.exe'\" | Where-Object { $_.ExecutablePath -like '*\\engine\\*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force }"], { stdio: "ignore", timeout: 5000 });
+    } else {
+      for (const n of ["miner", "bridge"]) { try { execFileSync("pkill", ["-f", `engine/${n}`], { stdio: "ignore", timeout: 5000 }); } catch (_) {} } // pkill exits 1 when nothing matches — ignore
+    }
+  } catch (_) {}
+}
+function startEngines() { if (enginesStarted) return; enginesStarted = true; reapStaleEngines(); startEngine("miner"); startEngine("bridge"); }
 function restartEngines() { for (const n of Object.keys(procs)) { try { procs[n].kill(); } catch (_) {} } } // exit handlers respawn with new config
 function stopEngines() { stopping = true; for (const p of Object.values(procs)) { try { p.kill(); } catch (_) {} } }
 
