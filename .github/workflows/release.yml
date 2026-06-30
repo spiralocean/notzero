@@ -141,11 +141,14 @@ jobs:
         shell: pwsh
         env:
           DRY_RUN: ${{ env.IS_DRY == 'true' && '1' || '' }}
-          # the runner checks out on D: but system TEMP is on C:; PyInstaller's cross-drive relpath fails.
-          # Point temp at the build drive (RUNNER_TEMP is on D:) so all paths share one mount.
-          TMP: ${{ runner.temp }}
-          TEMP: ${{ runner.temp }}
-        run: ./scripts/release-win.ps1
+        run: |
+          # The runner checks out on D: but installs Python on C:; PyInstaller collects the Python runtime
+          # (C:) into the build dir and computes a cross-drive relpath, which Windows can't do. Build from a
+          # C: copy so sources, Python, temp, and outputs all share one drive. (robocopy: <8 = success.)
+          robocopy "$env:GITHUB_WORKSPACE" "C:\notzero" /E /NFL /NDL /NJH /NJS /NP | Out-Null
+          if ($LASTEXITCODE -ge 8) { throw "robocopy failed with code $LASTEXITCODE" }
+          $global:LASTEXITCODE = 0
+          & "C:\notzero\scripts\release-win.ps1"
 
       - name: Verify the live feed
         if: env.IS_DRY != 'true'
