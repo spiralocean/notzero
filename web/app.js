@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, bitOps: 206, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 210, bitOps: 206, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -608,6 +608,7 @@ function summary(s) {
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
+  if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -723,7 +724,7 @@ function drawHashInside(r) {
   y = r.y + 178;
   const rnd = reduceMotion ? 40 : (() => { const t = Date.now() % 9000; return t < 6500 ? Math.min(63, Math.floor((t / 6500) * 64)) : 63; })();
   text(`3 · 64 ROUNDS OF MIXING — round ${rnd + 1} / 64`, x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — see BIT OPERATIONS below", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — unpacked in ONE ROUND below", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
   const regs = d.rounds[rnd], prev = rnd > 0 ? d.rounds[rnd - 1] : null, names = "abcdefgh";
   const barX = x0 + 16, cwr = (w - 16) / 32;
   for (let i = 0; i < 8; i++) {
@@ -741,6 +742,36 @@ function drawHashInside(r) {
   text("4 · THE 256-BIT HASH — every tx, block & address in Bitcoin is one of these", x0, y - 15, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
   const lead = leadingZeroHexChars(d.digest), dcw = w / 64;
   for (let i = 0; i < 64; i++) { const z = i < lead; text(d.digest[i], x0 + dcw * (i + 0.5), y, { size: 11, weight: z ? 700 : 600, color: z ? "rgba(255,215,90,1)" : "rgba(90,235,150,0.92)", align: "center", baseline: "middle", mono: true }); }
+}
+
+// ONE ROUND, UNPACKED — the exact fixed recipe each of the 64 rounds runs (Σ0/Σ1, Ch, Maj, +K +W → two new
+// registers), with live 32-bit bars. Shows HOW the four ops are arranged into a round — the same every round.
+function drawOneRound(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
+  const t = Math.floor(Date.now() / 2500) % 64;
+  text(`ONE ROUND, UNPACKED — the fixed recipe every round runs · round ${t} / 64 (nothing adapts to your input)`, x0, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  if (!d) return;
+  const inp = t === 0 ? _SHA_H0 : d.rounds[t - 1];
+  const a = inp[0], b = inp[1], c = inp[2], dd = inp[3], e = inp[4], f = inp[5], g = inp[6], h = inp[7];
+  const S1 = (_rotr(e, 6) ^ _rotr(e, 11) ^ _rotr(e, 25)) >>> 0, ch = ((e & f) ^ (~e & g)) >>> 0;
+  const T1 = (h + S1 + ch + _SHA_K[t] + d.W[t]) >>> 0;
+  const S0 = (_rotr(a, 2) ^ _rotr(a, 13) ^ _rotr(a, 22)) >>> 0, maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0, T2 = (S0 + maj) >>> 0;
+  const newA = (T1 + T2) >>> 0, newE = (dd + T1) >>> 0;
+  const lx = x0, barX = x0 + 178, cw = (w - 178) / 32;
+  const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
+  const BL = "rgba(120,200,255,0.85)", GR = "rgba(90,235,150,0.95)", GO = "rgba(255,215,90,0.95)";
+  const line = (yy, label, val, on, sub) => { text(label, lx, yy + (sub ? 1 : 4), { size: 9.5, weight: 600, color: "rgba(255,255,255,0.78)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 11, { size: 8, color: "rgba(255,255,255,0.38)", baseline: "middle" }); bar(yy, val, on); };
+  let y = r.y + 36;
+  line(y, "Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL); y += 15;
+  line(y, "Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "e picks f or g, bit by bit"); y += 18;
+  line(y, "T1 = h+Σ1+Ch+K+W", T1, GO, "the round constant + your message word feed in here"); y += 21;
+  line(y, "Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL); y += 15;
+  line(y, "Maj = maj(a,b,c)", maj, BL, "majority vote, bit by bit"); y += 18;
+  line(y, "T2 = Σ0 + Maj", T2, GO); y += 22;
+  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 8); ctx.lineTo(x1, y - 8); ctx.stroke();
+  line(y, "new a = T1 + T2", newA, GR); y += 15;
+  line(y, "new e = d + T1", newE, GR); y += 18;
+  text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round.", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 // BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
@@ -773,6 +804,7 @@ function drawContent(s, r) {
   if (s === "tickets") return drawTickets(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
+  if (s === "oneRound") return drawOneRound(r);
   if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);
