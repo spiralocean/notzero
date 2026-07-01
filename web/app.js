@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -39,6 +39,53 @@ const bytesToHex = (b) => [...b].map((x) => x.toString(16).padStart(2, "0")).joi
 const u32le = (n) => { const a = new Uint8Array(4); new DataView(a.buffer).setUint32(0, n >>> 0, true); return a; };
 const concat = (...arrs) => { const len = arrs.reduce((s, a) => s + a.length, 0); const out = new Uint8Array(len); let o = 0; for (const a of arrs) { out.set(a, o); o += a.length; } return out; };
 const sha256 = async (b) => new Uint8Array(await crypto.subtle.digest("SHA-256", b));
+
+// ---- SHA-256 from scratch (crypto.subtle is a black box) — powers the INSIDE THE HASH panel by exposing the
+// real message schedule + the 8 working registers through all 64 rounds. Verified against sha256() at load. ----
+const _SHA_K = [0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2];
+const _SHA_H0 = [0x6a09e667,0xbb67ae85,0x3c6ef372,0xa54ff53a,0x510e527f,0x9b05688c,0x1f83d9ab,0x5be0cd19];
+const _rotr = (x, n) => ((x >>> n) | (x << (32 - n))) >>> 0;
+function sha256Internals(bytes) {
+  const ml = bytes.length * 8, padLen = Math.ceil((bytes.length + 9) / 64) * 64;
+  const msg = new Uint8Array(padLen); msg.set(bytes); msg[bytes.length] = 0x80;
+  const dv = new DataView(msg.buffer);
+  dv.setUint32(padLen - 4, ml >>> 0); dv.setUint32(padLen - 8, Math.floor(ml / 4294967296));
+  const H = _SHA_H0.slice(); let firstW = null; const rounds = [];
+  for (let bi = 0; bi < padLen / 64; bi++) {
+    const W = new Array(64);
+    for (let t = 0; t < 16; t++) W[t] = dv.getUint32(bi * 64 + t * 4);
+    for (let t = 16; t < 64; t++) {
+      const s0 = _rotr(W[t - 15], 7) ^ _rotr(W[t - 15], 18) ^ (W[t - 15] >>> 3);
+      const s1 = _rotr(W[t - 2], 17) ^ _rotr(W[t - 2], 19) ^ (W[t - 2] >>> 10);
+      W[t] = (W[t - 16] + s0 + W[t - 7] + s1) >>> 0;
+    }
+    let a = H[0], b = H[1], c = H[2], d = H[3], e = H[4], f = H[5], g = H[6], h = H[7];
+    for (let t = 0; t < 64; t++) {
+      const S1 = _rotr(e, 6) ^ _rotr(e, 11) ^ _rotr(e, 25);
+      const ch = (e & f) ^ (~e & g);
+      const t1 = (h + S1 + ch + _SHA_K[t] + W[t]) >>> 0;
+      const S0 = _rotr(a, 2) ^ _rotr(a, 13) ^ _rotr(a, 22);
+      const maj = (a & b) ^ (a & c) ^ (b & c);
+      const t2 = (S0 + maj) >>> 0;
+      h = g; g = f; f = e; e = (d + t1) >>> 0; d = c; c = b; b = a; a = (t1 + t2) >>> 0;
+      if (bi === 0) rounds.push([a, b, c, d, e, f, g, h]);
+    }
+    if (bi === 0) firstW = W;
+    const v = [a, b, c, d, e, f, g, h]; for (let i = 0; i < 8; i++) H[i] = (H[i] + v[i]) >>> 0;
+  }
+  return { bytes, padLen, blocks: padLen / 64, W: firstW, rounds, digest: H.map((x) => (x >>> 0).toString(16).padStart(8, "0")).join("") };
+}
+let hashViz = { input: "bitcoin", data: null, focused: false };
+function hashVizCompute() { try { hashViz.data = sha256Internals(new TextEncoder().encode(hashViz.input)); } catch (_) { hashViz.data = null; } }
+hashVizCompute();
+function handleHashKey(e) {
+  if (e.metaKey || e.ctrlKey) return false; // leave copy/paste/shortcuts alone
+  if (e.key === "Backspace") hashViz.input = hashViz.input.slice(0, -1);
+  else if (e.key === "Enter" || e.key === "Escape") hashViz.focused = false;
+  else if (e.key.length === 1 && hashViz.input.length < 40) hashViz.input += e.key; // cap so it stays one 512-bit block
+  else return false;
+  e.preventDefault(); hashVizCompute(); requestRender(); return true;
+}
 const dsha256 = async (b) => sha256(await sha256(b));
 
 async function pickNonce(seed, height) {
@@ -405,8 +452,9 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 336, network: 180, sync: 540 };
 let headerHits = [];
+let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -559,6 +607,7 @@ function summary(s) {
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
+  if (s === "hashInside") { return "SHA-256 · type to hash live"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";
@@ -633,12 +682,70 @@ function drawTickets(r) {
   text(unsub ? base + ` · ⚠ ${unsub} WON but not submitted — resubmit` : base, r.x + r.w / 2, markY + 16, { size: 10, weight: 600, color: unsub ? "rgba(255,120,120,0.95)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
 }
 
+// INSIDE THE HASH — a from-scratch, live SHA-256 shown as a 4-stage pipeline: your typed message → bits →
+// padded 512-bit block → 64 rounds churning 8 registers (rotate/XOR/AND/add; changed bits flash gold) → the
+// 256-bit hash. Teaches what a computer actually does to hash something.
+function drawHashInside(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
+  const BLUE = "rgba(120,200,255,0.9)", DIM = "rgba(255,255,255,0.06)";
+  text("type anything → watch what a computer actually does to turn it into a 256-bit hash", x0, r.y + 15, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  // typeable input box (click to focus; keystrokes handled by handleHashKey)
+  const ibY = r.y + 27, ibH = 22, ibW = Math.min(360, w * 0.52);
+  ctx.fillStyle = hashViz.focused ? "rgba(255,215,90,0.10)" : "rgba(255,255,255,0.05)"; roundRect(x0, ibY, ibW, ibH, 5); ctx.fill();
+  ctx.strokeStyle = hashViz.focused ? "rgba(255,215,90,0.75)" : "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; roundRect(x0, ibY, ibW, ibH, 5); ctx.stroke();
+  const cursor = hashViz.focused && Math.floor(Date.now() / 500) % 2 ? "▏" : "";
+  const shown = hashViz.input || (hashViz.focused ? "" : "click here and type…");
+  text(shown + cursor, x0 + 8, ibY + ibH / 2, { size: 13, weight: 600, color: hashViz.input ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.32)", baseline: "middle", mono: true });
+  hashInputHit = { x: x0, y: ibY, w: ibW, h: ibH };
+  if (!d) return;
+  text(`${d.bytes.length} byte${d.bytes.length === 1 ? "" : "s"} → ${d.blocks} × 512-bit block${d.blocks === 1 ? "" : "s"}`, x1, ibY + ibH / 2, { size: 10, color: "rgba(255,255,255,0.45)", align: "right", baseline: "middle" });
+
+  // 1 · message as bits
+  let y = r.y + 62;
+  text("1 · YOUR MESSAGE, AS BITS — a computer only sees 1s and 0s", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  const nb = Math.min(64, d.bytes.length * 8), cwb = w / 64;
+  for (let i = 0; i < nb; i++) { const on = (d.bytes[i >> 3] >> (7 - (i & 7))) & 1; ctx.fillStyle = on ? BLUE : DIM; ctx.fillRect(x0 + i * cwb + 0.5, y + 8, Math.max(1, cwb - 1), 9); }
+  text(bytesToHex(d.bytes).slice(0, 66) + (d.bytes.length > 33 ? "…" : ""), x0, y + 26, { size: 9, color: "rgba(255,255,255,0.4)", baseline: "middle", mono: true });
+
+  // 2 · padded 512-bit block
+  y = r.y + 104;
+  text("2 · PADDED TO A FIXED 512-BIT BLOCK — add a 1, then 0s, then the length", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  const msgBits = Math.min(447, d.bytes.length * 8), cwp = w / 512;
+  for (let i = 0; i < 512; i++) { ctx.fillStyle = i < msgBits ? "rgba(120,200,255,0.7)" : i === msgBits ? "rgba(255,215,90,1)" : i >= 512 - 64 ? "rgba(180,140,255,0.8)" : DIM; ctx.fillRect(x0 + i * cwp, y + 8, Math.max(0.8, cwp - 0.25), 9); }
+  text("message", x0 + (msgBits / 2) * cwp, y + 26, { size: 8, color: "rgba(120,200,255,0.7)", align: "center", baseline: "middle" });
+  text("64-bit length", x0 + (512 - 32) * cwp, y + 26, { size: 8, color: "rgba(180,140,255,0.8)", align: "center", baseline: "middle" });
+
+  // 3 · the engine — 8 registers churning over 64 rounds (changed bits flash gold)
+  y = r.y + 140;
+  const rnd = reduceMotion ? 40 : (() => { const t = Date.now() % 9000; return t < 6500 ? Math.min(63, Math.floor((t / 6500) * 64)) : 63; })();
+  text(`3 · 64 ROUNDS OF MIXING — round ${rnd + 1} / 64`, x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — over and over", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  const regs = d.rounds[rnd], prev = rnd > 0 ? d.rounds[rnd - 1] : null, names = "abcdefgh";
+  const barX = x0 + 16, cwr = (w - 16) / 32;
+  for (let i = 0; i < 8; i++) {
+    const ry = y + 14 + i * 12;
+    text(names[i], x0, ry + 4, { size: 10, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
+    for (let bit = 0; bit < 32; bit++) {
+      const on = (regs[i] >>> (31 - bit)) & 1, changed = prev && ((regs[i] ^ prev[i]) >>> (31 - bit)) & 1;
+      ctx.fillStyle = changed ? (on ? "rgba(255,215,90,1)" : "rgba(255,215,90,0.22)") : (on ? "rgba(90,220,140,0.9)" : DIM);
+      ctx.fillRect(barX + bit * cwr + 0.5, ry, Math.max(1, cwr - 1), 8);
+    }
+  }
+
+  // 4 · the hash
+  y = r.y + r.h - 30;
+  text("4 · THE 256-BIT HASH — every tx, block & address in Bitcoin is one of these", x0, y - 15, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  const lead = leadingZeroHexChars(d.digest), dcw = w / 64;
+  for (let i = 0; i < 64; i++) { const z = i < lead; text(d.digest[i], x0 + dcw * (i + 0.5), y, { size: 11, weight: z ? 700 : 600, color: z ? "rgba(255,215,90,1)" : "rgba(90,235,150,0.92)", align: "center", baseline: "middle", mono: true }); }
+}
+
 function drawContent(s, r) {
   if (s === "nextBlock") return drawNextBlock(r);
   if (s === "mempool") return drawMempool(r);
   if (s === "closeness") return drawCloseness(r);
   if (s === "tickets") return drawTickets(r);
   if (s === "hashBuild") return drawHashBuild(r);
+  if (s === "hashInside") return drawHashInside(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);
 }
@@ -989,7 +1096,7 @@ function drawCloseness(r) {
     // (most barely beat it; a lucky few reach much further left)
     const winners = (model.recentBlocks || []).filter((w) => w.id).map((w) => 256 - bigHex(w.id).toString(2).length);
     ctx.fillStyle = "rgba(90,225,140,0.6)";
-    winners.forEach((wb, i) => { const x = Math.max(tkX + 2, Math.min(winX - 1, px(wb) + (rnd(wb * 53 + i * 2.3) - 0.5) * 7)), y = tkY + 4 + rnd(wb * 61 + i * 5.1) * (bandH - 8); ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); });
+    winners.forEach((wb, i) => { const x = Math.max(tkX + 2, Math.min(winX - 1, px(wb) + (rnd(wb * 53 + i * 2.3) - 0.5) * 3)), y = tkY + 4 + rnd(wb * 61 + i * 5.1) * (bandH - 8); ctx.beginPath(); ctx.arc(x, y, 2.6, 0, 7); ctx.fill(); }); // small x-jitter only (de-overlap the pile) so a real beat-by-a-lot still reads as further left
     ctx.strokeStyle = "rgb(90,225,140)"; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(winX, tkY - 3); ctx.lineTo(winX, tkY + bandH + 3); ctx.stroke(); // target = WIN line
     // #2: highlight the LAST winner (the most recent block) among the winners cloud
     const lw = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1];
@@ -998,6 +1105,17 @@ function drawCloseness(r) {
       ctx.fillStyle = "rgb(90,235,150)"; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.fill();
       ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(lwx, tkY + bandH / 2, 4.4, 0, 7); ctx.stroke();
       text("last win", lwx, tkY - 10, { size: 10, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
+    }
+    // luckiest recent winner — the block that beat the target by the most extra zero-bits. Only flag it when it
+    // sits VISIBLY left of the target line (most barely beat it and pile at the line), otherwise no clutter.
+    if (winners.length) {
+      const maxWb = Math.max(...winners), luckyX = px(maxWb), beat = Math.round(maxWb - tBits);
+      if (beat >= 1 && winX - luckyX >= 6) {
+        ctx.save(); ctx.translate(luckyX, tkY + bandH / 2); ctx.beginPath();
+        for (let s = 0; s < 10; s++) { const rr = s % 2 ? 2.3 : 5.4, a = -Math.PI / 2 + s * Math.PI / 5; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
+        ctx.closePath(); ctx.fillStyle = "rgba(255,215,90,1)"; ctx.fill(); ctx.strokeStyle = "rgba(10,8,4,0.85)"; ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
+        text(`★ beat target by +${beat} bits`, luckyX, tkY + bandH + 26, { size: 10, weight: 700, color: "rgba(255,215,90,0.95)", align: "center", baseline: "middle" });
+      }
     }
     // best = a DIAMOND (◆, matching the legend) so it's told apart from the round winner/you dots by SHAPE, not just colour
     const bX = px(bestBits), bY = tkY + bandH / 2, bd = 4.4;
@@ -1940,6 +2058,7 @@ function demoNode() {
   return { ts: 0, reachable: true, blocks: Math.floor(demoHead), headers: tip, verificationprogress: ibd ? demoHead / tip : 0.99999, initialblockdownload: ibd, size_on_disk: 15.2e9, pruned: true, mempool, peers, miner: { mode: "live" } };
 }
 window.addEventListener("keydown", (e) => {
+  if (hashViz.focused && handleHashKey(e)) return; // typing into the INSIDE THE HASH input
   if (e.key === "d" || e.key === "D") syncDemo = !syncDemo;
   else if (e.key === "Escape" && syncDemo) syncDemo = false;
   else return;
@@ -2283,6 +2402,8 @@ canvas.addEventListener("click", (e) => {
     return;
   }
   if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
+  if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
+  hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
