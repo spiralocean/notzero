@@ -1,0 +1,5 @@
+# Cloudflare Pages headers for the demo (notzero-demo → demo.getnotzero.com).
+# app.js has a fixed (unhashed) filename, so cache it but always revalidate — otherwise a deploy takes up to
+# 4h to reach repeat visitors. `no-cache` = use the cache only after a 304 check, so it's instant yet efficient.
+/app.js
+  Cache-Control: no-cache
