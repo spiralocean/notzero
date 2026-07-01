@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -82,7 +82,7 @@ function handleHashKey(e) {
   if (e.metaKey || e.ctrlKey) return false; // leave copy/paste/shortcuts alone
   if (e.key === "Backspace") hashViz.input = hashViz.input.slice(0, -1);
   else if (e.key === "Enter" || e.key === "Escape") hashViz.focused = false;
-  else if (e.key.length === 1 && hashViz.input.length < 40) hashViz.input += e.key; // cap so it stays one 512-bit block
+  else if (e.key.length === 1 && hashViz.input.length < 24) hashViz.input += e.key; // cap: fits the 3-row bit view + one 512-bit block
   else return false;
   e.preventDefault(); hashVizCompute(); requestRender(); return true;
 }
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 336, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, bitOps: 206, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -608,6 +608,7 @@ function summary(s) {
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
+  if (s === "bitOps") { return "rotate · XOR · AND · add"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";
@@ -700,30 +701,33 @@ function drawHashInside(r) {
   if (!d) return;
   text(`${d.bytes.length} byte${d.bytes.length === 1 ? "" : "s"} → ${d.blocks} × 512-bit block${d.blocks === 1 ? "" : "s"}`, x1, ibY + ibH / 2, { size: 10, color: "rgba(255,255,255,0.45)", align: "right", baseline: "middle" });
 
-  // 1 · message as bits
-  let y = r.y + 62;
+  // 1 · message as bits — wrapped at 64/row (up to 3 rows) so the squares stay visible as the text grows
+  let y = r.y + 60;
   text("1 · YOUR MESSAGE, AS BITS — a computer only sees 1s and 0s", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  const nb = Math.min(64, d.bytes.length * 8), cwb = w / 64;
-  for (let i = 0; i < nb; i++) { const on = (d.bytes[i >> 3] >> (7 - (i & 7))) & 1; ctx.fillStyle = on ? BLUE : DIM; ctx.fillRect(x0 + i * cwb + 0.5, y + 8, Math.max(1, cwb - 1), 9); }
-  text(bytesToHex(d.bytes).slice(0, 66) + (d.bytes.length > 33 ? "…" : ""), x0, y + 26, { size: 9, color: "rgba(255,255,255,0.4)", baseline: "middle", mono: true });
+  const totalBits = d.bytes.length * 8, perRow = 64, maxRows = 3, cwb = w / perRow, showBits = Math.min(totalBits, perRow * maxRows);
+  for (let i = 0; i < showBits; i++) { const on = (d.bytes[i >> 3] >> (7 - (i & 7))) & 1; ctx.fillStyle = on ? BLUE : DIM; ctx.fillRect(x0 + (i % perRow) * cwb + 0.5, y + 10 + Math.floor(i / perRow) * 10, Math.max(1, cwb - 1), 8); }
+  if (totalBits > showBits) text(`+${totalBits - showBits} more`, x1, y, { size: 9, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  text(bytesToHex(d.bytes).slice(0, 72) + (d.bytes.length > 36 ? "…" : ""), x0, y + 46, { size: 9, color: "rgba(255,255,255,0.4)", baseline: "middle", mono: true });
 
-  // 2 · padded 512-bit block
-  y = r.y + 104;
-  text("2 · PADDED TO A FIXED 512-BIT BLOCK — add a 1, then 0s, then the length", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  const msgBits = Math.min(447, d.bytes.length * 8), cwp = w / 512;
-  for (let i = 0; i < 512; i++) { ctx.fillStyle = i < msgBits ? "rgba(120,200,255,0.7)" : i === msgBits ? "rgba(255,215,90,1)" : i >= 512 - 64 ? "rgba(180,140,255,0.8)" : DIM; ctx.fillRect(x0 + i * cwp, y + 8, Math.max(0.8, cwp - 0.25), 9); }
-  text("message", x0 + (msgBits / 2) * cwp, y + 26, { size: 8, color: "rgba(120,200,255,0.7)", align: "center", baseline: "middle" });
-  text("64-bit length", x0 + (512 - 32) * cwp, y + 26, { size: 8, color: "rgba(180,140,255,0.8)", align: "center", baseline: "middle" });
+  // 2 · padded 512-bit block — a FIXED recipe, no randomness: message, one 1, zeros, the 64-bit length
+  y = r.y + 128;
+  text("2 · PADDED TO A FIXED 512-BIT BLOCK — a fixed recipe, no randomness", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  const msgBits = Math.min(447, d.bytes.length * 8), cwp = w / 512, oneX = x0 + msgBits * cwp;
+  for (let i = 0; i < 512; i++) { ctx.fillStyle = i < msgBits ? "rgba(120,200,255,0.7)" : i === msgBits ? "rgba(255,215,90,1)" : i >= 512 - 64 ? "rgba(180,140,255,0.85)" : DIM; ctx.fillRect(x0 + i * cwp, y + 10, Math.max(0.8, cwp - 0.25), 10); }
+  text("your message", x0 + (msgBits / 2) * cwp, y + 32, { size: 8, color: "rgba(120,200,255,0.75)", align: "center", baseline: "middle" });
+  text("↑ one 1", oneX + 16, y + 32, { size: 8, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle" });
+  text("just zeros (fill)", x0 + ((msgBits + 448) / 2) * cwp, y + 32, { size: 8, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
+  text("64-bit length", x0 + (512 - 32) * cwp, y + 32, { size: 8, color: "rgba(180,140,255,0.85)", align: "center", baseline: "middle" });
 
   // 3 · the engine — 8 registers churning over 64 rounds (changed bits flash gold)
-  y = r.y + 140;
+  y = r.y + 178;
   const rnd = reduceMotion ? 40 : (() => { const t = Date.now() % 9000; return t < 6500 ? Math.min(63, Math.floor((t / 6500) * 64)) : 63; })();
   text(`3 · 64 ROUNDS OF MIXING — round ${rnd + 1} / 64`, x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — over and over", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — see BIT OPERATIONS below", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
   const regs = d.rounds[rnd], prev = rnd > 0 ? d.rounds[rnd - 1] : null, names = "abcdefgh";
   const barX = x0 + 16, cwr = (w - 16) / 32;
   for (let i = 0; i < 8; i++) {
-    const ry = y + 14 + i * 12;
+    const ry = y + 14 + i * 11;
     text(names[i], x0, ry + 4, { size: 10, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
     for (let bit = 0; bit < 32; bit++) {
       const on = (regs[i] >>> (31 - bit)) & 1, changed = prev && ((regs[i] ^ prev[i]) >>> (31 - bit)) & 1;
@@ -739,6 +743,29 @@ function drawHashInside(r) {
   for (let i = 0; i < 64; i++) { const z = i < lead; text(d.digest[i], x0 + dcw * (i + 0.5), y, { size: 11, weight: z ? 700 : 600, color: z ? "rgba(255,215,90,1)" : "rgba(90,235,150,0.92)", align: "center", baseline: "middle", mono: true }); }
 }
 
+// BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
+// can see what the computer physically does. rotate animates; each binary op shows A over B → result (green).
+function drawBitOps(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  const A = 0xC3A5F02D >>> 0, B = 0x9E3779B1 >>> 0;
+  const IN = "rgba(120,200,255,0.85)", B2 = "rgba(185,185,185,0.55)", OUT = "rgba(90,235,150,0.95)", G = "rgba(255,215,90,0.95)", OFF = "rgba(255,255,255,0.06)", dim = "rgba(255,255,255,0.4)";
+  text("THE FOUR OPERATIONS — a hash is ONLY these, on 32-bit words, done billions of times a second", x0, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  const barX = x0 + 100, cw = (w - 100) / 32;
+  const row = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : OFF; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
+  const lbl = (ly, name, desc) => { text(name, x0, ly, { size: 11, weight: 700, color: G, baseline: "middle" }); if (desc) text(desc, x0, ly + 12, { size: 8.5, color: dim, baseline: "middle" }); };
+  let y = r.y + 38;
+  const rot = 1 + (Math.floor(Date.now() / 500) % 13);
+  lbl(y + 3, "⟲ rotate", `right by ${rot} — bits wrap`); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, IN);
+  y += 30;
+  lbl(y + 9, "⊕ XOR", "differ → 1"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A ^ B) >>> 0, OUT);
+  y += 40;
+  lbl(y + 9, "∧ AND", "both 1 → 1"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A & B) >>> 0, OUT);
+  y += 40;
+  lbl(y + 9, "➕ add", "sum, carry rolls over"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A + B) >>> 0, OUT);
+  y += 34;
+  text("that's the whole toolbox — SHA-256 just repeats these on your padded block for 64 rounds to scramble it", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 function drawContent(s, r) {
   if (s === "nextBlock") return drawNextBlock(r);
   if (s === "mempool") return drawMempool(r);
@@ -746,6 +773,7 @@ function drawContent(s, r) {
   if (s === "tickets") return drawTickets(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
+  if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);
 }
