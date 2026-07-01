@@ -4,9 +4,22 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.19
+## Unreleased — next: 0.1.20
 
 _Nothing yet._
+
+## 0.1.19
+
+**App**
+- **Fixed mining stalling on 0.1.18 (all platforms).** The CI-built miner shipped without a CA-certificate
+  bundle, so its `mempool.space` calls failed SSL verification ("unable to get local issuer certificate") and
+  the poll loop stalled before submitting — the pill showed "not submitting · last ticket …h ago." The miner
+  now uses `certifi` for its trust store (bundled by PyInstaller), and the release workflow installs `certifi`
+  so every build includes it.
+
+**Dashboard**
+- The footer no longer claims "LIVE solo mining" when the miner is synced but hasn't submitted a ticket in
+  over 20 minutes — it shows "miner not submitting (last ticket …)" instead, matching the top status pill.
 
 ## 0.1.18
 

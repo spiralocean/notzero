@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import platform
+import ssl
 import struct
 import sys
 import time
@@ -274,9 +275,20 @@ def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: 
     return state
 
 
+# HTTPS trust store. A PyInstaller build only ships CA certs if `certifi` was in the build env — the first CI
+# build wasn't, so mempool.space calls failed SSL verification ("unable to get local issuer certificate") and
+# the miner stalled. Use certifi's bundle when present (PyInstaller collects its cacert.pem via this import),
+# else fall back to the system trust store.
+try:
+    import certifi
+    _SSL_CTX = ssl.create_default_context(cafile=certifi.where())
+except Exception:  # noqa: BLE001
+    _SSL_CTX = ssl.create_default_context()
+
+
 def http_get(url: str, timeout: int = 30) -> dict | list | str:
     req = urllib.request.Request(url, headers={"User-Agent": "bitcoin-lottery-miner/0.1"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
         body = resp.read().decode()
     try:
         return json.loads(body)

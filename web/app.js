@@ -2204,6 +2204,9 @@ function render(ts) {
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
   const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
+  // synced + live but no ticket in >20 min = actually not submitting (stalled miner) — don't claim LIVE
+  const lastTs = node && node.miner && node.miner.attempt ? Date.parse(node.miner.attempt.attempted_at || "") : NaN;
+  const stalled = Number.isFinite(lastTs) && (Date.now() - lastTs) / 1000 > 1200;
   let fmsg, fcol;
   const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
   if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
@@ -2211,6 +2214,7 @@ function render(ts) {
   else if (!reachable) { fmsg = `○ node unreachable — check your node · ${ver}`; fcol = "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
+  else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
   if (syncDemo) {
