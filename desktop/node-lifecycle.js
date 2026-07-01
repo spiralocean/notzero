@@ -110,11 +110,16 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     });
   }
 
-  async function waitForRpc(timeoutMs = 90000) {
+  async function waitForRpc(timeoutMs = 300000) {
+    // A restart (e.g. right after an update) reloads the block index + mempool and resumes assumeutxo
+    // background validation before RPC opens — on a busy/slow disk that can take minutes, so wait generously
+    // and show elapsed time instead of freezing on "Starting…" then failing at a too-short deadline.
     const t0 = Date.now();
     while (Date.now() - t0 < timeoutMs) {
       if (!child && !stopping) throw new Error("bitcoind exited before it became reachable");
-      try { await rpc("getblockchaininfo", [], 4000); return; } catch (_) {}
+      try { await rpc("getblockchaininfo", [], 5000); return; } catch (_) {}
+      const secs = Math.round((Date.now() - t0) / 1000);
+      if (secs >= 12) emit(STATES.STARTING, null, `Your node is starting — loading the chain (${secs}s). This can take a few minutes, especially right after an update.`);
       await sleep(1500);
     }
     throw new Error("the node did not become reachable in time");
@@ -167,11 +172,31 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     }
   }
 
+  // Kill any bitcoind still holding THIS node's datadir before launching — an orphan from a prior app instance,
+  // or a slow one from a previous retry — so a restart never fails with "Cannot obtain a lock … already
+  // running". Unix matches by datadir (precise); Windows kills bitcoind.exe (managed users run one node).
+  async function reapStaleBitcoind() {
+    const cp = require("child_process");
+    const alive = () => {
+      try {
+        if (process.platform === "win32") return /bitcoind\.exe/i.test(cp.execFileSync("tasklist", ["/FI", "IMAGENAME eq bitcoind.exe", "/NH"], { encoding: "utf8", timeout: 8000 }));
+        cp.execFileSync("pgrep", ["-f", paths.datadir], { stdio: "ignore" }); return true;
+      } catch (_) { return false; }
+    };
+    if (!alive()) return;
+    try {
+      if (process.platform === "win32") cp.execFileSync("taskkill", ["/F", "/IM", "bitcoind.exe"], { stdio: "ignore", timeout: 8000 });
+      else cp.execFileSync("pkill", ["-TERM", "-f", paths.datadir], { stdio: "ignore", timeout: 8000 });
+    } catch (_) {}
+    for (let i = 0; i < 40 && alive(); i++) await sleep(500); // wait up to ~20s for a clean shutdown + lock release
+  }
+
   // Bring the node up to "started + snapshot attempted". Caller then polls sync().
   async function start() {
     stopping = false;
     await ensureCore();
     writeConf();
+    await reapStaleBitcoind(); // free the datadir lock first, so a restart/retry never collides with an old bitcoind
     emit(STATES.STARTING);
     launch();
     await waitForRpc();
