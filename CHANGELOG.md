@@ -4,9 +4,31 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.20
+## Unreleased — next: 0.1.21
 
 _Nothing yet._
+
+## 0.1.20
+
+**App**
+- **Node startup no longer fails on a slow restart.** Reloading the block index + mempool + resuming
+  assumeutxo validation after an update can take minutes; the wait went from 90s to 300s and now shows elapsed
+  time instead of freezing on "Starting…" then failing.
+- **No more "Cannot obtain a lock … already running."** A retry could launch a second bitcoind over the
+  first's datadir lock — the app now stops any leftover bitcoind (and waits for the lock to release) before
+  every launch.
+- **Safer node-error dialog:** "Try again" is now the primary, auto-focused button; the destructive "Remove &
+  start over" (which wipes the node and re-syncs) is demoted to a quiet secondary.
+
+**Dashboard — learn how hashing works**
+- **INSIDE THE HASH** — a live, from-scratch SHA-256 shown as a 4-stage pipeline (your typed message → bits →
+  padded 512-bit block → 64 rounds churning the 8 registers → the hash). Type anything and watch it re-hash.
+- **ONE ROUND** — the exact fixed recipe every round runs (Σ0/Σ1, Ch, Maj, +K +W → the two new registers).
+- **BIT OPERATIONS** — the four atomic ops (rotate, XOR, AND, add) on 32-bit words.
+- Message-bits view wraps to multiple rows (see more without shrinking the squares); the padding stage is
+  labeled as the fixed, non-random recipe it is.
+- **Odds map** flags the luckiest recent network winner ("beat target by +N bits") when it lands visibly past
+  the target line.
 
 ## 0.1.19
 
