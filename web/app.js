@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 210, bitOps: 206, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 210, bitOps: 256, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -779,22 +779,32 @@ function drawOneRound(r) {
 function drawBitOps(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   const A = 0xC3A5F02D >>> 0, B = 0x9E3779B1 >>> 0;
-  const IN = "rgba(120,200,255,0.85)", B2 = "rgba(185,185,185,0.55)", OUT = "rgba(90,235,150,0.95)", G = "rgba(255,215,90,0.95)", OFF = "rgba(255,255,255,0.06)", dim = "rgba(255,255,255,0.4)";
-  text("THE FOUR OPERATIONS — a hash is ONLY these, on 32-bit words, done billions of times a second", x0, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  const barX = x0 + 100, cw = (w - 100) / 32;
+  const IN = "rgba(120,200,255,0.9)", B2 = "rgba(190,190,190,0.6)", OUT = "rgba(90,235,150,0.95)", G = "rgba(255,215,90,0.95)", OFF = "rgba(255,255,255,0.06)", dim = "rgba(255,255,255,0.45)";
+  text("THE FOUR OPERATIONS — read each top-to-bottom: the input(s) above the line, the result (green) below.", x0, r.y + 15, { size: 11.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  const barX = x0 + 34, cw = (w - 34) / 32;
   const row = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : OFF; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
-  const lbl = (ly, name, desc) => { text(name, x0, ly, { size: 11, weight: 700, color: G, baseline: "middle" }); if (desc) text(desc, x0, ly + 12, { size: 8.5, color: dim, baseline: "middle" }); };
-  let y = r.y + 38;
+  const rlbl = (by, t, c) => text(t, x0, by + 4, { size: 10, weight: 700, color: c, baseline: "middle", mono: true });
+  const divline = (ly) => { ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, ly + 0.5); ctx.lineTo(x1, ly + 0.5); ctx.stroke(); };
+  const head = (hy, name, def) => { text(name, x0, hy, { size: 11, weight: 700, color: G, baseline: "middle" }); text(def, x0 + 84, hy, { size: 9.5, color: dim, baseline: "middle" }); };
   const rot = 1 + (Math.floor(Date.now() / 500) % 13);
-  lbl(y + 3, "⟲ rotate", `right by ${rot} — bits wrap`); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, IN);
-  y += 30;
-  lbl(y + 9, "⊕ XOR", "differ → 1"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A ^ B) >>> 0, OUT);
-  y += 40;
-  lbl(y + 9, "∧ AND", "both 1 → 1"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A & B) >>> 0, OUT);
-  y += 40;
-  lbl(y + 9, "➕ add", "sum, carry rolls over"); row(y, A, IN); row(y + 9, B, B2); row(y + 20, (A + B) >>> 0, OUT);
-  y += 34;
-  text("that's the whole toolbox — SHA-256 just repeats these on your padded block for 64 rounds to scramble it", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  let y = r.y + 34;
+  // rotate: one input → one output
+  head(y, "⟲ rotate", `slide all bits sideways — bits that fall off one end wrap around to the other (here: right ${rot})`);
+  y += 12; rlbl(y, "in", IN); row(y, A, IN);
+  y += 11; divline(y - 2); rlbl(y, "=", OUT); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, OUT);
+  y += 21;
+  // XOR / AND / add: two inputs (A over B) → one result
+  const triple = (name, def, op, res) => {
+    head(y, name, def);
+    y += 12; rlbl(y, "A", IN); row(y, A, IN);
+    y += 10; rlbl(y, op + " B", B2); row(y, B, B2);
+    y += 11; divline(y - 2); rlbl(y, "=", OUT); row(y, res >>> 0, OUT);
+    y += 21;
+  };
+  triple("⊕ XOR", "compare the two bits in each column: 1 if they DIFFER, 0 if they match", "⊕", A ^ B);
+  triple("∧ AND", "1 only where BOTH bits are 1 — otherwise 0", "∧", A & B);
+  triple("➕ add", "add them as numbers; a full column carries into the next, the top carry wraps off (mod 2³²)", "+", A + B);
+  text("that's the whole toolbox — SHA-256 just repeats these on your block for 64 rounds until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 function drawContent(s, r) {
