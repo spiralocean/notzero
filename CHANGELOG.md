@@ -4,7 +4,11 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.21
+## Unreleased — next: 0.1.22
+
+_Nothing yet._
+
+## 0.1.21
 
 **App — don't let the managed node fill the disk**
 - **Delete the assumeutxo snapshot file after loading it.** The ~9.8 GB `utxo-<height>.dat` is read exactly
