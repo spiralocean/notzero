@@ -6,7 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.21
 
-_Nothing yet._
+**App — don't let the managed node fill the disk**
+- **Delete the assumeutxo snapshot file after loading it.** The ~9.8 GB `utxo-<height>.dat` is read exactly
+  once by `loadtxoutset`; it was being left behind forever. On one shared box that dead weight (plus
+  assumeutxo's temporary dual chainstate) filled the disk to 100% and crashed the node. Now deleted right
+  after a successful load, and any leftover is swept on the next start (fixes existing installs on update).
+- **Disk-space guard.** Skip the ~10 GB snapshot download if there isn't ≥14 GB free (fall back to normal IBD
+  instead of filling the disk), and if free space ever drops below ~2 GB while running, **pause the node
+  cleanly** with a clear message rather than letting bitcoind hit 100% — a full disk can corrupt the
+  chainstate and take down everything else on the machine. A paused node just needs space freed + a restart.
 
 ## 0.1.20
 

@@ -125,14 +125,30 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     throw new Error("the node did not become reachable in time");
   }
 
+  // Free bytes on the datadir's filesystem (null if the platform/Node build can't report it).
+  function freeBytes() {
+    try { const s = fs.statfsSync(paths.datadir); return s.bavail * s.bsize; } catch (_) { return null; }
+  }
+  // Delete any assumeutxo snapshot files (utxo-<height>.dat). They're read exactly once by loadtxoutset and
+  // then dead weight — a 9.8 GB leftover here once filled a user's disk to 100% and crashed the node.
+  function sweepSnapshotFiles() {
+    try { for (const f of fs.readdirSync(paths.node)) if (/^utxo-\d+\.dat$/.test(f)) { try { fs.unlinkSync(path.join(paths.node, f)); } catch (_) {} } } catch (_) {}
+  }
+
   // Load the assumeutxo snapshot if the node is still in IBD and we host one.
   async function maybeLoadSnapshot() {
     let info; try { info = await rpc("getblockchaininfo"); } catch { return; }
-    if (info.initialblockdownload === false) return;     // already usable
-    if (info.blocks >= P.ASSUMEUTXO.height) return;      // already past the snapshot height
+    // Already usable / past the snapshot height → any downloaded utxo-*.dat is dead weight; reclaim it now
+    // (also cleans up a leftover from an older build that never deleted it after loading).
+    if (info.initialblockdownload === false || info.blocks >= P.ASSUMEUTXO.height) { sweepSnapshotFiles(); return; }
     if (!P.ASSUMEUTXO.snapshotUrl) return;               // Phase 2 stub: no hosted snapshot yet → normal IBD
     const snap = path.join(paths.node, `utxo-${P.ASSUMEUTXO.height}.dat`);
     try {
+      // Don't start a ~10 GB download onto a disk that can't also hold the chainstate it expands into — that's
+      // how the disk hits 100%. Bail to normal IBD instead (slower, but safe on small disks).
+      const free = freeBytes();
+      if (free != null && !fs.existsSync(snap) && free < 14 * 1024 ** 3)
+        throw new Error(`not enough free disk for the fast-start snapshot (need ~14 GB, have ${(free / 1024 ** 3).toFixed(1)} GB) — syncing normally instead`);
       const DL_MSG = "Downloading the verified snapshot (about 9 GB) — the longest part of setup.";
       if (!fs.existsSync(snap)) {
         emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
@@ -163,7 +179,7 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
           await sleep(2000);
         }
       })();
-      try { await rpc("loadtxoutset", [snap], 0); }      // Core verifies vs its baked-in hash; long-running
+      try { await rpc("loadtxoutset", [snap], 0); sweepSnapshotFiles(); } // loaded (read once) → reclaim the ~9.8 GB .dat
       finally { loadingSnap = false; }
     } catch (e) {
       // assumeutxo fast-start failed — don't dead-end in an error. bitcoind is already doing IBD, so fall
@@ -206,6 +222,15 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
 
   // One sync sample → {state, progress, blocks, headers, mineable}.
   async function sync() {
+    // Disk guard: if free space is critically low, pause the node cleanly rather than letting bitcoind fill the
+    // disk to 100% — a full disk crashes the node (risking chainstate damage) and can take down everything else
+    // sharing the machine. A paused node is trivially recoverable; a full disk is not.
+    const free = freeBytes();
+    if (!stopping && free != null && free < 2 * 1024 ** 3) {
+      emit(STATES.ERROR, null, `Your disk is almost full (only ${(free / 1024 ** 3).toFixed(1)} GB free). Pausing the node to protect it and the rest of your system — free up space, then restart the app.`);
+      await stop();
+      return { state: STATES.ERROR, progress: null, blocks: 0, headers: 0, mineable: false };
+    }
     const info = await rpc("getblockchaininfo");
     const s = syncStateFrom(info);
     emit(s.state, s.progress, `${s.blocks}/${s.headers}`);
