@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 210, bitOps: 256, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 210, bitOps: 264, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -777,33 +777,58 @@ function drawOneRound(r) {
 // BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
 // can see what the computer physically does. rotate animates; each binary op shows A over B → result (green).
 function drawBitOps(r) {
-  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad;
   const A = 0xC3A5F02D >>> 0, B = 0x9E3779B1 >>> 0;
   const IN = "rgba(120,200,255,0.9)", B2 = "rgba(190,190,190,0.6)", OUT = "rgba(90,235,150,0.95)", G = "rgba(255,215,90,0.95)", OFF = "rgba(255,255,255,0.06)", dim = "rgba(255,255,255,0.45)";
-  text("THE FOUR OPERATIONS — read each top-to-bottom: the input(s) above the line, the result (green) below.", x0, r.y + 15, { size: 11.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  const barX = x0 + 34, cw = (w - 34) / 32;
+  const EXW = 210, barX = x0 + 34, bx1 = x1 - EXW, cw = (bx1 - barX) / 32, ex0 = bx1 + 24;
+  text("THE FOUR OPERATIONS — read top-to-bottom (inputs above the line, green result below). The box zooms in on one bit-column.", x0, r.y + 15, { size: 11.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   const row = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : OFF; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
   const rlbl = (by, t, c) => text(t, x0, by + 4, { size: 10, weight: 700, color: c, baseline: "middle", mono: true });
-  const divline = (ly) => { ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, ly + 0.5); ctx.lineTo(x1, ly + 0.5); ctx.stroke(); };
+  const divline = (ly) => { ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, ly + 0.5); ctx.lineTo(bx1, ly + 0.5); ctx.stroke(); };
   const head = (hy, name, def) => { text(name, x0, hy, { size: 11, weight: 700, color: G, baseline: "middle" }); text(def, x0 + 84, hy, { size: 9.5, color: dim, baseline: "middle" }); };
-  const rot = 1 + (Math.floor(Date.now() / 500) % 13);
+  const hilite = (topY, botY, col) => { ctx.strokeStyle = G; ctx.lineWidth = 1.5; ctx.strokeRect(barX + col * cw - 1, topY - 1.5, cw + 2, botY - topY + 3); };
+  const S = 20;
+  const cell = (cx, cy, bit, color) => {
+    ctx.fillStyle = bit ? color : "rgba(255,255,255,0.06)"; ctx.fillRect(cx, cy, S, S);
+    ctx.strokeStyle = color; ctx.lineWidth = 1; ctx.strokeRect(cx + 0.5, cy + 0.5, S - 1, S - 1);
+    text(String(bit), cx + S / 2, cy + S / 2 + 0.5, { size: 12, weight: 700, color: bit ? "#0b0b0b" : color, align: "center", baseline: "middle", mono: true });
+  };
+  const glyph = (gx, gy, t) => text(t, gx, gy, { size: 13, weight: 700, color: dim, align: "center", baseline: "middle" });
   let y = r.y + 34;
-  // rotate: one input → one output
-  head(y, "⟲ rotate", `slide all bits sideways — bits that fall off one end wrap around to the other (here: right ${rot})`);
-  y += 12; rlbl(y, "in", IN); row(y, A, IN);
-  y += 11; divline(y - 2); rlbl(y, "=", OUT); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, OUT);
+  // rotate: positional — no per-column truth table, so the zone just names the wrap
+  const rot = 1 + (Math.floor(Date.now() / 500) % 13);
+  head(y, "⟲ rotate", `slide all bits sideways — one that falls off an end wraps to the other (here: right ${rot})`);
+  y += 12; const ri = y; rlbl(y, "in", IN); row(y, A, IN);
+  y += 11; divline(y - 2); const ro = y; rlbl(y, "=", OUT); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, OUT);
+  { const my = (ri + ro) / 2; text("no truth table —", ex0, my - 5, { size: 9, color: dim, baseline: "middle" }); text("bits just move & wrap ↺", ex0, my + 6, { size: 9, color: dim, baseline: "middle" }); }
   y += 21;
-  // XOR / AND / add: two inputs (A over B) → one result
-  const triple = (name, def, op, res) => {
+  // XOR / AND: two inputs → result, with an honest single-column zoom (col = highlighted bit)
+  const triple = (name, def, op, col, res) => {
     head(y, name, def);
-    y += 12; rlbl(y, "A", IN); row(y, A, IN);
+    y += 12; const ay = y; rlbl(y, "A", IN); row(y, A, IN);
     y += 10; rlbl(y, op + " B", B2); row(y, B, B2);
-    y += 11; divline(y - 2); rlbl(y, "=", OUT); row(y, res >>> 0, OUT);
+    y += 11; divline(y - 2); const ry = y; rlbl(y, "=", OUT); row(y, res >>> 0, OUT);
+    hilite(ay, ry + 8, col);
+    const aBit = (A >>> (31 - col)) & 1, bBit = (B >>> (31 - col)) & 1, rBit = (res >>> (31 - col)) & 1;
+    const my = (ay + ry) / 2 + 4, cy = my - S / 2;
+    text("the boxed column:", ex0, ay - 2, { size: 8.5, color: dim, baseline: "middle" });
+    cell(ex0, cy, aBit, IN); glyph(ex0 + 30, my, op); cell(ex0 + 42, cy, bBit, B2); glyph(ex0 + 72, my, "="); cell(ex0 + 84, cy, rBit, OUT);
     y += 21;
   };
-  triple("⊕ XOR", "compare the two bits in each column: 1 if they DIFFER, 0 if they match", "⊕", A ^ B);
-  triple("∧ AND", "1 only where BOTH bits are 1 — otherwise 0", "∧", A & B);
-  triple("➕ add", "add them as numbers; a full column carries into the next, the top carry wraps off (mod 2³²)", "+", A + B);
+  triple("⊕ XOR", "1 where the two bits DIFFER, 0 where they match", "⊕", 29, A ^ B);
+  triple("∧ AND", "1 only where BOTH bits are 1, else 0", "∧", 31, A & B);
+  // add: carries ACROSS columns, so a single-column zoom shows the carry rule (not one bar column)
+  head(y, "➕ add", "add as numbers; when a column overflows it carries into the next (top carry wraps, mod 2³²)");
+  y += 12; const aa = y; rlbl(y, "A", IN); row(y, A, IN);
+  y += 10; rlbl(y, "+ B", B2); row(y, B, B2);
+  y += 11; divline(y - 2); const ar = y; rlbl(y, "=", OUT); row(y, (A + B) >>> 0, OUT);
+  { const my = (aa + ar) / 2 + 4, cy = my - S / 2;
+    text("a column that overflows:", ex0, aa - 2, { size: 8.5, color: dim, baseline: "middle" });
+    cell(ex0, cy, 1, IN); glyph(ex0 + 30, my, "+"); cell(ex0 + 42, cy, 1, B2); glyph(ex0 + 72, my, "=");
+    cell(ex0 + 84, cy, 1, OUT); cell(ex0 + 106, cy, 0, OUT);
+    text("↑ carry", ex0 + 84, my + 15, { size: 8, color: G, baseline: "middle" });
+  }
+  y += 24;
   text("that's the whole toolbox — SHA-256 just repeats these on your block for 64 rounds until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
