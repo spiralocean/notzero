@@ -453,6 +453,18 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 302, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+// Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
+// breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
+// don't see work-in-progress. Turn them on with ?lab=1 (persists), off with ?lab=0.
+let LAB = false;
+try {
+  const _lp = new URLSearchParams(location.search).get("lab");
+  if (_lp === "1") localStorage.setItem("bl.lab", "1");
+  else if (_lp === "0") localStorage.removeItem("bl.lab");
+  LAB = localStorage.getItem("bl.lab") === "1";
+} catch {}
+const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
+if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -550,7 +562,7 @@ function visibleSections() {
   // in place so the dashboard never reflows/jumps — the sync panel just shows "catching up" inline.
   const si = syncInfo(), n = model.node;
   const initialSync = !!(si && si.syncing && (!everSynced || (n && n.initialblockdownload)));
-  return initialSync ? ["sync", "network"] : SECTIONS;
+  return initialSync ? ["sync", "network"] : (LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s)));
 }
 // open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
 let syncAutoExpanded = false;
@@ -733,33 +745,46 @@ function drawHashInside(r) {
   text("just zeros (fill)", x0 + ((msgBits + 448) / 2) * cwp, y + 32, { size: 8, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   text("64-bit length", x0 + (512 - 32) * cwp, y + 32, { size: 8, color: "rgba(180,140,255,0.85)", align: "center", baseline: "middle" });
 
-  // 2½ · the 8 registers broken out — the 256-bit hash-state before any mixing. They START as fixed constants;
-  // the message is NOT loaded here — it becomes the W words fed in one-per-round during the churn.
-  y = r.y + 176;
-  text("THE 8 REGISTERS — the 256-bit hash-state (a–h), starting as fixed constants · your message is separate: it feeds in as W during the churn ↓", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  { const rn = "abcdefgh", rgap2 = 10, rbw2 = (w - rgap2 * 7) / 8;
-    for (let i = 0; i < 8; i++) {
-      const rx = x0 + i * (rbw2 + rgap2), hot = (i === 0 || i === 4), rcw2 = rbw2 / 32;
-      text(rn[i], rx + rbw2 / 2, y + 15, { size: 10, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
-      for (let b = 0; b < 32; b++) { ctx.fillStyle = ((_SHA_H0[i] >>> (31 - b)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(120,200,255,0.8)") : DIM; ctx.fillRect(rx + b * rcw2, y + 22, Math.max(0.8, rcw2 - 0.3), 9); }
+  if (LAB) {
+    // 2½ · the 8 registers broken out — the 256-bit hash-state before any mixing. They START as fixed constants;
+    // the message is NOT loaded here — it becomes the W words fed in one-per-round during the churn.
+    y = r.y + 176;
+    text("THE 8 REGISTERS — the 256-bit hash-state (a–h), starting as fixed constants · your message is separate: it feeds in as W during the churn ↓", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+    { const rn = "abcdefgh", rgap2 = 10, rbw2 = (w - rgap2 * 7) / 8;
+      for (let i = 0; i < 8; i++) {
+        const rx = x0 + i * (rbw2 + rgap2), hot = (i === 0 || i === 4), rcw2 = rbw2 / 32;
+        text(rn[i], rx + rbw2 / 2, y + 15, { size: 10, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
+        for (let b = 0; b < 32; b++) { ctx.fillStyle = ((_SHA_H0[i] >>> (31 - b)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(120,200,255,0.8)") : DIM; ctx.fillRect(rx + b * rcw2, y + 22, Math.max(0.8, rcw2 - 0.3), 9); }
+      }
     }
-  }
-
-  // 3 · the churn, laid out like THE SHIFT — registers as columns, a few rounds stacked; each round only a & e
-  // churn (gold), everyone else shifts down a slot. (Full version, with the traced value, in THE SHIFT section.)
-  y = r.y + 218;
-  text("3 · 64 ROUNDS OF MIXING — each round only a & e churn (gold); the rest shift down · ×64", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  text("laid out like THE SHIFT · unpacked in ONE ROUND", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  { const names = "abcdefgh", srows = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], slab = ["start", "r0", "r1", "r2", "r3"];
-    const sgx = x0 + 40, cwid3 = (x1 - sgx) / 8, bw3 = cwid3 - 8, bcw3 = bw3 / 32;
-    for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], sgx + c * cwid3 + bw3 / 2, y + 15, { size: 9, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); }
-    for (let ri = 0; ri < srows.length; ri++) {
-      const ry = y + 27 + ri * 17;
-      text(slab[ri], x0, ry + 3.5, { size: 8, weight: 600, color: ri === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.55)", baseline: "middle" });
-      for (let c = 0; c < 8; c++) {
-        const cx = sgx + c * cwid3, val = srows[ri][c] >>> 0, isHot = (c === 0 || c === 4) && ri > 0;
-        for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (isHot ? "rgba(255,215,90,0.95)" : "rgba(90,220,140,0.82)") : DIM; ctx.fillRect(cx + b * bcw3, ry, Math.max(0.7, bcw3 - 0.3), 7); }
-        if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.5)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1, ry - 1, bw3 + 2, 9); }
+    // 3 · the churn, laid out like THE SHIFT — registers as columns, a few rounds stacked; each round only a & e
+    // churn (gold), everyone else shifts down a slot. (Full version, with the traced value, in THE SHIFT section.)
+    y = r.y + 218;
+    text("3 · 64 ROUNDS OF MIXING — each round only a & e churn (gold); the rest shift down · ×64", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+    text("laid out like THE SHIFT · unpacked in ONE ROUND", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+    { const names = "abcdefgh", srows = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], slab = ["start", "r0", "r1", "r2", "r3"];
+      const sgx = x0 + 40, cwid3 = (x1 - sgx) / 8, bw3 = cwid3 - 8, bcw3 = bw3 / 32;
+      for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], sgx + c * cwid3 + bw3 / 2, y + 15, { size: 9, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); }
+      for (let ri = 0; ri < srows.length; ri++) {
+        const ry = y + 27 + ri * 17;
+        text(slab[ri], x0, ry + 3.5, { size: 8, weight: 600, color: ri === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.55)", baseline: "middle" });
+        for (let c = 0; c < 8; c++) {
+          const cx = sgx + c * cwid3, val = srows[ri][c] >>> 0, isHot = (c === 0 || c === 4) && ri > 0;
+          for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (isHot ? "rgba(255,215,90,0.95)" : "rgba(90,220,140,0.82)") : DIM; ctx.fillRect(cx + b * bcw3, ry, Math.max(0.7, bcw3 - 0.3), 7); }
+          if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.5)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1, ry - 1, bw3 + 2, 9); }
+        }
+      }
+    }
+  } else {
+    // 3 · the churn — simple: snapshots of the whole 256-bit state at a few rounds, showing it scrambles completely
+    y = r.y + 176;
+    text("3 · 64 ROUNDS OF MIXING — the 256 bits get scrambled, round after round", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+    text("×64", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+    { const snaps = [[0, "round 0"], [21, "round 21"], [42, "round 42"], [63, "round 63"]], sbx = x0 + 74, scw = (x1 - sbx) / 256;
+      for (let si = 0; si < snaps.length; si++) {
+        const ri = snaps[si][0], regs = d.rounds[ri], sy = y + 16 + si * 16, last = ri === 63;
+        text(snaps[si][1], x0, sy + 4, { size: 8, weight: 600, color: last ? "rgba(90,235,150,0.8)" : "rgba(255,215,90,0.55)", baseline: "middle", mono: true });
+        for (let b = 0; b < 256; b++) { const bit = (regs[b >> 5] >>> (31 - (b & 31))) & 1; ctx.fillStyle = bit ? (last ? "rgba(90,235,150,0.85)" : "rgba(90,220,140,0.72)") : DIM; ctx.fillRect(sbx + b * scw, sy, Math.max(0.6, scw - 0.2), 9); }
       }
     }
   }
