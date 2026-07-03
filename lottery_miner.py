@@ -51,7 +51,8 @@ STATE_FILE = APP_SUPPORT / "state.json"
 CONFIG_FILE = APP_SUPPORT / "config.json"
 LOG_FILE = APP_SUPPORT / "daemon.log"
 DEFAULT_CONFIG_FILE = Path(__file__).resolve().parent / "config.default.json"
-HISTORY_LIMIT = 200  # keep a longer on-disk record than the dashboard shows (~100) — retained for future use
+HISTORY_LIMIT = 1000  # long on-disk record: seeds the odds-map cloud (zhist) richly + retained for future use
+# (was 50, then 200; dashboard graph still shows ~100, bridge sends ~120 — this only affects the stored record)
 PRICE_HISTORY_LIMIT = 96
 POLL_INTERVAL_SEC = 30
 DEFAULT_PRICE_POLL_MIN = 15
