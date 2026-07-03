@@ -870,18 +870,22 @@ function drawChurn(r) {
   text("THE MIX ↑", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 11;
   text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,180,235,0.95)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(120,180,235,0.8)"); my += 14;
   text("+ W  " + (R < 16 ? "your message" : "(expanded)"), x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle", mono: true }); mbar(my, Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.5); my += 14;
-  text("= T1  → a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
-  // the full padded message (16 words = 512 bits) at the very bottom — one segment consumed per round (0–15)
+  text("= T1  → both a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
+  // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
   const msgY = my + 22;
-  text(`FULL MESSAGE — 512-bit block = 16 words · ${R < 16 ? "consuming word #" + R + " now" : "all 16 used up → rounds 16+ use expanded words"}`, x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  const msY = msgY + 9, segGap = 4, segW = (x1 - x0 - segGap * 15) / 16, sbcw = segW / 32;
-  for (let s = 0; s < 16; s++) {
-    const sx = x0 + s * (segW + segGap), val = (d.W[s] || 0) >>> 0, consumed = R >= 16 || s < R, current = s === R && R < 16;
-    const col = current ? "rgba(255,235,140,1)" : consumed ? "rgba(255,255,255,0.13)" : "rgba(120,180,235,0.7)";
-    for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? col : "rgba(255,255,255,0.05)"; ctx.fillRect(sx + b * sbcw, msY, Math.max(0.6, sbcw - 0.2), 7); }
-    if (current) { ctx.strokeStyle = "rgba(255,215,90,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(sx - 1, msY - 1.5, segW + 2, 10); }
-    text("W" + s, sx + segW / 2, msY + 15, { size: 6.5, color: current ? "rgba(255,215,90,0.95)" : consumed ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32, scroll = shiftP;
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 1, msY - 4, w + 2, 25); ctx.clip();
+  for (let slot = -1; slot <= VIS + 1; slot++) {
+    const wi = (R - 2) + slot;
+    if (wi < 0 || wi > 63) continue;
+    const wx = x0 + (slot - scroll) * wordW, val = (d.W[wi] || 0) >>> 0, consumed = wi < R, current = wi === R, expanded = wi >= 16;
+    const col = current ? "rgba(255,235,140,1)" : consumed ? "rgba(255,255,255,0.12)" : expanded ? "rgba(180,140,255,0.78)" : "rgba(120,180,235,0.78)";
+    for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? col : "rgba(255,255,255,0.05)"; ctx.fillRect(wx + b * wbcw, msY, Math.max(0.7, wbcw - 0.3), 9); }
+    if (current) { ctx.strokeStyle = "rgba(255,215,90,0.9)"; ctx.lineWidth = 1.4; ctx.strokeRect(wx - 2, msY - 2, wbw + 4, 13); }
+    text("W" + wi + (expanded ? "·exp" : ""), wx + wbw / 2, msY + 18, { size: 7.5, weight: current ? 700 : 400, color: current ? "rgba(255,215,90,0.95)" : consumed ? "rgba(255,255,255,0.28)" : expanded ? "rgba(180,140,255,0.78)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   }
+  ctx.restore();
 }
 
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
