@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 232, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 258, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -836,10 +836,10 @@ function drawChurn(r) {
   const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   const CYCLE = 4200, now = reduceMotion ? 2100 : Date.now();
-  const t = Math.floor(now / CYCLE) % 62, ph = (now % CYCLE) / CYCLE;
+  const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
   const dupP = Math.min(1, ph / 0.2), shiftP = ph < 0.24 ? 0 : Math.min(1, (ph - 0.24) / 0.28), mixing = ph >= 0.54, mixP = mixing ? Math.min(1, (ph - 0.54) / 0.3) : 0;
   const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
-  text(`building round ${t + 1} · word W #${t} ${t < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text(`building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   if (!d) return;
   const rowFor = (ri) => ri < 0 ? _SHA_H0 : d.rounds[ri];
   const names = "abcdefgh", gx = x0 + 26, cwid = (x1 - gx) / 8, bw = cwid - 10, bcw = bw / 32, rowH = 22, NHIST = 5;
@@ -857,12 +857,20 @@ function drawChurn(r) {
   if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
   else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), glow = hot && mixP < 0.65; cell(gx + c * cwid, aby, dst[c] >>> 0, hot ? (glow ? "rgba(255,245,170,1)" : GOLD) : GREEN); if (hot) { ctx.strokeStyle = glow ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)"; ctx.lineWidth = glow ? 1.8 : 1; ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); } } }
   ctx.restore();
-  // T1 hint below: the mix of (row + W) that lands in a & e
-  const hy = topY + (NHIST + 1) * rowH + 8;
-  if (mixing) { ctx.strokeStyle = "rgba(255,215,90,0.55)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(gx + bw / 2, hy - 2); ctx.lineTo(gx + bw / 2, aby + 11); ctx.moveTo(gx + 4 * cwid + bw / 2, hy - 2); ctx.lineTo(gx + 4 * cwid + bw / 2, aby + 11); ctx.stroke(); }
-  ctx.fillStyle = mixing ? "rgba(255,215,90,0.9)" : "rgba(255,215,90,0.35)"; roundRect(gx, hy, cwid * 2.2, 12, 3); ctx.fill();
-  text("T1 = mix( row + W )", gx + cwid * 1.1, hy + 6, { size: 8, weight: 700, color: "#1a1000", align: "center", baseline: "middle" });
-  text("↑ the mix lands in a & e (new a = T1+T2 · new e = old d + T1) — everything else just shifted.", gx + cwid * 2.2 + 10, hy + 6, { size: 8.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  // THE MIX, shown: registers (Σ1+Ch+h+K) + your message word W → T1, which lands in a & e
+  const e_ = src[4] >>> 0, f_ = src[5] >>> 0, g_ = src[6] >>> 0, h_ = src[7] >>> 0;
+  const S1 = (_rotr(e_, 6) ^ _rotr(e_, 11) ^ _rotr(e_, 25)) >>> 0, chm = ((e_ & f_) ^ (~e_ & g_)) >>> 0;
+  const Km = _SHA_K[R % 64], Wt = (d.W[R % 64] || 0) >>> 0;
+  const regPart = (h_ + S1 + chm + Km) >>> 0, T1v = (regPart + Wt) >>> 0;
+  const mbarX = x0 + 132, mcw = (x1 - mbarX) / 32;
+  const mbar = (yy, val, color, alpha) => { ctx.globalAlpha = alpha == null ? 1 : alpha; for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 8); } ctx.globalAlpha = 1; };
+  ctx.strokeStyle = mixing ? "rgba(255,215,90,0.7)" : "rgba(255,215,90,0.28)"; ctx.lineWidth = 1.5; // arrows: the mix lands in a & e
+  for (const col of [0, 4]) { const ax = gx + col * cwid + bw / 2; ctx.beginPath(); ctx.moveTo(ax, aby + 18); ctx.lineTo(ax, aby + 10); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax - 3, aby + 14); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax + 3, aby + 14); ctx.stroke(); }
+  let my = aby + 22;
+  text("THE MIX ↑", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 11;
+  text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,180,235,0.95)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(120,180,235,0.8)"); my += 14;
+  text("+ W  " + (R < 16 ? "your message" : "(expanded)"), x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle", mono: true }); mbar(my, Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.5); my += 14;
+  text("= T1  → a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
 }
 
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
