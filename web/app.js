@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "sigma1", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", sigma1: "ONE STEP · Σ1", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "sigma1", "ch", "maj", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, sigma1: 264, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -611,6 +611,8 @@ function summary(s) {
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
   if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
   if (s === "sigma1") { return "e → rotate ×3 → XOR → Σ1"; }
+  if (s === "ch") { return "e picks f or g, per bit"; }
+  if (s === "maj") { return "majority vote of a, b, c"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -832,6 +834,52 @@ function drawSigma1(r) {
   text("Why e, and why 6/11/25? By design: e (with a) is the register refreshed each round; the rotate amounts were tuned by the designers for maximum bit-spreading. Ch, Σ0 and Maj are the same input→change→output idea on other registers.", x0, y, { size: 9.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
+// ONE STEP · Ch — the "choose" operation unpacked: register e is a per-bit selector between f and g.
+function drawCh(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  const e = _SHA_H0[4] >>> 0, f = _SHA_H0[5] >>> 0, g = _SHA_H0[6] >>> 0, ch = ((e & f) ^ (~e & g)) >>> 0;
+  const SEL = "rgba(255,215,90,0.92)", F = "rgba(120,200,255,0.92)", G = "rgba(190,130,255,0.92)", OFF = "rgba(255,255,255,0.06)";
+  text("Ch (“CHOOSE”) — for each bit, register e picks between f and g", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Ch = (e∧f) ⊕ (¬e∧g). Read e as a selector: where e's bit is 1 → take f's bit; where e's bit is 0 → take g's bit.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const lx = x0, barX = x0 + 150, cw = (w - 150) / 32;
+  const bar = (by, colOf) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = colOf(i); ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
+  const on = (v, col) => (i) => ((v >>> (31 - i)) & 1) ? col : OFF;
+  const rowL = (yy, lbl, sub, col) => { text(lbl, lx, yy + 6, { size: 12, weight: 700, color: col, baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); };
+  const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
+  let y = r.y + 54;
+  note(y, "① INPUT — three registers: e is the selector, f & g are the options"); y += 14;
+  rowL(y, "e", "the selector (bit 1 → pick f · bit 0 → pick g)", SEL); bar(y, on(e, SEL)); y += 26;
+  rowL(y, "f", "taken where e = 1", F); bar(y, on(f, F)); y += 26;
+  rowL(y, "g", "taken where e = 0", G); bar(y, on(g, G)); y += 33;
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
+  note(y + 6, "③ OUTPUT — each lit bit copied from f (blue) or g (purple), chosen by e"); y += 20;
+  rowL(y, "Ch", "= f and g interleaved, per e", "rgba(90,235,150,0.95)"); bar(y, (i) => { if (!((ch >>> (31 - i)) & 1)) return OFF; return ((e >>> (31 - i)) & 1) ? F : G; }); y += 32;
+  text("So Ch is just f and g woven together, bit by bit, with e as the switch. (Maj — the next step — is the same shape but a majority VOTE of a, b, c.)", x0, y, { size: 9.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
+// ONE STEP · Maj — the "majority" operation unpacked: each output bit is the majority of a, b, c.
+function drawMaj(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  const a = _SHA_H0[0] >>> 0, b = _SHA_H0[1] >>> 0, c = _SHA_H0[2] >>> 0, maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
+  const A = "rgba(120,200,255,0.92)", B = "rgba(120,230,200,0.9)", C = "rgba(190,130,255,0.92)", OUT = "rgba(90,235,150,0.95)", OFF = "rgba(255,255,255,0.06)";
+  text("Maj (“MAJORITY”) — each output bit is the majority vote of a, b, c", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Maj = (a∧b) ⊕ (a∧c) ⊕ (b∧c). Column by column: if at least 2 of the three bits are 1, the output is 1; otherwise 0.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const lx = x0, barX = x0 + 150, cw = (w - 150) / 32;
+  const bar = (by, colOf) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = colOf(i); ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
+  const on = (v, col) => (i) => ((v >>> (31 - i)) & 1) ? col : OFF;
+  const rowL = (yy, lbl, sub, col) => { text(lbl, lx, yy + 6, { size: 12, weight: 700, color: col, baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); };
+  const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
+  let y = r.y + 54;
+  note(y, "① INPUT — three registers a, b, c"); y += 14;
+  rowL(y, "a", "", A); bar(y, on(a, A)); y += 24;
+  rowL(y, "b", "", B); bar(y, on(b, B)); y += 24;
+  rowL(y, "c", "", C); bar(y, on(c, C)); y += 31;
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
+  note(y + 6, "③ OUTPUT — 1 wherever at least 2 of a, b, c have a 1 (the majority wins)"); y += 20;
+  rowL(y, "Maj", "= the per-column majority", OUT); bar(y, on(maj, OUT)); y += 32;
+  text("Maj blends a, b, c so no single register dominates. Σ0 + Maj build T2. (Σ0 is exactly Σ1's rotate-XOR, on register a with amounts 2/13/22.)", x0, y, { size: 9.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 // BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
 // can see what the computer physically does. rotate animates; each binary op shows A over B → result (green).
 function drawBitOps(r) {
@@ -908,6 +956,8 @@ function drawContent(s, r) {
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
   if (s === "sigma1") return drawSigma1(r);
+  if (s === "ch") return drawCh(r);
+  if (s === "maj") return drawMaj(r);
   if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);
