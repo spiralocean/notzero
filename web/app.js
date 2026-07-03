@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 276, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 270, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -847,25 +847,26 @@ function drawSigma1(r) {
 function drawShift(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, d = hashViz.data;
   const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", TRACE = "rgba(80,225,215,0.95)", DIM = "rgba(255,255,255,0.06)";
-  text("THE SHIFT — a few rounds side by side: how the message spreads to all 8 registers", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("Columns = rounds →. Each round: a & e are freshly mixed (gold, with your message word W added); the other six SLIDE DOWN one slot. Teal outline = one value riding down into the e hot seat.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("THE SHIFT — a few rounds stacked: how the message spreads to all 8 registers", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Columns = the 8 registers · rows = rounds ↓. Each round: a & e are freshly mixed (gold, message word W added); the rest shift to the next register. Teal = one value riding into the e hot seat.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   if (!d) return;
-  const names = "abcdefgh", cols = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], heads = ["start (constants)", "round 0", "round 1", "round 2", "round 3"];
-  const gx = x0 + 18, gy = r.y + 64, cwid = (x1 - gx) / cols.length, bw = cwid - 20, bcw = bw / 32, rh = 23;
-  const cellY = (ri) => gy + 10 + ri * rh;
-  for (let c = 0; c < cols.length; c++) text(heads[c], gx + c * cwid + bw / 2, gy, { size: 9, weight: 600, color: c === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.6)", align: "center", baseline: "middle" });
-  for (let ri = 0; ri < 8; ri++) {
-    const ry = cellY(ri), hot = (ri === 0 || ri === 4);
-    text(names[ri], x0, ry + 4, { size: 11, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", baseline: "middle", mono: true });
-    for (let c = 0; c < cols.length; c++) {
-      const cx = gx + c * cwid, val = cols[c][ri] >>> 0, isHot = hot && c > 0;
+  const names = "abcdefgh", rounds = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3], d.rounds[4], d.rounds[5]];
+  const rlab = ["start", "round 0", "round 1", "round 2", "round 3", "round 4", "round 5"];
+  const gx = x0 + 60, gy = r.y + 62, cwid = (x1 - gx) / 8, bw = cwid - 12, bcw = bw / 32, rh = 25;
+  const rowY = (ri) => gy + 14 + ri * rh;
+  for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, gy, { size: 11, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true }); }
+  for (let ri = 0; ri < rounds.length; ri++) {
+    const ry = rowY(ri);
+    text(rlab[ri], x0, ry + 4, { size: 9, weight: 600, color: ri === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.6)", baseline: "middle" });
+    for (let c = 0; c < 8; c++) {
+      const cx = gx + c * cwid, val = rounds[ri][c] >>> 0, isHot = (c === 0 || c === 4) && ri > 0;
       for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (isHot ? GOLD : BLUE) : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 9); }
       if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1.5, ry - 1.5, bw + 3, 12); }
     }
   }
-  // trace one constant (start's register a) as it slides down the diagonal into the e hot seat
-  for (let k = 0; k < cols.length; k++) { const cx = gx + k * cwid, ry = cellY(k); ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.strokeRect(cx - 2.5, ry - 2.5, bw + 5, 14); }
-  text("In ~8 rounds every register takes a turn in a gold hot seat — that's how your message (added only at a & e) spreads to all 256 bits.", x0, cellY(7) + 22, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  // trace one constant (start's register a) as it slides register-by-register down into the e hot seat
+  for (let k = 0; k < 5; k++) { const cx = gx + k * cwid, ry = rowY(k); ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.strokeRect(cx - 2.5, ry - 2.5, bw + 5, 14); }
+  text("In ~8 rounds every register takes a turn in a gold hot seat — that's how your message (added only at a & e) spreads to all 256 bits.", x0, rowY(rounds.length - 1) + 22, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 // ONE STEP · Ch — the "choose" operation unpacked: register e is a per-bit selector between f and g.
