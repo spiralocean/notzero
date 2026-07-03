@@ -286,7 +286,7 @@ def build(url, user, pw, cookie=""):
                 "history": [  # recent tickets (newest-first) for the YOUR TICKETS timeline; gaps in height = downtime
                     {"h": e.get("height"), "z": 256 - int(e["hash_hex"], 16).bit_length(), "w": bool(e.get("won")), "s": bool(e.get("submitted")), "at": e.get("attempted_at")}
                     for e in (st.get("history") or []) if e.get("mode") == "live" and e.get("hash_hex")
-                ][:60],
+                ][:120],  # enough to fill the dashboard's ~100-block window (with margin); the miner keeps more on disk
                 "win_status": win_status(url, user, pw, st, int(chain.get("blocks", 0))),  # {height, hash, status, confirmations, needs}
             }
     except Exception:  # noqa: BLE001

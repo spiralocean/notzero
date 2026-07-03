@@ -658,10 +658,10 @@ function drawTickets(r) {
   let maxZ = 1, unsub = 0; for (const e of items) { if ((e.z || 0) > maxZ) maxZ = e.z || 0; if (e.w && !e.s) unsub++; }
   const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   // ONE SLOT PER BLOCK HEIGHT — gaps render as REAL empty space, not a compressed "⋯N" marker, so missed blocks
-  // (downtime) are visible. Cap the span at ~300 blocks (~2 days): enough to show sleep gaps in context, but a
-  // long outage can't stretch the strip endlessly — it clamps to the most recent blocks (and says so). Also
-  // clamp on narrow windows so bars stay ≥~4px wide rather than compressing the gaps away.
-  const MAXSLOTS = Math.min(300, Math.max(40, Math.floor(w / 4)));
+  // (downtime) are visible. Cap the span at 100 blocks for both steady mining and mining-with-gaps: steady shows
+  // the last ~100 blocks; a long outage clamps to the most recent 100 (and says so) rather than stretching the
+  // strip. Also clamp on narrow windows so bars stay ≥~4px wide rather than compressing the gaps away.
+  const MAXSLOTS = Math.min(100, Math.max(40, Math.floor(w / 4)));
   const startH = fullSpan > MAXSLOTS ? newest - MAXSLOTS + 1 : oldest;
   const span = newest - startH + 1, clamped = startH > oldest, cw = w / span;
   const baseY = r.y + r.h - 42, topY = r.y + 44, barMax = baseY - topY, markY = baseY + 9;
