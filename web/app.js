@@ -465,6 +465,9 @@ try {
 } catch {}
 const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
 if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
+// INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
+// hides them all at once — the whole SHA-256 explainer folds into one section.
+const HASH_CHILDREN = new Set(["oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -562,7 +565,10 @@ function visibleSections() {
   // in place so the dashboard never reflows/jumps — the sync panel just shows "catching up" inline.
   const si = syncInfo(), n = model.node;
   const initialSync = !!(si && si.syncing && (!everSynced || (n && n.initialblockdownload)));
-  return initialSync ? ["sync", "network"] : (LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s)));
+  if (initialSync) return ["sync", "network"];
+  let list = LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s));
+  if (!expanded.has("hashInside")) list = list.filter((s) => !HASH_CHILDREN.has(s)); // fold the dives into the parent
+  return list;
 }
 // open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
 let syncAutoExpanded = false;
@@ -603,11 +609,12 @@ function drawSyncedBanner() {
 function layoutSections() {
   let y = TOP; const frames = [];
   for (const s of visibleSections()) {
-    const header = { x: PAD, y, w: W - PAD * 2, h: HEADER_H };
+    const ind = HASH_CHILDREN.has(s) ? 20 : 0; // indent the panels nested under INSIDE THE HASH
+    const header = { x: PAD + ind, y, w: W - PAD * 2 - ind, h: HEADER_H };
     y += HEADER_H;
     let content = null;
     const open = expanded.has(s);
-    if (open) { const h = CONTENT_H[s]; content = { x: PAD, y: y + 4, w: W - PAD * 2, h }; y += 4 + h; }
+    if (open) { const h = CONTENT_H[s]; content = { x: PAD + ind, y: y + 4, w: W - PAD * 2 - ind, h }; y += 4 + h; }
     y += GAP;
     frames.push({ section: s, header, content });
   }
@@ -620,7 +627,7 @@ function summary(s) {
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
-  if (s === "hashInside") { return "SHA-256 · type to hash live"; }
+  if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
   if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
   if (s === "shift") { return "rounds side by side · the slide"; }
   if (s === "churn") { return "animated · drop → mix → shift"; }
