@@ -747,7 +747,7 @@ function drawHashInside(r) {
 
   // 4 · the hash
   y = r.y + r.h - 30;
-  text("4 · THE 256-BIT HASH — every tx, block & address in Bitcoin is one of these", x0, y - 15, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  text("4 · THE 256-BIT HASH — the 8 registers a–h written out in order (every tx, block & address in Bitcoin is one of these)", x0, y - 15, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
   const lead = leadingZeroHexChars(d.digest), dcw = w / 64;
   for (let i = 0; i < 64; i++) { const z = i < lead; text(d.digest[i], x0 + dcw * (i + 0.5), y, { size: 11, weight: z ? 700 : 600, color: z ? "rgba(255,215,90,1)" : "rgba(90,235,150,0.92)", align: "center", baseline: "middle", mono: true }); }
 }
@@ -757,9 +757,9 @@ function drawHashInside(r) {
 function drawOneRound(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BL = "rgba(120,200,255,0.85)", GR = "rgba(90,235,150,0.95)", GO = "rgba(255,215,90,0.95)";
-  const t = 1; // ONE fixed round, held static and shown in full — every one of the 64 runs this same recipe
-  text("ONE ROUND, UNPACKED — the exact recipe every round runs (here: round 1 of 64, held so you can study it)", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("a–h are the round's 8 “working registers” — 32-bit numbers carried in from the previous round. Two mixes rebuild registers a & e; the other six just shift down a slot.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const t = 0; // the FIRST round, held static — its inputs ARE the fixed starting constants, so you see where a–h begin
+  text("ONE ROUND, UNPACKED — the exact recipe every round runs (here: round 0, the very first — held so you can study it)", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("a–h are the 8 “working registers” — 32-bit numbers that together ARE the 256-bit hash being built. They start at fixed constants; each round rebuilds a & e and shifts the rest down a slot.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const keyY = r.y + 52, key = (kx, c, lab) => { ctx.fillStyle = c; ctx.fillRect(kx, keyY - 5, 10, 10); text(lab, kx + 14, keyY, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" }); return kx + 14 + ctx.measureText(lab).width + 22; };
   let kx = x0; kx = key(kx, BL, "mixing step"); kx = key(kx, GO, "T1 / T2 (being built)"); key(kx, GR, "the new register");
   if (!d) return;
@@ -771,7 +771,7 @@ function drawOneRound(r) {
   const newA = (T1 + T2) >>> 0, newE = (dd + T1) >>> 0;
   // show the 8 registers going IN, so "e", "a", "f"… below aren't mystery letters (a & e — the two rebuilt — in gold)
   const sy = r.y + 68;
-  text("INPUT — the round's 8 working registers, carried in from the previous round:", x0, sy, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  text("INPUT (round 0) — the 8 fixed starting constants, the “initial hash values” · SAME for every input · a & e are the two rebuilt:", x0, sy, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   { const regs8 = [a, b, c, dd, e, f, g, h], names8 = "abcdefgh", rgap = 10, rbW = (w - rgap * 7) / 8;
     for (let i = 0; i < 8; i++) {
       const rx = x0 + i * (rbW + rgap), hot = (i === 0 || i === 4), rcw = rbW / 32;
