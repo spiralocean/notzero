@@ -470,7 +470,7 @@ if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register br
 const HASH_CHILDREN = new Set(["oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
-let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
+let ticketHits = [], youHit = null, bestHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -1476,6 +1476,12 @@ function drawCloseness(r) {
     const bX = px(bestBits), bY = tkY + bandH / 2, bd = 4.4;
     ctx.fillStyle = "rgba(255,215,90,1)"; ctx.strokeStyle = "rgba(10,8,4,0.7)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(bX, bY - bd); ctx.lineTo(bX + bd, bY); ctx.lineTo(bX, bY + bd); ctx.lineTo(bX - bd, bY); ctx.closePath(); ctx.fill(); ctx.stroke();
+    bestHit = { x: bX - 9, y: bY - 11, w: 18, h: 22, lines: [
+      "◆ best — your closest hash yet",
+      `${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} zero bits`,
+      best && best.height ? `on block #${(best.height || 0).toLocaleString()}` : "this session's record",
+      `still +${Math.max(0, tBits - bestBits)} bits from the target to win`,
+    ] };
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
     ctx.strokeStyle = "rgba(10,8,4,0.75)"; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
@@ -2653,7 +2659,7 @@ function render(ts) {
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
-  headerHits = []; ticketHits = []; youHit = null;
+  headerHits = []; ticketHits = []; youHit = null; bestHit = null;
   if (model.error) {
     text(model.error, W / 2, TOP + 40, { size: 16, color: "rgba(255,120,90,0.9)", align: "center", baseline: "middle" });
   } else {
@@ -2769,6 +2775,7 @@ function drawHoverTooltip() {
   let lines = null;
   for (const h of ticketHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
   if (!lines && youHit && mouseX >= youHit.x && mouseX <= youHit.x + youHit.w && my >= youHit.y && my <= youHit.y + youHit.h) lines = youHit.lines;
+  if (!lines && bestHit && mouseX >= bestHit.x && mouseX <= bestHit.x + bestHit.w && my >= bestHit.y && my <= bestHit.y + bestHit.h) lines = bestHit.lines;
   if (!lines) return;
   const pad = 8, lh = 15;
   ctx.font = "600 11px -apple-system, system-ui, sans-serif";
