@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 236, bitOps: 264, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 236, bitOps: 280, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -786,7 +786,8 @@ function drawBitOps(r) {
   const A = 0xC3A5F02D >>> 0, B = 0x9E3779B1 >>> 0;
   const IN = "rgba(120,200,255,0.9)", B2 = "rgba(190,190,190,0.6)", OUT = "rgba(90,235,150,0.95)", G = "rgba(255,215,90,0.95)", OFF = "rgba(255,255,255,0.06)", dim = "rgba(255,255,255,0.45)";
   const EXW = 210, barX = x0 + 34, bx1 = x1 - EXW, cw = (bx1 - barX) / 32, ex0 = bx1 + 24;
-  text("THE FOUR OPERATIONS — read top-to-bottom (inputs above the line, green result below). The box zooms in on one bit-column.", x0, r.y + 15, { size: 11.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("THE FOUR OPERATIONS — the only building blocks SHA-256 uses", x0, r.y + 15, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Four SEPARATE tools, NOT a sequence — each shown on its own. Within each: read top→bottom (inputs above the line, green result below); the box zooms one bit-column.", x0, r.y + 30, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const row = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : OFF; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
   const rlbl = (by, t, c) => text(t, x0, by + 4, { size: 10, weight: 700, color: c, baseline: "middle", mono: true });
   const divline = (ly) => { ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, ly + 0.5); ctx.lineTo(bx1, ly + 0.5); ctx.stroke(); };
@@ -799,13 +800,16 @@ function drawBitOps(r) {
     text(String(bit), cx + S / 2, cy + S / 2 + 0.5, { size: 12, weight: 700, color: bit ? "#0b0b0b" : color, align: "center", baseline: "middle", mono: true });
   };
   const glyph = (gx, gy, t) => text(t, gx, gy, { size: 13, weight: 700, color: dim, align: "center", baseline: "middle" });
-  let y = r.y + 34;
-  // rotate: positional — no per-column truth table, so the zone just names the wrap
-  const rot = 1 + (Math.floor(Date.now() / 500) % 13);
-  head(y, "⟲ rotate", `slide all bits sideways — one that falls off an end wraps to the other (here: right ${rot})`);
+  let y = r.y + 48;
+  // rotate: a FIXED right-by-1 (static, not animated) — every bit moves one place right; the bit that falls
+  // off the right end wraps back to the left. Box that one bit in both rows so the "wrap" is the visible point.
+  head(y, "⟲ rotate", "shift every bit one place right → the bit that falls off the right end wraps back to the left");
   y += 12; const ri = y; rlbl(y, "in", IN); row(y, A, IN);
-  y += 11; divline(y - 2); const ro = y; rlbl(y, "=", OUT); row(y, ((A >>> rot) | (A << (32 - rot))) >>> 0, OUT);
-  { const my = (ri + ro) / 2; text("no truth table —", ex0, my - 5, { size: 9, color: dim, baseline: "middle" }); text("bits just move & wrap ↺", ex0, my + 6, { size: 9, color: dim, baseline: "middle" }); }
+  y += 11; divline(y - 2); const ro = y; rlbl(y, "=", OUT); row(y, ((A >>> 1) | (A << 31)) >>> 0, OUT);
+  ctx.strokeStyle = G; ctx.lineWidth = 1.5;
+  ctx.strokeRect(barX + 31 * cw - 1, ri - 1.5, cw + 2, 11); // last input bit — falls off the right
+  ctx.strokeRect(barX - 1, ro - 1.5, cw + 2, 11);           // …reappears as the first output bit
+  { const my = (ri + ro) / 2; text("the boxed bit fell off", ex0, my - 5, { size: 9, color: dim, baseline: "middle" }); text("the right → wrapped to left ↺", ex0, my + 6, { size: 9, color: dim, baseline: "middle" }); }
   y += 21;
   // XOR / AND: two inputs → result, with an honest single-column zoom (col = highlighted bit)
   const triple = (name, def, op, col, res) => {
@@ -834,7 +838,7 @@ function drawBitOps(r) {
     text("↑ carry", ex0 + 84, my + 15, { size: 8, color: G, baseline: "middle" });
   }
   y += 24;
-  text("that's the whole toolbox — SHA-256 just repeats these on your block for 64 rounds until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  text("these are the TOOLS, not the order — ONE ROUND (above) shows how they're combined into the recipe, run 64× until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 function drawContent(s, r) {
