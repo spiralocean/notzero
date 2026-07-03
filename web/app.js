@@ -455,6 +455,7 @@ const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 340, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
+let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -679,6 +680,12 @@ function drawTickets(r) {
     roundRect(cx - mw / 2, markY - 2, mw, 4, 1.2); ctx.fill();
     if (won) text("★", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(90,235,150)", align: "center", baseline: "middle" });
     if (wonUnsub) text("⚠", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(255,90,90)", align: "center", baseline: "middle" });
+    ticketHits.push({ x: cx - cw / 2, y: topY, w: Math.max(cw, 3), h: baseY - topY + 16, lines: [
+      `block #${e.h.toLocaleString()}`,
+      `${z} leading zero bit${z === 1 ? "" : "s"} — this ticket's hash strength`,
+      `bar height is RELATIVE to your best (${maxZ} bit${maxZ === 1 ? "" : "s"}), not closeness to a win`,
+      won ? "★ WON & submitted" : wonUnsub ? "⚠ won — NOT submitted (resubmit)" : "entered · not a win",
+    ] });
   }
   let base = `${items.length} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`;
   if (clamped) base = `showing last ${span.toLocaleString()} blocks · ` + base;
@@ -1254,6 +1261,11 @@ function drawCloseness(r) {
     ctx.fillStyle = "rgba(255,140,80,1)"; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.fill();
     ctx.strokeStyle = "rgba(255,255,255,0.95)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(yx, yy, 4.6, 0, 7); ctx.stroke();
     text("you", yx, tkY - 10, { size: 10, weight: 700, color: "rgb(255,165,95)", align: "center", baseline: "middle" });
+    youHit = { x: yx - 10, y: tkY - 12, w: 20, h: bandH + 26, lines: [
+      "you — your current live hash",
+      `${youBits} leading zero bit${youBits === 1 ? "" : "s"} (absolute)`,
+      `target needs ${tBits} → +${Math.max(0, tBits - youBits)} more bits to win`,
+    ] };
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
@@ -2410,7 +2422,7 @@ function render(ts) {
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
-  headerHits = [];
+  headerHits = []; ticketHits = []; youHit = null;
   if (model.error) {
     text(model.error, W / 2, TOP + 40, { size: 16, color: "rgba(255,120,90,0.9)", align: "center", baseline: "middle" });
   } else {
@@ -2500,6 +2512,7 @@ function render(ts) {
   if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
+  drawHoverTooltip(); // hover details for ticket bars / the "you" marker — on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
   quoteT += 1 / 60;
@@ -2516,6 +2529,26 @@ function sectionAt(px, py) {
   return null;
 }
 const inHit = (h, x, y) => h && x >= h.x && x <= h.x + h.w && y >= h.y && y <= h.y + h.h;
+// hover tooltip for ticket bars + the odds-map "you" marker — reveals each one's actual numbers so the
+// relative bar heights (tickets) and the absolute position (odds map) can be reconciled.
+function drawHoverTooltip() {
+  if (celebration.active || mouseX < 0) return;
+  const my = mouseY + scrollY;
+  let lines = null;
+  for (const h of ticketHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
+  if (!lines && youHit && mouseX >= youHit.x && mouseX <= youHit.x + youHit.w && my >= youHit.y && my <= youHit.y + youHit.h) lines = youHit.lines;
+  if (!lines) return;
+  const pad = 8, lh = 15;
+  ctx.font = "600 11px -apple-system, system-ui, sans-serif";
+  let bw = 0; for (const l of lines) bw = Math.max(bw, ctx.measureText(l).width);
+  bw += pad * 2; const bh = lines.length * lh + pad * 2 - 3;
+  let bx = mouseX + 15, by = mouseY + 12;
+  if (bx + bw > W - 4) bx = mouseX - bw - 15;
+  if (by + bh > H - 4) by = mouseY - bh - 12;
+  ctx.fillStyle = "rgba(12,10,22,0.96)"; roundRect(bx, by, bw, bh, 5); ctx.fill();
+  ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(bx, by, bw, bh, 5); ctx.stroke();
+  lines.forEach((l, i) => text(l, bx + pad, by + pad + 7 + i * lh, { size: 11, weight: i === 0 ? 700 : 500, color: i === 0 ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.72)", baseline: "middle" }));
+}
 canvas.addEventListener("click", (e) => {
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
