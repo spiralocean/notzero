@@ -764,7 +764,7 @@ function drawOneRound(r) {
   text("ONE ROUND, UNPACKED — the exact recipe every round runs (here: round 0, the very first — held so you can study it)", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("a–h are the 8 “working registers” — 32-bit numbers that together ARE the 256-bit hash being built. They start at fixed constants; each round rebuilds a & e and shifts the rest down a slot.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const keyY = r.y + 52, key = (kx, c, lab) => { ctx.fillStyle = c; ctx.fillRect(kx, keyY - 5, 10, 10); text(lab, kx + 14, keyY, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" }); return kx + 14 + ctx.measureText(lab).width + 22; };
-  let kx = x0; kx = key(kx, BL, "mixing step"); kx = key(kx, GO, "T1 / T2 (being built)"); key(kx, GR, "the new register");
+  let kx = x0; kx = key(kx, BL, "mixing step  (Σ0 mixes a · Σ1 mixes e)"); kx = key(kx, GO, "T1, T2 = “temporaries” (scratch sums)"); key(kx, GR, "the new register");
   if (!d) return;
   const inp = t === 0 ? _SHA_H0 : d.rounds[t - 1];
   const a = inp[0], b = inp[1], c = inp[2], dd = inp[3], e = inp[4], f = inp[5], g = inp[6], h = inp[7];
