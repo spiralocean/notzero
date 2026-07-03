@@ -21,7 +21,7 @@ function machineSeed() {
 
 // ---- section expand/collapse (persisted) ----
 const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -628,10 +628,10 @@ function summary(s) {
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
-  if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
+  if (s === "oneRound") { return "scramble · choose · majority → new a, e"; }
   if (s === "shift") { return "rounds side by side · the slide"; }
   if (s === "churn") { return "animated · drop → mix → shift"; }
-  if (s === "sigma1") { return "e → rotate ×3 → XOR → Σ1"; }
+  if (s === "sigma1") { return "scramble e · rotate ×3 → XOR (Σ1)"; }
   if (s === "ch") { return "e picks f or g, per bit"; }
   if (s === "maj") { return "majority vote of a, b, c"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
@@ -812,7 +812,7 @@ function drawOneRound(r) {
   text("ONE ROUND, UNPACKED — the exact recipe every round runs (here: round 0, the very first — held so you can study it)", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("a–h are the 8 “working registers” — 32-bit numbers that together ARE the 256-bit hash being built. They start at fixed constants; each round rebuilds a & e and shifts the rest down a slot.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const keyY = r.y + 52, key = (kx, c, lab) => { ctx.fillStyle = c; ctx.fillRect(kx, keyY - 5, 10, 10); text(lab, kx + 14, keyY, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" }); return kx + 14 + ctx.measureText(lab).width + 22; };
-  let kx = x0; kx = key(kx, BL, "mixing step  (Σ0 mixes a · Σ1 mixes e)"); kx = key(kx, GO, "T1, T2 = “temporaries” (scratch sums)"); key(kx, GR, "the new register");
+  let kx = x0; kx = key(kx, BL, "scramble/choose/majority step (Σ1 scrambles e · Σ0 scrambles a)"); kx = key(kx, GO, "T1, T2 = “temporaries” (scratch sums)"); key(kx, GR, "the new register");
   if (!d) return;
   const inp = t === 0 ? _SHA_H0 : d.rounds[t - 1];
   const a = inp[0], b = inp[1], c = inp[2], dd = inp[3], e = inp[4], f = inp[5], g = inp[6], h = inp[7];
@@ -836,12 +836,12 @@ function drawOneRound(r) {
   // each row: bold left label (what it computes) + a plain-English sub (what it means) + the 32-bit result bar
   const line = (yy, label, val, on, sub) => { text(label, lx, yy + 5, { size: 12.5, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 10.5, color: "rgba(255,255,255,0.46)", baseline: "middle" }); bar(yy, val, on); };
   const rows = [
-    ["Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble register e (rotate + XOR)", 26, false],
-    ["Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: each bit of e picks register f or g", 26, false],
+    ["scramble e (Σ1)", S1, BL, "e⟲6 ⊕ e⟲11 ⊕ e⟲25 — three rotated copies of e, XORed together", 26, false],
+    ["Choose (Ch)", ch, BL, "(e∧f) ⊕ (¬e∧g) — for each bit, e picks register f or g", 26, false],
     ["T1 = h + Σ1 + Ch + K + W", T1, GO, "W = your message word — the ONLY per-input value in the whole round (everything else is fixed)", 28, false],
-    ["Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble register a (rotate + XOR)", 26, false],
-    ["Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of registers a, b, c", 26, false],
-    ["T2 = Σ0 + Maj", T2, GO, "", 26, true],
+    ["scramble a (Σ0)", S0, BL, "a⟲2 ⊕ a⟲13 ⊕ a⟲22 — three rotated copies of a, XORed together", 26, false],
+    ["Majority (Maj)", maj, BL, "(a∧b) ⊕ (a∧c) ⊕ (b∧c) — each bit = the majority of a, b, c", 26, false],
+    ["T2 = Σ0 + Maj", T2, GO, "= scramble a + Majority", 26, true],
     ["new a = T1 + T2", newA, GR, "the round's brand-new register a", 26, false],
     ["new e = d + T1", newE, GR, "old register d, plus T1", 26, false],
   ];
@@ -927,8 +927,8 @@ function drawSigma1(r) {
   const e = _SHA_H0[4] >>> 0; // round 0's register e = frac √11 (fixed, so this is a stable worked example)
   const r6 = _rotr(e, 6), r11 = _rotr(e, 11), r25 = _rotr(e, 25), S1 = (r6 ^ r11 ^ r25) >>> 0;
   const IN = "rgba(120,200,255,0.92)", DIM = "rgba(150,168,215,0.75)", OUT = "rgba(90,235,150,0.95)";
-  text("Σ1 (“SIGMA-one” — a Greek letter, not E1) — the round's FIRST operation, unpacked: input → change → output", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("Σ1 scrambles ONE register (e): make 3 rotated copies of e, then XOR them together. The result feeds into T1.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("SCRAMBLE (Σ1) — the round's FIRST operation, unpacked: input → change → output", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Σ1 (“sigma-one” — a Greek letter, not E1) scrambles ONE register (e): make 3 rotated copies of e, then XOR them together. The result feeds into T1.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const lx = x0, barX = x0 + 132, cw = (w - 132) / 32;
   const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
   const rowL = (yy, lbl, sub, c) => { text(lbl, lx, yy + 6, { size: 12, weight: 700, color: c, baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); };
@@ -979,7 +979,7 @@ function drawCh(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   const e = _SHA_H0[4] >>> 0, f = _SHA_H0[5] >>> 0, g = _SHA_H0[6] >>> 0, ch = ((e & f) ^ (~e & g)) >>> 0;
   const SEL = "rgba(255,215,90,0.92)", F = "rgba(120,200,255,0.92)", G = "rgba(190,130,255,0.92)", OFF = "rgba(255,255,255,0.06)";
-  text("Ch (“CHOOSE”) — for each bit, register e picks between f and g", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("CHOOSE (Ch) — for each bit, register e picks between f and g", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("Ch = (e∧f) ⊕ (¬e∧g). Read e as a selector: where e's bit is 1 → take f's bit; where e's bit is 0 → take g's bit.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const lx = x0, barX = x0 + 150, cw = (w - 150) / 32;
   const bar = (by, colOf) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = colOf(i); ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
@@ -1002,7 +1002,7 @@ function drawMaj(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   const a = _SHA_H0[0] >>> 0, b = _SHA_H0[1] >>> 0, c = _SHA_H0[2] >>> 0, maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0;
   const A = "rgba(120,200,255,0.92)", B = "rgba(120,230,200,0.9)", C = "rgba(190,130,255,0.92)", OUT = "rgba(90,235,150,0.95)", OFF = "rgba(255,255,255,0.06)";
-  text("Maj (“MAJORITY”) — each output bit is the majority vote of a, b, c", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("MAJORITY (Maj) — each output bit is the majority vote of a, b, c", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("Maj = (a∧b) ⊕ (a∧c) ⊕ (b∧c). Column by column: if at least 2 of the three bits are 1, the output is 1; otherwise 0.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const lx = x0, barX = x0 + 150, cw = (w - 150) / 32;
   const bar = (by, colOf) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = colOf(i); ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
