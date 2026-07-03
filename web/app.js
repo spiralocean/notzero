@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 312, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 340, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
@@ -752,7 +752,7 @@ function drawOneRound(r) {
   const BL = "rgba(120,200,255,0.85)", GR = "rgba(90,235,150,0.95)", GO = "rgba(255,215,90,0.95)";
   const t = 1; // ONE fixed round, held static and shown in full — every one of the 64 runs this same recipe
   text("ONE ROUND, UNPACKED — the exact recipe every round runs (here: round 1 of 64, held so you can study it)", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("Read top → bottom: the 8 registers a–h go in; two mixes build T1 & T2, which become the new a & e — the other six just shift down.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("a–h are the round's 8 “working registers” — 32-bit numbers carried in from the previous round. Two mixes rebuild registers a & e; the other six just shift down a slot.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const keyY = r.y + 52, key = (kx, c, lab) => { ctx.fillStyle = c; ctx.fillRect(kx, keyY - 5, 10, 10); text(lab, kx + 14, keyY, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" }); return kx + 14 + ctx.measureText(lab).width + 22; };
   let kx = x0; kx = key(kx, BL, "mixing step"); kx = key(kx, GO, "T1 / T2 (being built)"); key(kx, GR, "the new register");
   if (!d) return;
@@ -762,26 +762,36 @@ function drawOneRound(r) {
   const T1 = (h + S1 + ch + _SHA_K[t] + d.W[t]) >>> 0;
   const S0 = (_rotr(a, 2) ^ _rotr(a, 13) ^ _rotr(a, 22)) >>> 0, maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0, T2 = (S0 + maj) >>> 0;
   const newA = (T1 + T2) >>> 0, newE = (dd + T1) >>> 0;
+  // show the 8 registers going IN, so "e", "a", "f"… below aren't mystery letters (a & e — the two rebuilt — in gold)
+  const sy = r.y + 68;
+  text("INPUT — the round's 8 working registers, carried in from the previous round:", x0, sy, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  { const regs8 = [a, b, c, dd, e, f, g, h], names8 = "abcdefgh", rgap = 10, rbW = (w - rgap * 7) / 8;
+    for (let i = 0; i < 8; i++) {
+      const rx = x0 + i * (rbW + rgap), hot = (i === 0 || i === 4), rcw = rbW / 32;
+      text(names8[i], rx + rbW / 2, sy + 16, { size: 11, weight: 700, color: hot ? GO : "rgba(255,255,255,0.75)", align: "center", baseline: "middle", mono: true });
+      for (let q = 0; q < 32; q++) { ctx.fillStyle = ((regs8[i] >>> (31 - q)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(150,175,220,0.8)") : "rgba(255,255,255,0.06)"; ctx.fillRect(rx + q * rcw, sy + 23, Math.max(0.8, rcw - 0.3), 8); }
+    }
+  }
   const lx = x0, barX = x0 + 210, cw = (w - 210) / 32;
   const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 10); } };
   // each row: bold left label (what it computes) + a plain-English sub (what it means) + the 32-bit result bar
   const line = (yy, label, val, on, sub) => { text(label, lx, yy + 5, { size: 12.5, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 10.5, color: "rgba(255,255,255,0.46)", baseline: "middle" }); bar(yy, val, on); };
   const rows = [
-    ["Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble e — rotate + XOR", 28, false],
-    ["Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: e picks f or g, bit by bit", 28, false],
-    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "brings in constant K + your message word W", 30, false],
-    ["Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble a — rotate + XOR", 28, false],
-    ["Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of a, b, c", 28, false],
-    ["T2 = Σ0 + Maj", T2, GO, "", 28, true],
-    ["new a = T1 + T2", newA, GR, "the only brand-new value this round", 28, false],
-    ["new e = d + T1", newE, GR, "old register d, plus T1", 28, false],
+    ["Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble register e (rotate + XOR)", 26, false],
+    ["Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: each bit of e picks register f or g", 26, false],
+    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "brings in constant K + your message word W", 28, false],
+    ["Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble register a (rotate + XOR)", 26, false],
+    ["Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of registers a, b, c", 26, false],
+    ["T2 = Σ0 + Maj", T2, GO, "", 26, true],
+    ["new a = T1 + T2", newA, GR, "the round's brand-new register a", 26, false],
+    ["new e = d + T1", newE, GR, "old register d, plus T1", 26, false],
   ];
-  let y = r.y + 74;
+  let y = r.y + 110;
   for (let i = 0; i < rows.length; i++) {
     const [label, val, on, sub, gap, divAfter] = rows[i];
     line(y, label, val, on, sub);
     y += gap;
-    if (divAfter) { ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 11); ctx.lineTo(x1, y - 11); ctx.stroke(); } // divider before the new registers
+    if (divAfter) { ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 10); ctx.lineTo(x1, y - 10); ctx.stroke(); } // divider before the new registers
   }
   text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round; all 64 run this same recipe.", x0, y, { size: 11, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
