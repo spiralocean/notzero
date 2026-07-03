@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "sigma1", "ch", "maj", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "shift", "sigma1", "ch", "maj", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 276, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -610,6 +610,7 @@ function summary(s) {
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
   if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
+  if (s === "shift") { return "rounds side by side · the slide"; }
   if (s === "sigma1") { return "e → rotate ×3 → XOR → Σ1"; }
   if (s === "ch") { return "e picks f or g, per bit"; }
   if (s === "maj") { return "majority vote of a, b, c"; }
@@ -840,6 +841,33 @@ function drawSigma1(r) {
   text("Why e, and why 6/11/25? By design: e (with a) is the register refreshed each round; the rotate amounts were tuned by the designers for maximum bit-spreading. Ch, Σ0 and Maj are the same input→change→output idea on other registers.", x0, y, { size: 9.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
+// THE SHIFT — a mid-level view: a few rounds side by side (columns) so the register cycling is visible. a & e
+// are the freshly-mixed "hot seats" (gold, message W added); the other six slide DOWN one slot each round. The
+// teal outline traces one constant riding down the slots into a hot seat, where it finally gets mixed.
+function drawShift(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, d = hashViz.data;
+  const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", TRACE = "rgba(80,225,215,0.95)", DIM = "rgba(255,255,255,0.06)";
+  text("THE SHIFT — a few rounds side by side: how the message spreads to all 8 registers", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Columns = rounds →. Each round: a & e are freshly mixed (gold, with your message word W added); the other six SLIDE DOWN one slot. Teal outline = one value riding down into the e hot seat.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  if (!d) return;
+  const names = "abcdefgh", cols = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], heads = ["start (constants)", "round 0", "round 1", "round 2", "round 3"];
+  const gx = x0 + 18, gy = r.y + 64, cwid = (x1 - gx) / cols.length, bw = cwid - 20, bcw = bw / 32, rh = 23;
+  const cellY = (ri) => gy + 10 + ri * rh;
+  for (let c = 0; c < cols.length; c++) text(heads[c], gx + c * cwid + bw / 2, gy, { size: 9, weight: 600, color: c === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.6)", align: "center", baseline: "middle" });
+  for (let ri = 0; ri < 8; ri++) {
+    const ry = cellY(ri), hot = (ri === 0 || ri === 4);
+    text(names[ri], x0, ry + 4, { size: 11, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", baseline: "middle", mono: true });
+    for (let c = 0; c < cols.length; c++) {
+      const cx = gx + c * cwid, val = cols[c][ri] >>> 0, isHot = hot && c > 0;
+      for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (isHot ? GOLD : BLUE) : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 9); }
+      if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1.5, ry - 1.5, bw + 3, 12); }
+    }
+  }
+  // trace one constant (start's register a) as it slides down the diagonal into the e hot seat
+  for (let k = 0; k < cols.length; k++) { const cx = gx + k * cwid, ry = cellY(k); ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.strokeRect(cx - 2.5, ry - 2.5, bw + 5, 14); }
+  text("In ~8 rounds every register takes a turn in a gold hot seat — that's how your message (added only at a & e) spreads to all 256 bits.", x0, cellY(7) + 22, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 // ONE STEP · Ch — the "choose" operation unpacked: register e is a per-bit selector between f and g.
 function drawCh(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
@@ -961,6 +989,7 @@ function drawContent(s, r) {
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
+  if (s === "shift") return drawShift(r);
   if (s === "sigma1") return drawSigma1(r);
   if (s === "ch") return drawCh(r);
   if (s === "maj") return drawMaj(r);
