@@ -20,7 +20,7 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "shift", "sigma1", "ch", "maj", "network", "sync"];
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "shift", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
 const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 270, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 282, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -848,11 +848,11 @@ function drawShift(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, d = hashViz.data;
   const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", TRACE = "rgba(80,225,215,0.95)", DIM = "rgba(255,255,255,0.06)";
   text("THE SHIFT — a few rounds stacked: how the message spreads to all 8 registers", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("Columns = the 8 registers · rows = rounds ↓. Each round: a & e are freshly mixed (gold, message word W added); the rest shift to the next register. Teal = one value riding into the e hot seat.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("Columns = the 8 registers · rows = rounds ↓. a & e are freshly mixed each round (gold, message word W added); the rest shift to the next register. Teal follows one value: it rides a→b→c→d, gets MIXED in the e hot seat, then keeps riding e→f→g→h.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   if (!d) return;
-  const names = "abcdefgh", rounds = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3], d.rounds[4], d.rounds[5]];
-  const rlab = ["start", "round 0", "round 1", "round 2", "round 3", "round 4", "round 5"];
-  const gx = x0 + 60, gy = r.y + 62, cwid = (x1 - gx) / 8, bw = cwid - 12, bcw = bw / 32, rh = 25;
+  const names = "abcdefgh", rounds = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3], d.rounds[4], d.rounds[5], d.rounds[6]];
+  const rlab = ["start", "round 0", "round 1", "round 2", "round 3", "round 4", "round 5", "round 6"];
+  const gx = x0 + 60, gy = r.y + 62, cwid = (x1 - gx) / 8, bw = cwid - 12, bcw = bw / 32, rh = 24;
   const rowY = (ri) => gy + 14 + ri * rh;
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, gy, { size: 11, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true }); }
   for (let ri = 0; ri < rounds.length; ri++) {
@@ -864,8 +864,8 @@ function drawShift(r) {
       if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1.5, ry - 1.5, bw + 3, 12); }
     }
   }
-  // trace one constant (start's register a) as it slides register-by-register down into the e hot seat
-  for (let k = 0; k < 5; k++) { const cx = gx + k * cwid, ry = rowY(k); ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.strokeRect(cx - 2.5, ry - 2.5, bw + 5, 14); }
+  // trace one constant riding the diagonal a→…→e (gets mixed) →…→h — its full journey across the registers
+  for (let k = 0; k < 8; k++) { const cx = gx + k * cwid, ry = rowY(k); ctx.strokeStyle = TRACE; ctx.lineWidth = 1.6; ctx.strokeRect(cx - 2.5, ry - 2.5, bw + 5, 14); }
   text("In ~8 rounds every register takes a turn in a gold hot seat — that's how your message (added only at a & e) spreads to all 256 bits.", x0, rowY(rounds.length - 1) + 22, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
@@ -979,7 +979,7 @@ function drawBitOps(r) {
     text("↑ carry", ex0 + 84, my + 15, { size: 8, color: G, baseline: "middle" });
   }
   top += BIN_H + GAP;
-  text("these are the TOOLS, not the order — ONE ROUND (below) shows how they're combined into the recipe, run 64× until it looks random", x0, top + 4, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  text("these are the TOOLS, not the order — ONE ROUND (above) shows how they're combined into the recipe, run 64× until it looks random", x0, top + 4, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 function drawContent(s, r) {
