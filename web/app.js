@@ -749,9 +749,13 @@ function drawHashInside(r) {
 // registers), with live 32-bit bars. Shows HOW the four ops are arranged into a round — the same every round.
 function drawOneRound(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
-  const t = Math.floor(Date.now() / 2500) % 64;
   const BL = "rgba(120,200,255,0.85)", GR = "rgba(90,235,150,0.95)", GO = "rgba(255,215,90,0.95)";
-  text(`ONE ROUND, UNPACKED — the fixed recipe every round runs · round ${t} / 64 (nothing adapts to your input)`, x0, r.y + 15, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  // slow, progressive reveal — one row every STEP_MS, hold at the end, then advance to the next round & restart
+  const STEP_MS = 2000, HOLD_MS = 4500, CYCLE = STEP_MS * 8 + HOLD_MS, now = Date.now();
+  let t, into, stepIdx, revealed;
+  if (reduceMotion) { t = 40; into = CYCLE; stepIdx = 8; revealed = 8; }
+  else { t = Math.floor(now / CYCLE) % 64; into = now % CYCLE; stepIdx = Math.floor(into / STEP_MS); revealed = Math.min(8, stepIdx + 1); }
+  text(`ONE ROUND, UNPACKED — round ${t} / 64 · watch it build one step at a time (${revealed} / 8)`, x0, r.y + 15, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("Read top → bottom: the 8 registers a–h go in; two mixes build T1 & T2, which become the new a & e — the other six just shift down.", x0, r.y + 30, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const keyY = r.y + 44, key = (kx, c, lab) => { ctx.fillStyle = c; ctx.fillRect(kx, keyY - 4, 8, 8); text(lab, kx + 11, keyY, { size: 8.5, color: "rgba(255,255,255,0.5)", baseline: "middle" }); return kx + 11 + ctx.measureText(lab).width + 20; };
   let kx = x0; kx = key(kx, BL, "mixing step"); kx = key(kx, GO, "T1 / T2 (being built)"); key(kx, GR, "the new register");
@@ -766,17 +770,30 @@ function drawOneRound(r) {
   const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
   // each row: bold left label (what it computes) + a plain-English sub (what it means) + the 32-bit result bar
   const line = (yy, label, val, on, sub) => { text(label, lx, yy + (sub ? 1 : 4), { size: 9.5, weight: 600, color: "rgba(255,255,255,0.8)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 11, { size: 8, color: "rgba(255,255,255,0.42)", baseline: "middle" }); bar(yy, val, on); };
+  const rows = [
+    ["Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble e — rotate + XOR", 18, false],
+    ["Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: e picks f or g, bit by bit", 18, false],
+    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "brings in constant K + your message word W", 22, false],
+    ["Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble a — rotate + XOR", 18, false],
+    ["Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of a, b, c", 18, false],
+    ["T2 = Σ0 + Maj", T2, GO, "", 24, true],
+    ["new a = T1 + T2", newA, GR, "the only brand-new value this round", 18, false],
+    ["new e = d + T1", newE, GR, "old register d, plus T1", 20, false],
+  ];
   let y = r.y + 60;
-  line(y, "Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble e — rotate + XOR"); y += 18;
-  line(y, "Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: e picks f or g, bit by bit"); y += 18;
-  line(y, "T1 = h + Σ1 + Ch + K + W", T1, GO, "brings in constant K + your message word W"); y += 22;
-  line(y, "Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble a — rotate + XOR"); y += 18;
-  line(y, "Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of a, b, c"); y += 18;
-  line(y, "T2 = Σ0 + Maj", T2, GO, ""); y += 24;
-  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 9); ctx.lineTo(x1, y - 9); ctx.stroke();
-  line(y, "new a = T1 + T2", newA, GR, "the only brand-new value this round"); y += 18;
-  line(y, "new e = d + T1", newE, GR, "old register d, plus T1"); y += 20;
+  for (let i = 0; i < rows.length; i++) {
+    const [label, val, on, sub, gap, divAfter] = rows[i];
+    if (i < revealed) {
+      ctx.globalAlpha = (i === stepIdx && !reduceMotion) ? Math.min(1, (into % STEP_MS) / 450) : 1; // fade in the newest row
+      line(y, label, val, on, sub);
+      ctx.globalAlpha = 1;
+    }
+    y += gap;
+    if (divAfter && revealed > 6) { ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 9); ctx.lineTo(x1, y - 9); ctx.stroke(); } // divider before the new registers
+  }
+  ctx.globalAlpha = revealed >= 8 ? 1 : 0.25;
   text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round, done 64 times.", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  ctx.globalAlpha = 1;
 }
 
 // BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
