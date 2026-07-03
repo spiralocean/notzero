@@ -906,18 +906,17 @@ function drawChurn(r) {
   // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
   const msgY = my + 22;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32, scroll = shiftP;
-  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 1, msY - 4, w + 2, 25); ctx.clip();
-  for (let slot = -1; slot <= VIS + 1; slot++) {
-    const wi = (R - 2) + slot;
-    if (wi < 0 || wi > 63) continue;
-    const wx = x0 + (slot - scroll) * wordW, val = (d.W[wi] || 0) >>> 0, consumed = wi < R, current = wi === R, expanded = wi >= 16;
+  const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
+  const base = Math.floor(R / VIS) * VIS; // a fixed page of words — the highlight walks across, then the page flips at the end (no per-round scroll)
+  for (let slot = 0; slot < VIS; slot++) {
+    const wi = base + slot;
+    if (wi > 63) continue;
+    const wx = x0 + slot * wordW, val = (d.W[wi] || 0) >>> 0, consumed = wi < R, current = wi === R, expanded = wi >= 16;
     const col = current ? "rgba(255,235,140,1)" : consumed ? "rgba(255,255,255,0.12)" : expanded ? "rgba(180,140,255,0.78)" : "rgba(120,180,235,0.78)";
     for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? col : "rgba(255,255,255,0.05)"; ctx.fillRect(wx + b * wbcw, msY, Math.max(0.7, wbcw - 0.3), 9); }
     if (current) { ctx.strokeStyle = "rgba(255,215,90,0.9)"; ctx.lineWidth = 1.4; ctx.strokeRect(wx - 2, msY - 2, wbw + 4, 13); }
     text("W" + wi + (expanded ? "·exp" : ""), wx + wbw / 2, msY + 18, { size: 7.5, weight: current ? 700 : 400, color: current ? "rgba(255,215,90,0.95)" : consumed ? "rgba(255,255,255,0.28)" : expanded ? "rgba(180,140,255,0.78)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   }
-  ctx.restore();
 }
 
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
