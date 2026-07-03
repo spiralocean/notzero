@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "shift", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · Σ1", ch: "ONE STEP · Ch", maj: "ONE STEP · Maj", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 288, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -611,6 +611,7 @@ function summary(s) {
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
   if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
   if (s === "shift") { return "rounds side by side · the slide"; }
+  if (s === "churn") { return "animated · drop → mix → shift"; }
   if (s === "sigma1") { return "e → rotate ×3 → XOR → Σ1"; }
   if (s === "ch") { return "e picks f or g, per bit"; }
   if (s === "maj") { return "majority vote of a, b, c"; }
@@ -828,6 +829,42 @@ function drawOneRound(r) {
   text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round; all 64 run this same recipe.", x0, y, { size: 11, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
+// THE CHURN (animated) — the honest round loop: one message word W drops into a MIX (which reads the whole
+// current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
+function drawChurn(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
+  const GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
+  text("THE CHURN (animated) — a word drops in, a & e mix, then the row shifts down · newest round on top", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Each round: one message word W drops into the MIX (which reads the whole row) → new a & e flash → the row shifts down. Words 0–15 are your message; 16–63 are expanded from them.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  if (!d) return;
+  const names = "abcdefgh";
+  const CYCLE = 2800, now = reduceMotion ? 1400 : Date.now();
+  const t = Math.floor(now / CYCLE), ph = (now % CYCLE) / CYCLE;
+  const dropP = Math.min(1, ph / 0.38), flashing = ph >= 0.4 && ph <= 0.64, shiftP = ph < 0.66 ? 0 : Math.min(1, (ph - 0.66) / 0.34);
+  const gx = x0 + 22, cwid = (x1 - gx) / 8, bw = cwid - 10, bcw = bw / 32, rowH = 24, NROWS = 6;
+  const headerY = r.y + 96, topY = headerY + 16;
+  for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * NROWS + 6); ctx.clip();
+  for (let di = 0; di <= NROWS; di++) {
+    const ri = ((t + 1 - di) % 64 + 64) % 64, ry = topY + (di - 1 + shiftP) * rowH, regs = d.rounds[ri], active = di === 1 && shiftP === 0;
+    for (let c = 0; c < 8; c++) {
+      const cx = gx + c * cwid, val = regs[c] >>> 0, hot = (c === 0 || c === 4), glow = active && hot && flashing;
+      for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (hot ? (glow ? "rgba(255,242,160,1)" : GOLD) : GREEN) : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 9); }
+      if (hot) { ctx.strokeStyle = glow ? "rgba(255,242,160,0.95)" : "rgba(255,215,90,0.4)"; ctx.lineWidth = glow ? 1.8 : 1; ctx.strokeRect(cx - 1.5, ry - 1.5, bw + 3, 12); }
+    }
+  }
+  ctx.restore();
+  if (shiftP === 0) { // the dropping message word (only during drop + flash, not the shift)
+    const segW = cwid * 2.2, segX = gx + cwid * 1.4, segFromY = r.y + 60, segToY = topY - 10, segY = segFromY + (segToY - segFromY) * dropP;
+    ctx.strokeStyle = "rgba(255,215,90,0.22)"; ctx.lineWidth = 1; ctx.beginPath();
+    ctx.moveTo(gx + bw / 2, topY - 3); ctx.lineTo(segX + 6, segToY + 5); ctx.moveTo(gx + 4 * cwid + bw / 2, topY - 3); ctx.lineTo(segX + segW - 6, segToY + 5); ctx.stroke();
+    text("MIX (T1) → a & e", segX + segW + 8, segToY, { size: 8, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
+    ctx.fillStyle = "rgba(255,215,90,0.92)"; roundRect(segX, segY - 6, segW, 12, 3); ctx.fill();
+    text("W" + (t % 64 < 16 ? " · your message" : " · expanded"), segX + segW / 2, segY, { size: 8, weight: 700, color: "#1a1000", align: "center", baseline: "middle" });
+  }
+  text("…64 rounds later, the final row — written out a→h — is your hash.", x0, topY + rowH * NROWS + 8, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
 // step is concrete: take register e, make three rotated copies, XOR them → Σ1. The others (Ch, Σ0, Maj) follow
 // the same input→change→output shape on different registers.
@@ -1005,6 +1042,7 @@ function drawContent(s, r) {
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
   if (s === "shift") return drawShift(r);
+  if (s === "churn") return drawChurn(r);
   if (s === "sigma1") return drawSigma1(r);
   if (s === "ch") return drawCh(r);
   if (s === "maj") return drawMaj(r);
