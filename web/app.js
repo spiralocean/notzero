@@ -732,20 +732,22 @@ function drawHashInside(r) {
   text("just zeros (fill)", x0 + ((msgBits + 448) / 2) * cwp, y + 32, { size: 8, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   text("64-bit length", x0 + (512 - 32) * cwp, y + 32, { size: 8, color: "rgba(180,140,255,0.85)", align: "center", baseline: "middle" });
 
-  // 3 · the engine — 8 registers churning over 64 rounds (changed bits flash gold)
+  // 3 · the churn, laid out like THE SHIFT — registers as columns, a few rounds stacked; each round only a & e
+  // churn (gold), everyone else shifts down a slot. (Full version, with the traced value, in THE SHIFT section.)
   y = r.y + 178;
-  const rnd = reduceMotion ? 40 : (() => { const t = Date.now() % 9000; return t < 6500 ? Math.min(63, Math.floor((t / 6500) * 64)) : 63; })();
-  text(`3 · 64 ROUNDS OF MIXING — round ${rnd + 1} / 64`, x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
-  text("just rotate ⟲ · XOR ⊕ · AND ∧ · add ➕ — unpacked in ONE ROUND below", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  const regs = d.rounds[rnd], prev = rnd > 0 ? d.rounds[rnd - 1] : null, names = "abcdefgh";
-  const barX = x0 + 16, cwr = (w - 16) / 32;
-  for (let i = 0; i < 8; i++) {
-    const ry = y + 14 + i * 11;
-    text(names[i], x0, ry + 4, { size: 10, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
-    for (let bit = 0; bit < 32; bit++) {
-      const on = (regs[i] >>> (31 - bit)) & 1, changed = prev && ((regs[i] ^ prev[i]) >>> (31 - bit)) & 1;
-      ctx.fillStyle = changed ? (on ? "rgba(255,215,90,1)" : "rgba(255,215,90,0.22)") : (on ? "rgba(90,220,140,0.9)" : DIM);
-      ctx.fillRect(barX + bit * cwr + 0.5, ry, Math.max(1, cwr - 1), 8);
+  text("3 · 64 ROUNDS OF MIXING — each round only a & e churn (gold); the rest shift down · ×64", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  text("laid out like THE SHIFT · unpacked in ONE ROUND", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+  { const names = "abcdefgh", srows = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], slab = ["start", "r0", "r1", "r2", "r3"];
+    const sgx = x0 + 40, cwid3 = (x1 - sgx) / 8, bw3 = cwid3 - 8, bcw3 = bw3 / 32;
+    for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], sgx + c * cwid3 + bw3 / 2, y + 15, { size: 9, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); }
+    for (let ri = 0; ri < srows.length; ri++) {
+      const ry = y + 27 + ri * 17;
+      text(slab[ri], x0, ry + 3.5, { size: 8, weight: 600, color: ri === 0 ? "rgba(255,255,255,0.4)" : "rgba(255,215,90,0.55)", baseline: "middle" });
+      for (let c = 0; c < 8; c++) {
+        const cx = sgx + c * cwid3, val = srows[ri][c] >>> 0, isHot = (c === 0 || c === 4) && ri > 0;
+        for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (isHot ? "rgba(255,215,90,0.95)" : "rgba(90,220,140,0.82)") : DIM; ctx.fillRect(cx + b * bcw3, ry, Math.max(0.7, bcw3 - 0.3), 7); }
+        if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.5)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1, ry - 1, bw3 + 2, 9); }
+      }
     }
   }
 
