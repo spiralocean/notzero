@@ -4,9 +4,24 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.22
+## Unreleased — next: 0.1.23
 
 _Nothing yet._
+
+## 0.1.22
+
+**Dashboard — a "how a hash works" explainer, plus fixes**
+- **INSIDE THE HASH** — type anything and watch what a computer actually does to turn it into a 256-bit hash:
+  your text → bits → padded 512-bit block → 64 rounds of mixing (the whole state scrambles) → the hash.
+- **BIT OPERATIONS** and **ONE ROUND** — readable, labeled panels with worked examples; the four bit ops are
+  boxed so they don't read as a pipeline, and ONE ROUND shows the round's registers and math on real values.
+- **YOUR TICKETS** — cap the graph at ~100 blocks so long sleep gaps don't stretch it endlessly (a longer
+  record is still kept on disk), and **hover tooltips** on the ticket bars + the odds-map "you" marker.
+- **Fixed the "not submitting" false alarm** — a genuinely slow block no longer trips the warning; it only
+  fires when your ticket is actually stale relative to the chain tip advancing.
+
+**Miner**
+- Grow the stored ticket record (→ 1000) so the closeness / odds-map cloud is seeded richer.
 
 ## 0.1.21
 
