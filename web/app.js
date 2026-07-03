@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 288, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 232, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -833,36 +833,41 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
-  const GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
-  text("THE CHURN (animated) — a word drops in, a & e mix, then the row shifts down · newest round on top", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("Each round: one message word W drops into the MIX (which reads the whole row) → new a & e flash → the row shifts down. Words 0–15 are your message; 16–63 are expanded from them.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const BL = "rgba(120,200,255,0.85)", GR = "rgba(90,235,150,0.95)", GO = "rgba(255,215,90,0.95)", DIM = "rgba(255,255,255,0.06)";
+  text("THE CHURN (animated) — the full round plumbing, running round after round on YOUR message", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  const CYCLE = 4600, now = reduceMotion ? 2300 : Date.now();
+  const t = Math.floor(now / CYCLE) % 63, ph = (now % CYCLE) / CYCLE, flash = ph > 0.52 && ph < 0.84;
+  text(`round ${t} of 64 · its word W is #${t} ${t < 16 ? "— your message" : "— expanded"} · build T1 & T2 from the row → new a & e → then shift right ↦`, x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   if (!d) return;
-  const names = "abcdefgh";
-  const CYCLE = 2800, now = reduceMotion ? 1400 : Date.now();
-  const t = Math.floor(now / CYCLE), ph = (now % CYCLE) / CYCLE;
-  const dropP = Math.min(1, ph / 0.38), flashing = ph >= 0.4 && ph <= 0.64, shiftP = ph < 0.66 ? 0 : Math.min(1, (ph - 0.66) / 0.34);
-  const gx = x0 + 22, cwid = (x1 - gx) / 8, bw = cwid - 10, bcw = bw / 32, rowH = 24, NROWS = 6;
-  const headerY = r.y + 96, topY = headerY + 16;
-  for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
-  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * NROWS + 6); ctx.clip();
-  for (let di = 0; di <= NROWS; di++) {
-    const ri = ((t + 1 - di) % 64 + 64) % 64, ry = topY + (di - 1 + shiftP) * rowH, regs = d.rounds[ri], active = di === 1 && shiftP === 0;
-    for (let c = 0; c < 8; c++) {
-      const cx = gx + c * cwid, val = regs[c] >>> 0, hot = (c === 0 || c === 4), glow = active && hot && flashing;
-      for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? (hot ? (glow ? "rgba(255,242,160,1)" : GOLD) : GREEN) : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 9); }
-      if (hot) { ctx.strokeStyle = glow ? "rgba(255,242,160,0.95)" : "rgba(255,215,90,0.4)"; ctx.lineWidth = glow ? 1.8 : 1; ctx.strokeRect(cx - 1.5, ry - 1.5, bw + 3, 12); }
-    }
-  }
-  ctx.restore();
-  if (shiftP === 0) { // the dropping message word (only during drop + flash, not the shift)
-    const segW = cwid * 2.2, segX = gx + cwid * 1.4, segFromY = r.y + 60, segToY = topY - 10, segY = segFromY + (segToY - segFromY) * dropP;
-    ctx.strokeStyle = "rgba(255,215,90,0.22)"; ctx.lineWidth = 1; ctx.beginPath();
-    ctx.moveTo(gx + bw / 2, topY - 3); ctx.lineTo(segX + 6, segToY + 5); ctx.moveTo(gx + 4 * cwid + bw / 2, topY - 3); ctx.lineTo(segX + segW - 6, segToY + 5); ctx.stroke();
-    text("MIX (T1) → a & e", segX + segW + 8, segToY, { size: 8, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
-    ctx.fillStyle = "rgba(255,215,90,0.92)"; roundRect(segX, segY - 6, segW, 12, 3); ctx.fill();
-    text("W" + (t % 64 < 16 ? " · your message" : " · expanded"), segX + segW / 2, segY, { size: 8, weight: 700, color: "#1a1000", align: "center", baseline: "middle" });
-  }
-  text("…64 rounds later, the final row — written out a→h — is your hash.", x0, topY + rowH * NROWS + 8, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  const inp = t === 0 ? _SHA_H0 : d.rounds[t - 1];
+  const a = inp[0], b = inp[1], c = inp[2], dd = inp[3], e = inp[4], f = inp[5], g = inp[6], h = inp[7];
+  const S1 = (_rotr(e, 6) ^ _rotr(e, 11) ^ _rotr(e, 25)) >>> 0, ch = ((e & f) ^ (~e & g)) >>> 0;
+  const W = (d.W[t] || 0) >>> 0, T1 = (h + S1 + ch + _SHA_K[t] + W) >>> 0;
+  const S0 = (_rotr(a, 2) ^ _rotr(a, 13) ^ _rotr(a, 22)) >>> 0, maj = ((a & b) ^ (a & c) ^ (b & c)) >>> 0, T2 = (S0 + maj) >>> 0;
+  const newA = (T1 + T2) >>> 0, newE = (dd + T1) >>> 0;
+  // the current row (a–h) — what the mix reads (a & e in gold); everything below is computed from these + W
+  const rn = "abcdefgh", rgap = 8, rgx = x0 + 26, rbw = (x1 - rgx - rgap * 7) / 8;
+  text("IN", x0, r.y + 60, { size: 9, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
+  for (let i = 0; i < 8; i++) { const rx = rgx + i * (rbw + rgap), hot = (i === 0 || i === 4), rcw = rbw / 32; text(rn[i], rx + rbw / 2, r.y + 52, { size: 8, weight: 700, color: hot ? GO : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); for (let bb = 0; bb < 32; bb++) { ctx.fillStyle = ((inp[i] >>> (31 - bb)) & 1) ? (hot ? "rgba(255,215,90,0.8)" : "rgba(120,180,235,0.7)") : DIM; ctx.fillRect(rx + bb * rcw, r.y + 58, Math.max(0.7, rcw - 0.3), 7); } }
+  // the plumbing
+  const lx = x0, barX = x0 + 196, cw = (w - 196) / 32;
+  const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : DIM; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 8); } };
+  const line = (yy, label, val, on) => { text(label, lx, yy + 4, { size: 9.5, weight: 600, color: "rgba(255,255,255,0.8)", baseline: "middle", mono: true }); bar(yy, val, on); };
+  let y = r.y + 82;
+  line(y, "Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL); y += 15;
+  line(y, "Ch = (e∧f) ⊕ (¬e∧g)", ch, BL); y += 15;
+  const yT1 = y; line(y, "T1 = h + Σ1 + Ch + K + W", T1, GO); y += 18;
+  ctx.font = "600 9.5px ui-monospace, SFMono-Regular, Menlo, monospace";
+  { const wx = lx + ctx.measureText("T1 = h + Σ1 + Ch + K + ").width, ww = ctx.measureText("W").width; ctx.fillStyle = "rgba(255,215,90,0.35)"; roundRect(wx - 2, yT1 - 3, ww + 4, 15, 3); ctx.fill(); text("W", wx, yT1 + 4, { size: 9.5, weight: 700, color: "rgba(255,232,135,1)", baseline: "middle", mono: true }); }
+  line(y, "Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL); y += 15;
+  line(y, "Maj = maj(a,b,c)", maj, BL); y += 15;
+  line(y, "T2 = Σ0 + Maj", T2, GO); y += 19;
+  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 9); ctx.lineTo(x1, y - 9); ctx.stroke();
+  ctx.globalAlpha = flash ? 1 : 0.88;
+  line(y, "new a = T1 + T2", newA, flash ? "rgba(255,245,170,1)" : GR); y += 15;
+  line(y, "new e = d + T1", newE, flash ? "rgba(255,245,170,1)" : GR); y += 18;
+  ctx.globalAlpha = 1;
+  text("…then everything shifts right — b←a · c←b · d←c · f←e · g←f · h←g — new a & e drop in, next round begins. 64 rounds → your hash.", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
