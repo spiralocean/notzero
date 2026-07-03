@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 258, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 302, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -871,6 +871,17 @@ function drawChurn(r) {
   text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,180,235,0.95)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(120,180,235,0.8)"); my += 14;
   text("+ W  " + (R < 16 ? "your message" : "(expanded)"), x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle", mono: true }); mbar(my, Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.5); my += 14;
   text("= T1  → a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
+  // the full padded message (16 words = 512 bits) at the very bottom — one segment consumed per round (0–15)
+  const msgY = my + 22;
+  text(`FULL MESSAGE — 512-bit block = 16 words · ${R < 16 ? "consuming word #" + R + " now" : "all 16 used up → rounds 16+ use expanded words"}`, x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  const msY = msgY + 9, segGap = 4, segW = (x1 - x0 - segGap * 15) / 16, sbcw = segW / 32;
+  for (let s = 0; s < 16; s++) {
+    const sx = x0 + s * (segW + segGap), val = (d.W[s] || 0) >>> 0, consumed = R >= 16 || s < R, current = s === R && R < 16;
+    const col = current ? "rgba(255,235,140,1)" : consumed ? "rgba(255,255,255,0.13)" : "rgba(120,180,235,0.7)";
+    for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? col : "rgba(255,255,255,0.05)"; ctx.fillRect(sx + b * sbcw, msY, Math.max(0.6, sbcw - 0.2), 7); }
+    if (current) { ctx.strokeStyle = "rgba(255,215,90,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(sx - 1, msY - 1.5, segW + 2, 10); }
+    text("W" + s, sx + segW / 2, msY + 15, { size: 6.5, color: current ? "rgba(255,215,90,0.95)" : consumed ? "rgba(255,255,255,0.28)" : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  }
 }
 
 // ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
