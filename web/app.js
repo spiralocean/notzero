@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, shift: 282, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -732,9 +732,21 @@ function drawHashInside(r) {
   text("just zeros (fill)", x0 + ((msgBits + 448) / 2) * cwp, y + 32, { size: 8, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   text("64-bit length", x0 + (512 - 32) * cwp, y + 32, { size: 8, color: "rgba(180,140,255,0.85)", align: "center", baseline: "middle" });
 
+  // 2½ · the 8 registers broken out — the 256-bit hash-state before any mixing. They START as fixed constants;
+  // the message is NOT loaded here — it becomes the W words fed in one-per-round during the churn.
+  y = r.y + 176;
+  text("THE 8 REGISTERS — the 256-bit hash-state (a–h), starting as fixed constants · your message is separate: it feeds in as W during the churn ↓", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+  { const rn = "abcdefgh", rgap2 = 10, rbw2 = (w - rgap2 * 7) / 8;
+    for (let i = 0; i < 8; i++) {
+      const rx = x0 + i * (rbw2 + rgap2), hot = (i === 0 || i === 4), rcw2 = rbw2 / 32;
+      text(rn[i], rx + rbw2 / 2, y + 15, { size: 10, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
+      for (let b = 0; b < 32; b++) { ctx.fillStyle = ((_SHA_H0[i] >>> (31 - b)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(120,200,255,0.8)") : DIM; ctx.fillRect(rx + b * rcw2, y + 22, Math.max(0.8, rcw2 - 0.3), 9); }
+    }
+  }
+
   // 3 · the churn, laid out like THE SHIFT — registers as columns, a few rounds stacked; each round only a & e
   // churn (gold), everyone else shifts down a slot. (Full version, with the traced value, in THE SHIFT section.)
-  y = r.y + 178;
+  y = r.y + 218;
   text("3 · 64 ROUNDS OF MIXING — each round only a & e churn (gold); the rest shift down · ×64", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
   text("laid out like THE SHIFT · unpacked in ONE ROUND", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
   { const names = "abcdefgh", srows = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], slab = ["start", "r0", "r1", "r2", "r3"];
