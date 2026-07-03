@@ -2260,6 +2260,15 @@ function agoStr(sec) {
   if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
   return `${Math.round(sec / 3600)}h ago`;
 }
+// A stale "last ticket" is only a REAL stall if newer blocks have arrived since (the tip is fresh but the
+// ticket isn't). A slow block — >20 min with no new block found, which happens for ~8% of blocks — leaves BOTH
+// the tip and the ticket stale, and that's normal, not a stall. So compare the ticket's age to the tip's age
+// before crying wolf. (No tip_time → can't compare → don't false-alarm.)
+function minerStalled(n, ageSec) {
+  if (!(ageSec > 1200)) return false;                        // ticket is fresh — fine
+  const tipAge = n && n.tip_time ? Date.now() / 1000 - n.tip_time : Infinity;
+  return ageSec > tipAge + 600;                              // ticket much older than the last block ⇒ blocks arrived but the miner missed them
+}
 function drawMinerStatus() {
   const n = model.node;
   if (!isDesktop || !n) return; // real app only — not the public demo (no node; a preview could mislead)
@@ -2274,8 +2283,8 @@ function drawMinerStatus() {
   if (!reachable) { dot = RED; label = "not submitting"; sub = "node offline"; }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
-  else if (ageSec <= 1200) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; }
-  else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — a real, old timestamp
+  else if (!minerStalled(n, ageSec)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
+  else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — the tip moved on but the miner didn't log a ticket
 
   const txt = `${label} · ${sub}`;
   ctx.font = "600 11px ui-monospace, monospace";
@@ -2461,9 +2470,10 @@ function render(ts) {
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
   const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
-  // synced + live but no ticket in >20 min = actually not submitting (stalled miner) — don't claim LIVE
+  // synced + live but the miner genuinely stalled (tip moved on without a new ticket) → don't claim LIVE.
+  // A merely-slow block (tip itself is old) is NOT a stall — minerStalled() distinguishes them.
   const lastTs = node && node.miner && node.miner.attempt ? Date.parse(node.miner.attempt.attempted_at || "") : NaN;
-  const stalled = Number.isFinite(lastTs) && (Date.now() - lastTs) / 1000 > 1200;
+  const stalled = Number.isFinite(lastTs) && minerStalled(node, (Date.now() - lastTs) / 1000);
   let fmsg, fcol;
   const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
   if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
