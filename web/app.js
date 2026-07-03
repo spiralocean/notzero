@@ -790,7 +790,7 @@ function drawOneRound(r) {
   const rows = [
     ["Σ1 = e⟲6 ⊕ e⟲11 ⊕ e⟲25", S1, BL, "scramble register e (rotate + XOR)", 26, false],
     ["Ch = (e∧f) ⊕ (¬e∧g)", ch, BL, "“choose”: each bit of e picks register f or g", 26, false],
-    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "brings in constant K + your message word W", 28, false],
+    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "W = your message word — the ONLY per-input value in the whole round (everything else is fixed)", 28, false],
     ["Σ0 = a⟲2 ⊕ a⟲13 ⊕ a⟲22", S0, BL, "scramble register a (rotate + XOR)", 26, false],
     ["Maj = maj(a,b,c)", maj, BL, "“majority”: each bit = the majority of registers a, b, c", 26, false],
     ["T2 = Σ0 + Maj", T2, GO, "", 26, true],
@@ -801,6 +801,12 @@ function drawOneRound(r) {
   for (let i = 0; i < rows.length; i++) {
     const [label, val, on, sub, gap, divAfter] = rows[i];
     line(y, label, val, on, sub);
+    if (label.startsWith("T1")) { // spotlight the + W — the only place your message enters the round
+      ctx.font = "600 12.5px ui-monospace, SFMono-Regular, Menlo, monospace";
+      const wx = lx + ctx.measureText(label.slice(0, -1)).width, ww = ctx.measureText("W").width;
+      ctx.fillStyle = "rgba(255,215,90,0.34)"; roundRect(wx - 3, y - 3, ww + 6, 16, 3); ctx.fill();
+      text("W", wx, y + 5, { size: 12.5, weight: 700, color: "rgba(255,232,135,1)", baseline: "middle", mono: true });
+    }
     y += gap;
     if (divAfter) { ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 10); ctx.lineTo(x1, y - 10); ctx.stroke(); } // divider before the new registers
   }
