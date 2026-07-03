@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "sigma1", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", sigma1: "ONE STEP · Σ1", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, sigma1: 264, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -610,6 +610,7 @@ function summary(s) {
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash live"; }
   if (s === "oneRound") { return "Σ · Ch · Maj → new a, e"; }
+  if (s === "sigma1") { return "e → rotate ×3 → XOR → Σ1"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
   if (s === "sync") { return "gather → verify → link → prune"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -804,6 +805,33 @@ function drawOneRound(r) {
   text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round; all 64 run this same recipe.", x0, y, { size: 11, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
+// ONE STEP · Σ1 — the round's first operation fully unpacked (input → change → output), so a single mixing
+// step is concrete: take register e, make three rotated copies, XOR them → Σ1. The others (Ch, Σ0, Maj) follow
+// the same input→change→output shape on different registers.
+function drawSigma1(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
+  const e = _SHA_H0[4] >>> 0; // round 0's register e = frac √11 (fixed, so this is a stable worked example)
+  const r6 = _rotr(e, 6), r11 = _rotr(e, 11), r25 = _rotr(e, 25), S1 = (r6 ^ r11 ^ r25) >>> 0;
+  const IN = "rgba(120,200,255,0.92)", DIM = "rgba(150,168,215,0.75)", OUT = "rgba(90,235,150,0.95)";
+  text("Σ1 (“SIGMA-one” — a Greek letter, not E1) — the round's FIRST operation, unpacked: input → change → output", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Σ1 scrambles ONE register (e): make 3 rotated copies of e, then XOR them together. The result feeds into T1.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const lx = x0, barX = x0 + 132, cw = (w - 132) / 32;
+  const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 11); } };
+  const rowL = (yy, lbl, sub, c) => { text(lbl, lx, yy + 6, { size: 12, weight: 700, color: c, baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); };
+  const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
+  let y = r.y + 54;
+  note(y, "① INPUT"); y += 13;
+  rowL(y, "e", "register e  (= frac √11)", IN); bar(y, e, IN); y += 34;
+  note(y, "② CHANGE — three rotated copies of e (rotate-right = slide bits right, wrapping around the end)"); y += 15;
+  rowL(y, "e ⟲ 6", "e rotated right 6", DIM); bar(y, r6, DIM); y += 22;
+  rowL(y, "e ⟲ 11", "…rotated right 11", DIM); bar(y, r11, DIM); y += 22;
+  rowL(y, "e ⟲ 25", "…rotated right 25", DIM); bar(y, r25, DIM); y += 33;
+  ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
+  note(y + 6, "③ OUTPUT — XOR the three copies (each column: 1 if an ODD number of them are 1)"); y += 20;
+  rowL(y, "Σ1", "→ feeds into T1", OUT); bar(y, S1, OUT); y += 32;
+  text("Why e, and why 6/11/25? By design: e (with a) is the register refreshed each round; the rotate amounts were tuned by the designers for maximum bit-spreading. Ch, Σ0 and Maj are the same input→change→output idea on other registers.", x0, y, { size: 9.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 // BIT OPERATIONS — the atomic ops SHA-256 is built from: rotate, XOR, AND, add, on example 32-bit words, so you
 // can see what the computer physically does. rotate animates; each binary op shows A over B → result (green).
 function drawBitOps(r) {
@@ -879,6 +907,7 @@ function drawContent(s, r) {
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
+  if (s === "sigma1") return drawSigma1(r);
   if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
   if (s === "sync") return drawSync(r);
