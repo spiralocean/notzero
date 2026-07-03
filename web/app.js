@@ -20,7 +20,7 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "bitOps", "network", "sync"];
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "bitOps", "oneRound", "network", "sync"];
 const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", oneRound: "ONE ROUND", bitOps: "BIT OPERATIONS", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
@@ -838,7 +838,7 @@ function drawBitOps(r) {
     text("↑ carry", ex0 + 84, my + 15, { size: 8, color: G, baseline: "middle" });
   }
   y += 24;
-  text("these are the TOOLS, not the order — ONE ROUND (above) shows how they're combined into the recipe, run 64× until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  text("these are the TOOLS, not the order — ONE ROUND (below) shows how they're combined into the recipe, run 64× until it looks random", x0, y, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 function drawContent(s, r) {
