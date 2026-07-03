@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 340, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 356, oneRound: 348, bitOps: 292, network: 180, sync: 540 };
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" marker
@@ -771,12 +771,13 @@ function drawOneRound(r) {
   const newA = (T1 + T2) >>> 0, newE = (dd + T1) >>> 0;
   // show the 8 registers going IN, so "e", "a", "f"… below aren't mystery letters (a & e — the two rebuilt — in gold)
   const sy = r.y + 68;
-  text("INPUT (round 0) — the 8 fixed starting constants, the “initial hash values” · SAME for every input · a & e are the two rebuilt:", x0, sy, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  { const regs8 = [a, b, c, dd, e, f, g, h], names8 = "abcdefgh", rgap = 10, rbW = (w - rgap * 7) / 8;
+  text("INPUT (round 0) — the 8 fixed starting constants = fractional parts of √2, √3, √5 … √19 (“nothing-up-my-sleeve” numbers; same for every input; a & e are the two rebuilt):", x0, sy, { size: 10, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  { const regs8 = [a, b, c, dd, e, f, g, h], names8 = "abcdefgh", primes8 = [2, 3, 5, 7, 11, 13, 17, 19], rgap = 10, rbW = (w - rgap * 7) / 8;
     for (let i = 0; i < 8; i++) {
       const rx = x0 + i * (rbW + rgap), hot = (i === 0 || i === 4), rcw = rbW / 32;
-      text(names8[i], rx + rbW / 2, sy + 16, { size: 11, weight: 700, color: hot ? GO : "rgba(255,255,255,0.75)", align: "center", baseline: "middle", mono: true });
-      for (let q = 0; q < 32; q++) { ctx.fillStyle = ((regs8[i] >>> (31 - q)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(150,175,220,0.8)") : "rgba(255,255,255,0.06)"; ctx.fillRect(rx + q * rcw, sy + 23, Math.max(0.8, rcw - 0.3), 8); }
+      text(names8[i], rx + rbW / 2, sy + 15, { size: 11, weight: 700, color: hot ? GO : "rgba(255,255,255,0.75)", align: "center", baseline: "middle", mono: true });
+      for (let q = 0; q < 32; q++) { ctx.fillStyle = ((regs8[i] >>> (31 - q)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(150,175,220,0.8)") : "rgba(255,255,255,0.06)"; ctx.fillRect(rx + q * rcw, sy + 22, Math.max(0.8, rcw - 0.3), 8); }
+      text(`= frac √${primes8[i]}`, rx + rbW / 2, sy + 37, { size: 8.5, color: "rgba(255,255,255,0.44)", align: "center", baseline: "middle" });
     }
   }
   const lx = x0, barX = x0 + 210, cw = (w - 210) / 32;
@@ -793,7 +794,7 @@ function drawOneRound(r) {
     ["new a = T1 + T2", newA, GR, "the round's brand-new register a", 26, false],
     ["new e = d + T1", newE, GR, "old register d, plus T1", 26, false],
   ];
-  let y = r.y + 110;
+  let y = r.y + 118;
   for (let i = 0; i < rows.length; i++) {
     const [label, val, on, sub, gap, divAfter] = rows[i];
     line(y, label, val, on, sub);
