@@ -866,16 +866,16 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
-const CHURN_CYCLE = 13000, CHURN_STEPS = 16; // slow, so the mix can be watched sub-step by sub-step
+const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 11000; // dup + shift stay fixed (~1×); only the mix scales with the speed control
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  const CYCLE = CHURN_CYCLE / churnSpeed;
+  const CYCLE = CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / churnSpeed, dupEnd = CHURN_DUP_MS / CYCLE, shiftEnd = (CHURN_DUP_MS + CHURN_SHIFT_MS) / CYCLE;
   churnLiveNow = reduceMotion ? 2100 : Date.now();
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
-  const dupP = Math.min(1, ph / 0.05), shiftP = ph < 0.06 ? 0 : Math.min(1, (ph - 0.06) / 0.09), mixing = ph >= 0.16;
+  const dupP = Math.min(1, ph / dupEnd), shiftP = ph < dupEnd ? 0 : Math.min(1, (ph - dupEnd) / (shiftEnd - dupEnd)), mixing = ph >= shiftEnd;
   const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
   text(`${churnPaused ? "⏸ PAUSED · " : ""}building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: churnPaused ? "rgba(255,215,90,0.85)" : "rgba(255,255,255,0.5)", baseline: "middle" });
   { // transport, top-right: [speed] · ⏮ step-back · ▶/❚❚ · ⏭ step-fwd  (shapes render everywhere)
@@ -900,24 +900,24 @@ function drawChurn(r) {
   const Km = _SHA_K[R % 64], Wt = (d.W[R % 64] || 0) >>> 0, T1v = (h_ + S1 + chm + Km + Wt) >>> 0, T2v = (S0 + maj) >>> 0;
   const TEAL = "rgba(120,228,218,1)", VIOL = "rgba(205,168,255,1)", GLD = "rgba(255,235,140,1)", GRN = "rgba(90,235,150,0.98)";
   const steps = [
-    { g: "Σ1", l: "e ⟲ 6", v: _rotr(e_, 6) >>> 0, rd: [4], c: TEAL },
-    { g: "Σ1", l: "e ⟲ 11", v: _rotr(e_, 11) >>> 0, rd: [4], c: TEAL },
-    { g: "Σ1", l: "e ⟲ 25", v: _rotr(e_, 25) >>> 0, rd: [4], c: TEAL },
+    { g: "Σ1", l: "e ⟲ 6", v: _rotr(e_, 6) >>> 0, rd: [4], c: TEAL, rn: 6 },
+    { g: "Σ1", l: "e ⟲ 11", v: _rotr(e_, 11) >>> 0, rd: [4], c: TEAL, rn: 11 },
+    { g: "Σ1", l: "e ⟲ 25", v: _rotr(e_, 25) >>> 0, rd: [4], c: TEAL, rn: 25 },
     { g: "Σ1", l: "= ⊕ the three rotations", v: S1, rd: [4], c: TEAL, res: 1 },
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
     { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1 },
     { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1 },
-    { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL },
-    { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL },
-    { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL },
+    { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
+    { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
+    { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
     { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1 },
     { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1 },
     { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1 },
     { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1 },
     { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1 },
   ];
-  const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - 0.16) / 0.83) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
+  const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
@@ -933,7 +933,7 @@ function drawChurn(r) {
   const aby = topY + NHIST * rowH;
   text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
   if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
-  else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), fresh = (c === 4 && curStep >= 14) || (c === 0 && curStep >= 15); cell(gx + c * cwid, aby, dst[c] >>> 0, hot ? (fresh ? "rgba(255,245,170,1)" : GOLD) : GREEN); if (hot) { ctx.strokeStyle = fresh ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)"; ctx.lineWidth = fresh ? 1.8 : 1; ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); } } }
+  else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), ready = !hot || (c === 4 && curStep >= 14) || (c === 0 && curStep >= 15), fresh = hot && ready; cell(gx + c * cwid, aby, ready ? (dst[c] >>> 0) : 0, ready ? (hot ? (fresh ? "rgba(255,245,170,1)" : GOLD) : GREEN) : DIM); if (hot) { ctx.strokeStyle = ready ? (fresh ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)") : "rgba(255,215,90,0.32)"; ctx.lineWidth = fresh ? 1.8 : 1; ctx.setLineDash(ready ? [] : [2, 2]); ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); ctx.setLineDash([]); } } }
   ctx.restore();
   // THE MIX — walk the sub-steps that build new a & e, revealed one at a time (newest at the bottom)
   const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
@@ -951,7 +951,11 @@ function drawChurn(r) {
       const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
       ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
-      mbar(my, st.v, st.c);
+      if (cur && st.rn) { // animated rotate — duplicate the input register, then slide its bits right by rn (1× loop) so you SEE the rotate
+        const inV = src[st.rd[0]] >>> 0, raw = reduceMotion ? 1 : (Date.now() % 1600) / 1600, rp = Math.min(1, raw / 0.7);
+        for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+        for (let i = 0; i < 32; i++) if ((inV >>> (31 - i)) & 1) { const p = (i + rp * st.rn) % 32; ctx.fillStyle = st.c; ctx.fillRect(mbarX + p * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+      } else mbar(my, st.v, st.c);
       if (isContrib) text("⊕", mbarX - 10, my + 3.5, { size: 10, weight: 700, color: st.c, align: "center", baseline: "middle" });
       if (cur) { ctx.strokeStyle = st.c; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 2, x1 - mbarX + 3, 11); }
       ctx.globalAlpha = 1; my += 12.5;
@@ -2872,9 +2876,13 @@ canvas.addEventListener("click", (e) => {
   if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
-    const cyc = e.offsetY + scrollY, effC = CHURN_CYCLE / churnSpeed, STEP = 0.83 * effC / CHURN_STEPS;
-    const enter = () => { const p = (churnLiveNow % effC) / effC; churnNow = p >= 0.16 ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round(0.17 * effC); };
-    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : churnSpeed === 0.25 ? 0.125 : 2; if (churnPaused) churnNow *= old / churnSpeed; requestRender(); return; }
+    const cyc = e.offsetY + scrollY;
+    const cycOf = (sp) => CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / sp, seOf = (sp) => (CHURN_DUP_MS + CHURN_SHIFT_MS) / cycOf(sp);
+    const effC = cycOf(churnSpeed), STEP = (CHURN_MIX_MS / churnSpeed) / CHURN_STEPS;
+    const enter = () => { const se = seOf(churnSpeed), p = (churnLiveNow % effC) / effC; churnNow = p >= se ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round((se + 0.004) * effC); };
+    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : churnSpeed === 0.25 ? 0.125 : 2;
+      if (churnPaused) { const oc = cycOf(old), nc = cycOf(churnSpeed), rb = Math.floor(churnNow / oc), po = (churnNow % oc) / oc, so = seOf(old), sn = seOf(churnSpeed), pn = po >= so ? sn + (po - so) / (1 - so) * (1 - sn) : po * sn / so; churnNow = rb * nc + pn * nc; }
+      requestRender(); return; }
     if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
     if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow = Math.max(0, churnNow - STEP); requestRender(); return; }
     if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow += STEP; requestRender(); return; }
