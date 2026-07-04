@@ -455,13 +455,14 @@ const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
 const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 302, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
-// don't see work-in-progress. Turn them on with ?lab=1 (persists), off with ?lab=0.
+// don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
+// preview URL, never linked publicly); elsewhere opt in with ?lab=1 (persists), off with ?lab=0.
 let LAB = false;
 try {
   const _lp = new URLSearchParams(location.search).get("lab");
   if (_lp === "1") localStorage.setItem("bl.lab", "1");
   else if (_lp === "0") localStorage.removeItem("bl.lab");
-  LAB = localStorage.getItem("bl.lab") === "1";
+  LAB = /^lab\./.test(location.hostname) || localStorage.getItem("bl.lab") === "1";
 } catch {}
 const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
 if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
