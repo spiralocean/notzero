@@ -866,7 +866,7 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnPlayHit = null, churnBackHit = null, churnFwdHit = null;
-const CHURN_CYCLE = 4200;
+const CHURN_CYCLE = 13000, CHURN_STEPS = 16; // slow, so the mix can be watched sub-step by sub-step
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
@@ -875,7 +875,7 @@ function drawChurn(r) {
   churnLiveNow = reduceMotion ? 2100 : Date.now();
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
-  const dupP = Math.min(1, ph / 0.2), shiftP = ph < 0.24 ? 0 : Math.min(1, (ph - 0.24) / 0.28), mixing = ph >= 0.54, mixP = mixing ? Math.min(1, (ph - 0.54) / 0.3) : 0;
+  const dupP = Math.min(1, ph / 0.05), shiftP = ph < 0.06 ? 0 : Math.min(1, (ph - 0.06) / 0.09), mixing = ph >= 0.16;
   const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
   text(`${churnPaused ? "⏸ PAUSED · " : ""}building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: churnPaused ? "rgba(255,215,90,0.85)" : "rgba(255,255,255,0.5)", baseline: "middle" });
   { // pause / step controls, top-right (shapes so they render everywhere): ⏮ step-back · ▶/❚❚ · ⏭ step-fwd
@@ -890,50 +890,66 @@ function drawChurn(r) {
   if (!d) return;
   const rowFor = (ri) => ri < 0 ? _SHA_H0 : d.rounds[ri];
   const names = "abcdefgh", gx = x0 + 26, cwid = (x1 - gx) / 8, bw = cwid - 10, bcw = bw / 32, rowH = 22, NHIST = 5;
-  const headerY = r.y + 56, topY = headerY + 14;
+  const headerY = r.y + 56, topY = headerY + 14, src = rowFor(t), dst = d.rounds[t + 1];
+  // the mix, unpacked into ordered sub-steps — revealed one at a time during the (slow) mix phase
+  const a_ = src[0] >>> 0, b_ = src[1] >>> 0, c_ = src[2] >>> 0, e_ = src[4] >>> 0, f_ = src[5] >>> 0, g_ = src[6] >>> 0, h_ = src[7] >>> 0;
+  const S1 = (_rotr(e_, 6) ^ _rotr(e_, 11) ^ _rotr(e_, 25)) >>> 0, chm = ((e_ & f_) ^ (~e_ & g_)) >>> 0;
+  const S0 = (_rotr(a_, 2) ^ _rotr(a_, 13) ^ _rotr(a_, 22)) >>> 0, maj = ((a_ & b_) ^ (a_ & c_) ^ (b_ & c_)) >>> 0;
+  const Km = _SHA_K[R % 64], Wt = (d.W[R % 64] || 0) >>> 0, T1v = (h_ + S1 + chm + Km + Wt) >>> 0, T2v = (S0 + maj) >>> 0;
+  const TEAL = "rgba(120,228,218,1)", VIOL = "rgba(205,168,255,1)", GLD = "rgba(255,235,140,1)", GRN = "rgba(90,235,150,0.98)";
+  const steps = [
+    { g: "Σ1", l: "e ⟲ 6", v: _rotr(e_, 6) >>> 0, rd: [4], c: TEAL },
+    { g: "Σ1", l: "e ⟲ 11", v: _rotr(e_, 11) >>> 0, rd: [4], c: TEAL },
+    { g: "Σ1", l: "e ⟲ 25", v: _rotr(e_, 25) >>> 0, rd: [4], c: TEAL },
+    { g: "Σ1", l: "= ⊕ the three rotations", v: S1, rd: [4], c: TEAL, res: 1 },
+    { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
+    { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
+    { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1 },
+    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1 },
+    { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL },
+    { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL },
+    { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL },
+    { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1 },
+    { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1 },
+    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1 },
+    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1 },
+    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1 },
+  ];
+  const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - 0.16) / 0.83) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
+  const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
-  const TEALbg = "rgba(90,220,210,0.2)", VIOLbg = "rgba(195,150,255,0.2)", TEALtx = "rgba(120,228,218,0.98)", VIOLtx = "rgba(205,168,255,0.98)";
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
   for (let i = 0; i < NHIST; i++) {
-    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing; // the row the mix reads
+    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc) { const gbg = c <= 2 ? VIOLbg : (c >= 4 && c <= 6) ? TEALbg : null; if (gbg) { ctx.fillStyle = gbg; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } } // light up the registers feeding the mix
+      if (isSrc && rdSet.indexOf(c) >= 0) { ctx.globalAlpha = 0.32; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; } // light the registers THIS step reads
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
-  const aby = topY + NHIST * rowH, src = rowFor(t), dst = d.rounds[t + 1];
+  const aby = topY + NHIST * rowH;
   text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
   if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
-  else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), glow = hot && mixP < 0.65; cell(gx + c * cwid, aby, dst[c] >>> 0, hot ? (glow ? "rgba(255,245,170,1)" : GOLD) : GREEN); if (hot) { ctx.strokeStyle = glow ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)"; ctx.lineWidth = glow ? 1.8 : 1; ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); } } }
+  else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), fresh = (c === 4 && curStep >= 14) || (c === 0 && curStep >= 15); cell(gx + c * cwid, aby, dst[c] >>> 0, hot ? (fresh ? "rgba(255,245,170,1)" : GOLD) : GREEN); if (hot) { ctx.strokeStyle = fresh ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)"; ctx.lineWidth = fresh ? 1.8 : 1; ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); } } }
   ctx.restore();
-  // THE MIX, shown: registers (Σ1+Ch+h+K) + your message word W → T1, which lands in a & e
-  const a_ = src[0] >>> 0, b_ = src[1] >>> 0, c_ = src[2] >>> 0;
-  const e_ = src[4] >>> 0, f_ = src[5] >>> 0, g_ = src[6] >>> 0, h_ = src[7] >>> 0;
-  const S1 = (_rotr(e_, 6) ^ _rotr(e_, 11) ^ _rotr(e_, 25)) >>> 0, chm = ((e_ & f_) ^ (~e_ & g_)) >>> 0;
-  const S0 = (_rotr(a_, 2) ^ _rotr(a_, 13) ^ _rotr(a_, 22)) >>> 0, maj = ((a_ & b_) ^ (a_ & c_) ^ (b_ & c_)) >>> 0;
-  const Km = _SHA_K[R % 64], Wt = (d.W[R % 64] || 0) >>> 0;
-  const T1v = (h_ + S1 + chm + Km + Wt) >>> 0, T2v = (S0 + maj) >>> 0;
-  const mbarX = x0 + 150, mcw = (x1 - mbarX) / 32;
-  const mbar = (yy, val, color, alpha) => { ctx.globalAlpha = alpha == null ? 1 : alpha; for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } ctx.globalAlpha = 1; };
-  ctx.strokeStyle = mixing ? "rgba(255,215,90,0.7)" : "rgba(255,215,90,0.28)"; ctx.lineWidth = 1.5; // arrows: the mix lands in a & e
-  for (const col of [0, 4]) { const ax = gx + col * cwid + bw / 2; ctx.beginPath(); ctx.moveTo(ax, aby + 18); ctx.lineTo(ax, aby + 10); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax - 3, aby + 14); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax + 3, aby + 14); ctx.stroke(); }
-  const BLU = "rgba(110,205,255,1)", GLD = "rgba(255,235,140,1)";
-  let my = aby + 22;
-  text("THE MIX ↑ — the lit registers feed each op:  teal e·f·g → Σ1·Ch    ·    violet a·b·c → Σ0·Maj", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 12;
-  const mrow = (label, val, col, alpha, lc) => { text(label, x0, my + 3, { size: 8, weight: 600, color: lc || "rgba(255,255,255,0.72)", baseline: "middle", mono: true }); mbar(my, val, col, alpha); my += 12.5; };
-  mrow("Σ1  scramble e", S1, BLU, 1, TEALtx);
-  mrow("Ch  choose(e,f,g)", chm, BLU, 1, TEALtx);
-  mrow("W   " + (R < 16 ? "your message" : "expanded word"), Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.55, "rgba(255,228,140,0.95)");
-  mrow("= T1  (+h +K)  → a & e", T1v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
-  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1, my); ctx.stroke(); my += 4;
-  mrow("Σ0  scramble a", S0, BLU, 1, VIOLtx);
-  mrow("Maj majority(a,b,c)", maj, BLU, 1, VIOLtx);
-  mrow("= T2  → a", T2v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
-  text("new e = d + T1   ·   new a = T1 + T2", x0, my + 3, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" }); my += 12;
-  // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
-  const msgY = my + 8;
+  // THE MIX — walk the sub-steps that build new a & e, revealed one at a time (newest at the bottom)
+  const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
+  const mbar = (yy, val, color) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+  let my = aby + 20;
+  text(`THE MIX — new a & e, one operation at a time${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
+  if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
+  else { const VIS = 7, first = Math.max(0, curStep - VIS + 1);
+    for (let si = first; si <= curStep; si++) {
+      const st = steps[si], cur = si === curStep;
+      ctx.globalAlpha = cur ? 1 : Math.max(0.32, 1 - (curStep - si) * 0.12);
+      text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
+      mbar(my, st.v, st.c);
+      if (cur) { ctx.strokeStyle = st.c; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 2, x1 - mbarX + 3, 11); }
+      ctx.globalAlpha = 1; my += 12.5;
+    }
+  }
+  const msgY = aby + 138;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
   const base = Math.floor(R / VIS) * VIS; // a fixed page of words — the highlight walks across, then the page flips at the end (no per-round scroll)
@@ -2847,11 +2863,12 @@ canvas.addEventListener("click", (e) => {
   }
   if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
-  if (expanded.has("churn")) { // THE CHURN transport: pause/play + step a round at a time
-    const cyc = e.offsetY + scrollY, snap = () => Math.floor(churnLiveNow / CHURN_CYCLE) * CHURN_CYCLE + Math.round(0.72 * CHURN_CYCLE);
-    if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) churnNow = snap(); requestRender(); return; }
-    if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; churnNow = snap(); } churnNow = Math.max(0, churnNow - CHURN_CYCLE); requestRender(); return; }
-    if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; churnNow = snap(); } churnNow += CHURN_CYCLE; requestRender(); return; }
+  if (expanded.has("churn")) { // THE CHURN transport: pause/play + step ONE mix sub-step at a time
+    const cyc = e.offsetY + scrollY, STEP = 0.83 * CHURN_CYCLE / CHURN_STEPS;
+    const enter = () => { const p = (churnLiveNow % CHURN_CYCLE) / CHURN_CYCLE; churnNow = p >= 0.16 ? churnLiveNow : Math.floor(churnLiveNow / CHURN_CYCLE) * CHURN_CYCLE + Math.round(0.17 * CHURN_CYCLE); };
+    if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
+    if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow = Math.max(0, churnNow - STEP); requestRender(); return; }
+    if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow += STEP; requestRender(); return; }
   }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
