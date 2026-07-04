@@ -965,7 +965,7 @@ function drawChurn(r) {
   my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "e∧f", f: 4, u: [6], c: TEAL, v: (e_ & f_) >>> 0 }, { l: "¬e∧g", f: 5, u: [6], c: TEAL, v: (~e_ & g_) >>> 0 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
   const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a hold 2s (register + row blink) before anything scrolls
-  const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
+  const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 600)); // rises in sync with the detail scrolling up (600ms)
   let storedUseTop = null;
   if (curStep >= 0) { // HELD — a value enters the store once its own animation finishes (rising up), glows while a later step consumes it, then scrolls up when that step is done
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
@@ -986,8 +986,8 @@ function drawChurn(r) {
     if (live.length) { ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 4; text("stored ↑ · current operation ↓", x0, my, { size: 7, color: "rgba(255,255,255,0.32)", baseline: "middle" }); my += 6; }
   }
   const producesStored = curStep >= 0 && HELD.some(h => h.f === curStep);
-  const storedBottom = my, scrollP = (curStep >= 0 && (steps[curStep].res || producesStored) && animEl >= stepDoneMs + scrollHold) ? Math.min(1, (animEl - stepDoneMs - scrollHold) / 450) : 0; // once an op finishes, its worked rows scroll up: the result rises into the store, the operand rows vanish behind it (incl. the AND sub-steps e∧f / ¬e∧g)
-  if (scrollP > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0 - 8, storedBottom - 1, (x1 - x0) + 20, (aby + 172) - storedBottom + 1); ctx.clip(); my -= scrollP * 80; }
+  const storedBottom = my, scrollP = (curStep >= 0 && (steps[curStep].res || producesStored) && animEl >= stepDoneMs + scrollHold) ? Math.min(1, (animEl - stepDoneMs - scrollHold) / 600) : 0; // once an op finishes, its worked rows scroll up: the result rises into the store, the operand rows scroll up + fade out behind it (incl. the AND sub-steps e∧f / ¬e∧g)
+  if (scrollP > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0 - 8, storedBottom - 1, (x1 - x0) + 20, (aby + 172) - storedBottom + 1); ctx.clip(); ctx.globalAlpha = Math.max(0, 1 - scrollP * 1.2); my -= scrollP * 46; }
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
   else if (steps[curStep].ops) { // grade-school addition: the stored operands (e.g. Σ1, Ch, h, K, W) stacked, summed column by column with carry
     const st = steps[curStep], vals = st.ops.map(o => o[1] >>> 0), n = vals.length, aColor = st.c;
