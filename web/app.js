@@ -864,15 +864,29 @@ function drawOneRound(r) {
 
 // THE CHURN (animated) — the honest round loop: one message word W drops into a MIX (which reads the whole
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
+// pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
+let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnPlayHit = null, churnBackHit = null, churnFwdHit = null;
+const CHURN_CYCLE = 4200;
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  const CYCLE = 4200, now = reduceMotion ? 2100 : Date.now();
+  const CYCLE = CHURN_CYCLE;
+  churnLiveNow = reduceMotion ? 2100 : Date.now();
+  const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
   const dupP = Math.min(1, ph / 0.2), shiftP = ph < 0.24 ? 0 : Math.min(1, (ph - 0.24) / 0.28), mixing = ph >= 0.54, mixP = mixing ? Math.min(1, (ph - 0.54) / 0.3) : 0;
   const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
-  text(`building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text(`${churnPaused ? "⏸ PAUSED · " : ""}building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: churnPaused ? "rgba(255,215,90,0.85)" : "rgba(255,255,255,0.5)", baseline: "middle" });
+  { // pause / step controls, top-right (shapes so they render everywhere): ⏮ step-back · ▶/❚❚ · ⏭ step-fwd
+    const bh = 19, bwd = 27, gp = 5, byy = r.y + 4, s = 5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2;
+    const box = (bx, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, bwd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, bwd, bh, 5); ctx.stroke(); };
+    const GI = "rgba(255,228,140,0.98)";
+    box(b1, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
+    box(b2, churnPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (churnPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
+    box(b3, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
+    churnBackHit = { x: b1, y: byy, w: bwd, h: bh }; churnPlayHit = { x: b2, y: byy, w: bwd, h: bh }; churnFwdHit = { x: b3, y: byy, w: bwd, h: bh };
+  }
   if (!d) return;
   const rowFor = (ri) => ri < 0 ? _SHA_H0 : d.rounds[ri];
   const names = "abcdefgh", gx = x0 + 26, cwid = (x1 - gx) / 8, bw = cwid - 10, bcw = bw / 32, rowH = 22, NHIST = 5;
@@ -2829,6 +2843,12 @@ canvas.addEventListener("click", (e) => {
   }
   if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
+  if (expanded.has("churn")) { // THE CHURN transport: pause/play + step a round at a time
+    const cyc = e.offsetY + scrollY, snap = () => Math.floor(churnLiveNow / CHURN_CYCLE) * CHURN_CYCLE + Math.round(0.72 * CHURN_CYCLE);
+    if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) churnNow = snap(); requestRender(); return; }
+    if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; churnNow = snap(); } churnNow = Math.max(0, churnNow - CHURN_CYCLE); requestRender(); return; }
+    if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; churnNow = snap(); } churnNow += CHURN_CYCLE; requestRender(); return; }
+  }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
@@ -2836,7 +2856,8 @@ canvas.addEventListener("click", (e) => {
 canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  canvas.classList.toggle("clickable", !!hoverSection || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
