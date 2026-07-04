@@ -950,9 +950,10 @@ function drawChurn(r) {
   let my = aby + 20;
   text(`THE MIX — new a & e${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
+  const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs;
+  const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - churnAnimMs) / 450));
+  let storedUseTop = null;
   if (curStep >= 0) { // HELD — a value enters the store only after its own animation finishes, rising up; it glows when a later step consumes it, then slides out
-    const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs;
-    const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - churnAnimMs) / 450));
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
       if (curStep === o.to + 1) return slideOut < 1; // sliding out the step after its last use
       if (curStep > o.to) return false; // released and gone
@@ -964,10 +965,12 @@ function drawChurn(r) {
       ctx.globalAlpha = a;
       text(h.l, x0 + dx, my + 3.5 + dy, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
       for (let i = 0; i < 32; i++) { ctx.fillStyle = ((h.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5 + dx, my + dy, Math.max(1, mcw - 1), 7); }
-      if (using) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5 + dy, x1 - mbarX + 3, 10); }
+      if (using) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5 + dy, x1 - mbarX + 3, 10); storedUseTop = storedUseTop == null ? my - 1.5 : Math.min(storedUseTop, my - 1.5); }
       ctx.globalAlpha = 1; my += 9.5; });
     if (live.length) { ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 4; text("stored ↑ · current operation ↓", x0, my, { size: 7, color: "rgba(255,255,255,0.32)", baseline: "middle" }); my += 6; }
   }
+  const storedBottom = my, scrollP = (curStep >= 0 && animDone && HELD.some(h => h.f === curStep)) ? slideUp : 0; // once a value's own op finishes, its worked rows scroll up and vanish behind the store
+  if (scrollP > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0 - 8, storedBottom - 1, (x1 - x0) + 20, (aby + 172) - storedBottom + 1); ctx.clip(); my -= scrollP * 80; }
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
   else if (steps[curStep].ops) { // grade-school addition: the stored operands (e.g. Σ1, Ch, h, K, W) stacked, summed column by column with carry
     const st = steps[curStep], vals = st.ops.map(o => o[1] >>> 0), n = vals.length, aColor = st.c;
@@ -985,7 +988,7 @@ function drawChurn(r) {
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); } // the column being added — across carry + operands + result
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); } // the column being added — extends up through the stored operands it's using
     const obits = vals.map(v => (v >>> bCur) & 1), cin = carry[bCur], tot = obits.reduce((a, x) => a + x, 0) + cin;
     my += 12; text(arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
@@ -1059,6 +1062,7 @@ function drawChurn(r) {
       ctx.globalAlpha = 1; my += 12.5;
     }
   }
+  if (scrollP > 0) ctx.restore();
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
