@@ -933,7 +933,7 @@ function drawChurn(r) {
   const animEl = (churnLiveNow - churnRotStart) * churnSpeed; // animation clock scales with speed, so a step's animation always fits its (speed-scaled) dwell — never cut off
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
-  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
+  ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * NHIST + 14); ctx.clip(); // clip stops above the mix header so the active row sliding in at a round boundary can't overlap "THE MIX" text
   const gOff = mixing ? 0 : (1 - Math.min(1, ph / shiftEnd)) * rowH; // at the round boundary the grid scrolls up one row (draw an extra top row and slide everything up through the dup/shift) instead of popping
   for (let i = -1; i < NHIST; i++) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH + gOff, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
@@ -1062,7 +1062,7 @@ function drawChurn(r) {
       for (let i = 0; i < 32; i++) { const b = 31 - i, on = i < shown && ((val >>> (31 - i)) & 1), hit = on && ((aV >>> b) & 1) + ((bV >>> b) & 1) + ((cV >>> b) & 1) >= 2; ctx.fillStyle = i < shown ? (on ? (hit ? aColor : "rgba(205,168,255,0.5)") : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
       if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const readRow = (label, val, startMs) => { const entr = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 260)), ey = my - (1 - entr) * 12; // a new blank read row slides down from the row above, then fills
-      ctx.globalAlpha = 0.15 + 0.85 * entr; text(label, x0, ey + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(ey, val, startMs); ctx.globalAlpha = 1; my += 11; };
+      ctx.globalAlpha = Math.min(1, entr * entr * 1.6); text(label, x0, ey + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(ey, val, startMs); ctx.globalAlpha = 1; my += 11; };
     const yTop = my - 2;
     readRow("  a", aV, 0); readRow("  b", bV, stepPerReg); readRow("  c", cV, stepPerReg * 2);
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
@@ -1079,7 +1079,7 @@ function drawChurn(r) {
       for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((val >>> (31 - i)) & 1) ? aColor : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
       if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const readRow = (label, val, startMs) => { const entr = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 260)), ey = my - (1 - entr) * 12; // a new blank read row slides down from the row above, then fills
-      ctx.globalAlpha = 0.15 + 0.85 * entr; text(label, x0, ey + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(ey, val, startMs); ctx.globalAlpha = 1; my += 11; };
+      ctx.globalAlpha = Math.min(1, entr * entr * 1.6); text(label, x0, ey + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(ey, val, startMs); ctx.globalAlpha = 1; my += 11; };
     const yTop = my - 2;
     readRow("  " + o1[0], o1[1] >>> 0, 0); readRow("∧ " + o2[0], o2[1] >>> 0, stepPerReg);
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
