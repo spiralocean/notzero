@@ -866,7 +866,7 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
-const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 11000; // dup + shift stay fixed (~1×); only the mix scales with the speed control
+const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 22000; // dup + shift stay fixed (~1×); only the mix scales with the speed control
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
@@ -913,7 +913,7 @@ function drawChurn(r) {
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
     { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1, xops: [["a⟲2", _rotr(a_, 2) >>> 0], ["a⟲13", _rotr(a_, 13) >>> 0], ["a⟲22", _rotr(a_, 22) >>> 0]] },
-    { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1, xops: [["a∧b", (a_ & b_) >>> 0], ["a∧c", (a_ & c_) >>> 0], ["b∧c", (b_ & c_) >>> 0]] },
+    { g: "Maj", l: "= majority(a, b, c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1, maj3: [a_, b_, c_] },
     { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1, ops: [["Σ0", S0], ["Maj", maj]] },
     { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v]] },
     { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v], ["T2", T2v]] },
@@ -992,10 +992,25 @@ function drawChurn(r) {
     text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); rbar(my, gV, GCOL); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
-    for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (bit ? (eb ? FCOL : GCOL) : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+    for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : bit ? (eb ? FCOL : GCOL) : (eb ? "rgba(110,205,255,0.24)" : "rgba(205,168,255,0.24)"); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // every column tinted by e's pick (dim where the chosen bit is 0)
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const eb = (eV >>> bCur) & 1;
     my += 13; text(arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+  }
+  else if (steps[curStep].maj3) { // Majority — each output bit is 1 when at least two of a, b, c are 1
+    const st = steps[curStep], aV = st.maj3[0] >>> 0, bV = st.maj3[1] >>> 0, cV = st.maj3[2] >>> 0, aColor = st.c;
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const rbar = (yy, val) => { for (let i = 0; i < 32; i++) { const on = (val >>> (31 - i)) & 1, b = 31 - i, hit = on && ((aV >>> b) & 1) + ((bV >>> b) & 1) + ((cV >>> b) & 1) >= 2; ctx.fillStyle = on ? (hit ? aColor : "rgba(205,168,255,0.5)") : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    const yTop = my - 2;
+    text("  a", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, aV); my += 11;
+    text("  b", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, bV); my += 11;
+    text("  c", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, cV); my += 11;
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
+    text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
+    my += 13; text(arp < 1 ? `column ${bCur}:   a=${av} b=${bv} c=${cv}  →  ${ones} of 3 are 1  →  ${ones >= 2 ? 1 : 0}` : `Maj — each output bit is the majority: 1 when at least two of a, b, c agree`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
