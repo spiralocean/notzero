@@ -867,7 +867,7 @@ function drawOneRound(r) {
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
 const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200;
-const CHURN_STEP_DURS = [4800, 2300, 2300, 3200, 7800, 7800, 10700, 5700, 4800, 2300, 2300, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable, so short steps don't idle after they finish
+const CHURN_STEP_DURS = [4500, 2000, 2000, 3200, 8200, 8200, 3200, 5700, 4500, 2000, 2000, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable; rotation steps carry no trailing pause; Ch XORs its two stored halves so it's short like the other XORs
 const CHURN_STEP_CUM = CHURN_STEP_DURS.reduce((a, d) => (a.push(a[a.length - 1] + d), a), [0]);
 const CHURN_MIX_MS = CHURN_STEP_CUM[16]; // = 84000
 function drawChurn(r) {
@@ -910,7 +910,7 @@ function drawChurn(r) {
     { g: "Σ1", l: "= ⊕ the three rotations", v: S1, rd: [4], c: TEAL, res: 1, xops: [["e⟲6", _rotr(e_, 6) >>> 0], ["e⟲11", _rotr(e_, 11) >>> 0], ["e⟲25", _rotr(e_, 25) >>> 0]] },
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL, and2: [["e", e_ >>> 0], ["f", f_ >>> 0]] },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL, and2: [["¬e", (~e_) >>> 0], ["g", g_ >>> 0]] },
-    { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1, chsel: [e_, f_, g_] },
+    { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [], c: TEAL, res: 1, xops: [["e∧f", (e_ & f_) >>> 0, 1], ["¬e∧g", (~e_ & g_) >>> 0, 1]], choose: 1 },
     { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1, ops: [["Σ1", S1, 1], ["Ch", chm, 1], ["h", h_], ["K const", Km], ["W msg-word", Wt]] },
     { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
@@ -963,7 +963,7 @@ function drawChurn(r) {
   if (curStep >= 0) text(`THE MIX · step ${curStep + 1}/${NS}   ▸   ${OP_LABEL[steps[curStep].g] || steps[curStep].g}`, x0, my, { size: 9.5, weight: 700, color: steps[curStep].c, baseline: "middle" });
   else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
   my += 13;
-  const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
+  const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "e∧f", f: 4, u: [6], c: TEAL, v: (e_ & f_) >>> 0 }, { l: "¬e∧g", f: 5, u: [6], c: TEAL, v: (~e_ & g_) >>> 0 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
   const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a hold 2s (register + row blink) before anything scrolls
   const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
   let storedUseTop = null;
@@ -1020,15 +1020,18 @@ function drawChurn(r) {
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
     const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - stepReadMs) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))); // stepReadMs is 0 here — the rotation rows are already on screen, so just combine them
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
-    text("XOR the three rotations →", x0, my + 3.5, { size: 8.5, weight: 700, color: aColor, baseline: "middle", mono: true }); my += 12; // header + 12px rows match the sigma-rotate view, so the three rows keep their place (no jump between the last shift and the XOR)
+    const storedNames = xo.filter(o => o[2]).map(o => o[0]); // Ch's two halves are already in the store — reference, don't redraw
+    text(st.choose ? "XOR the two stored halves →" : "XOR the three rotations →", x0, my + 3.5, { size: 8.5, weight: 700, color: aColor, baseline: "middle", mono: true }); my += 12;
     const yTop = my - 2;
-    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 12; }
+    if (storedNames.length) { text("  " + storedNames.join(" ⊕ ") + "   ↑ using stored", x0, my + 3.5, { size: 7.5, weight: 700, color: "rgba(120,228,218,0.72)", baseline: "middle", mono: true }); my += 12; }
+    let drew = storedNames.length;
+    for (let k = 0; k < n; k++) { if (xo[k][2]) continue; text((drew === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 12; drew++; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
-    my += 13; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}   (1 if an odd number are 1)` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+    my += 13; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}${st.choose ? "   (choose: e=1→f, e=0→g)" : "   (1 if an odd number are 1)"}` : (st.choose ? `Ch = (e∧f) ⊕ (¬e∧g) — the "choose": where e=1 take f, where e=0 take g` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`), x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
     const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
