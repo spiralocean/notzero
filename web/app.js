@@ -907,15 +907,15 @@ function drawChurn(r) {
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
     { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1 },
-    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1 },
+    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1 },
     { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
     { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1 },
     { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1 },
-    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1 },
-    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1 },
-    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1 },
+    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1 },
+    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1 },
+    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1 },
   ];
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
@@ -952,10 +952,15 @@ function drawChurn(r) {
       const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
       ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
+      const arp = (cur && (st.rn || st.add) && !reduceMotion) ? Math.min(1, (churnLiveNow - churnRotStart) / 900) : 1;
       if (cur && st.rn) { // animated rotate — ONCE per step: duplicate the input register, slide its bits right by rn, then hold
-        const inV = src[st.rd[0]] >>> 0, rp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 850);
+        const inV = src[st.rd[0]] >>> 0;
         for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-        for (let i = 0; i < 32; i++) if ((inV >>> (31 - i)) & 1) { const p = (i + rp * st.rn) % 32; ctx.fillStyle = st.c; ctx.fillRect(mbarX + p * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+        for (let i = 0; i < 32; i++) if ((inV >>> (31 - i)) & 1) { const p = (i + arp * st.rn) % 32; ctx.fillStyle = st.c; ctx.fillRect(mbarX + p * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+      } else if (cur && st.add) { // animated add — sum forms LSB→MSB with a carry cursor sweeping right→left
+        const cols = Math.round(arp * 32);
+        for (let i = 0; i < 32; i++) { const rev = i >= 32 - cols; ctx.fillStyle = rev ? (((st.v >>> (31 - i)) & 1) ? st.c : DIM) : "rgba(255,255,255,0.035)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+        if (arp < 1) { const cxp = mbarX + (32 - cols) * mcw; ctx.fillStyle = "rgba(255,240,150,0.95)"; ctx.fillRect(cxp - 1, my - 2, 2.2, 11); text("+ carry ◂", mbarX - 52, my + 3.5, { size: 7, weight: 700, color: "rgba(255,240,150,0.9)", align: "left", baseline: "middle" }); }
       } else mbar(my, st.v, st.c);
       if (isContrib) text("⊕", mbarX - 10, my + 3.5, { size: 10, weight: 700, color: st.c, align: "center", baseline: "middle" });
       if (cur) { ctx.strokeStyle = st.c; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 2, x1 - mbarX + 3, 11); }
