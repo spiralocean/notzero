@@ -866,7 +866,7 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
-const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 22000; // dup + shift stay fixed (~1×); only the mix scales with the speed control
+const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 88000; // dup + shift stay fixed; the mix scales with speed — 1× is the slow study pace (old ¼×)
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
@@ -884,7 +884,7 @@ function drawChurn(r) {
     const box = (bx, wd, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, wd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, wd, bh, 5); ctx.stroke(); };
     const GI = "rgba(255,228,140,0.98)";
     const spW = 40, sp0 = b1 - spW - gp; // speed pill (click to cycle 2× · 1× · ½× · ¼×)
-    box(sp0, spW, churnSpeed !== 1); text((churnSpeed === 2 ? "2×" : churnSpeed === 1 ? "1×" : churnSpeed === 0.5 ? "½×" : churnSpeed === 0.25 ? "¼×" : "⅛×") + " speed", sp0 + spW / 2, cyy, { size: 8, weight: 700, color: GI, align: "center", baseline: "middle" }); churnSpeedHit = { x: sp0, y: byy, w: spW, h: bh };
+    box(sp0, spW, churnSpeed !== 1); text((churnSpeed === 4 ? "4×" : churnSpeed === 2 ? "2×" : churnSpeed === 1 ? "1×" : churnSpeed === 0.5 ? "½×" : "¼×") + " speed", sp0 + spW / 2, cyy, { size: 8, weight: 700, color: GI, align: "center", baseline: "middle" }); churnSpeedHit = { x: sp0, y: byy, w: spW, h: bh };
     box(b1, bwd, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
     box(b2, bwd, churnPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (churnPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
     box(b3, bwd, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
@@ -908,7 +908,7 @@ function drawChurn(r) {
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
     { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1, chsel: [e_, f_, g_] },
-    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1 },
+    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1, ops: [["Σ1", S1], ["Ch", chm], ["h", h_], ["K", Km], ["W", Wt]] },
     { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
@@ -950,23 +950,22 @@ function drawChurn(r) {
   let my = aby + 20;
   text(`THE MIX — new a & e, one operation at a time${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
-  else if (steps[curStep].ops) { // grade-school addition: two operands stacked, summed column by column with carry
-    const st = steps[curStep], A = st.ops[0][1] >>> 0, B = st.ops[1][1] >>> 0, aColor = st.c;
+  else if (steps[curStep].ops) { // grade-school addition: the stored operands (e.g. Σ1, Ch, h, K, W) stacked, summed column by column with carry
+    const st = steps[curStep], vals = st.ops.map(o => o[1] >>> 0), n = vals.length, aColor = st.c;
     const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34; // one column at a time, LSB→MSB
-    const carry = new Array(33).fill(0); for (let b = 0; b < 32; b++) carry[b + 1] = (((A >>> b) & 1) + ((B >>> b) & 1) + carry[b]) >> 1;
-    const bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const carry = new Array(34).fill(0); for (let b = 0; b < 32; b++) { let s = carry[b]; for (const v of vals) s += (v >>> b) & 1; carry[b + 1] = s >> 1; }
+    const bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))), rh = n >= 4 ? 9.5 : 11;
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
     const yTop = my - 2;
     text("carry", x0, my + 3.5, { size: 7.5, color: "rgba(255,240,150,0.75)", baseline: "middle", mono: true });
-    for (let i = 0; i < 32; i++) { const b = 31 - i; if (sweepPos - b >= 0 && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += 11;
-    text("  " + st.ops[0][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, A, aColor); my += 11;
-    text("+ " + st.ops[1][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, B, aColor); my += 11;
+    for (let i = 0; i < 32; i++) { const b = 31 - i; if (sweepPos - b >= 0 && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += rh;
+    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "+ ") + st.ops[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, vals[k], aColor); my += rh; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); } // the column being added — across carry + A + B + result
-    const sa = (A >>> bCur) & 1, sb = (B >>> bCur) & 1, sc = carry[bCur], sum = sa + sb + sc;
-    my += 13; text(arp < 1 ? `column ${bCur}:   ${sa} + ${sb} + ${sc} (carry)  =  ${sum.toString(2).padStart(2, "0")}₂   →   write ${sum & 1}, carry ${sum >> 1}` : `${st.g} — each column: bitA + bitB + carry → write the low bit, carry the high one`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); } // the column being added — across carry + operands + result
+    const obits = vals.map(v => (v >>> bCur) & 1), cin = carry[bCur], tot = obits.reduce((a, x) => a + x, 0) + cin;
+    my += 12; text(arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
@@ -988,12 +987,13 @@ function drawChurn(r) {
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
     const yTop = my - 2;
     text("  e (selector)", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true }); rbar(my, eV, aColor); my += 11;
-    text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); rbar(my, fV, FCOL); my += 11;
-    text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); rbar(my, gV, GCOL); my += 11;
+    const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); rbar(my, fV, FCOL); my += 11;
+    const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); rbar(my, gV, GCOL); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : bit ? (eb ? FCOL : GCOL) : (eb ? "rgba(110,205,255,0.24)" : "rgba(205,168,255,0.24)"); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // every column tinted by e's pick (dim where the chosen bit is 0)
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
+      const srcY = ((eV >>> bCur) & 1) ? fRowY : gRowY; ctx.strokeStyle = "rgba(255,255,255,0.98)"; ctx.lineWidth = 1.8; ctx.strokeRect(ix - 1.5, srcY - 1.5, mcw + 2, 10); } // the register e is pulling this column's bit from
     const eb = (eV >>> bCur) & 1;
     my += 13; text(arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
@@ -2956,7 +2956,7 @@ canvas.addEventListener("click", (e) => {
     const cycOf = (sp) => CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / sp, seOf = (sp) => (CHURN_DUP_MS + CHURN_SHIFT_MS) / cycOf(sp);
     const effC = cycOf(churnSpeed), STEP = (CHURN_MIX_MS / churnSpeed) / CHURN_STEPS;
     const enter = () => { const se = seOf(churnSpeed), p = (churnLiveNow % effC) / effC; churnNow = p >= se ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round((se + 0.004) * effC); };
-    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : churnSpeed === 0.25 ? 0.125 : 2;
+    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 4 ? 2 : churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : 4;
       if (churnPaused) { const oc = cycOf(old), nc = cycOf(churnSpeed), rb = Math.floor(churnNow / oc), po = (churnNow % oc) / oc, so = seOf(old), sn = seOf(churnSpeed), pn = po >= so ? sn + (po - so) / (1 - so) * (1 - sn) : po * sn / so; churnNow = rb * nc + pn * nc; }
       requestRender(); return; }
     if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
