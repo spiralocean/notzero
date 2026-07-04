@@ -1128,6 +1128,10 @@ function drawNextBlock(r) {
   const ringTxt = `${over ? "+" : ""}${Math.floor(disp / 60)}:${String(disp % 60).padStart(2, "0")}`;
   let ringSize = 22; ctx.font = `700 ${ringSize}px ui-monospace, monospace`; // fit inside the ring for unusually long intervals
   while (ctx.measureText(ringTxt).width > rad * 1.7 && ringSize > 12) { ringSize--; ctx.font = `700 ${ringSize}px ui-monospace, monospace`; }
+  if (over) { // dark pill behind the countdown so the nested inner rings don't bleed into the digits
+    const tw2 = ctx.measureText(ringTxt).width, pw2 = tw2 + 16, ph2 = ringSize + 10;
+    ctx.fillStyle = "rgba(9,8,13,0.88)"; roundRect(cx - pw2 / 2, cy - ph2 / 2, pw2, ph2, ph2 / 2); ctx.fill();
+  }
   text(ringTxt, cx, cy, { size: ringSize, weight: 700, color: over ? "rgba(255,190,90,1)" : "#fff", align: "center", baseline: "middle", mono: true });
   text(over ? "over ~10 min est" : "next block (est)", cx, cy + rad + 16, { size: 14, color: over ? "rgba(255,180,80,0.8)" : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
   const rows = [["Elapsed", `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`], ["Avg block", "~10:00"], ["Last block", "#" + model.tipHeight.toLocaleString()]];
