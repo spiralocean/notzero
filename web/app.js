@@ -893,11 +893,15 @@ function drawChurn(r) {
   const headerY = r.y + 56, topY = headerY + 14;
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
+  const TEALbg = "rgba(90,220,210,0.2)", VIOLbg = "rgba(195,150,255,0.2)", TEALtx = "rgba(120,228,218,0.98)", VIOLtx = "rgba(205,168,255,0.98)";
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
   for (let i = 0; i < NHIST; i++) {
-    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0;
-    text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, color: "rgba(255,255,255,0.35)", baseline: "middle" });
-    for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); } }
+    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing; // the row the mix reads
+    text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
+    for (let c = 0; c < 8; c++) {
+      if (isSrc) { const gbg = c <= 2 ? VIOLbg : (c >= 4 && c <= 6) ? TEALbg : null; if (gbg) { ctx.fillStyle = gbg; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } } // light up the registers feeding the mix
+      const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
+    }
   }
   const aby = topY + NHIST * rowH, src = rowFor(t), dst = d.rounds[t + 1];
   text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
@@ -917,15 +921,15 @@ function drawChurn(r) {
   for (const col of [0, 4]) { const ax = gx + col * cwid + bw / 2; ctx.beginPath(); ctx.moveTo(ax, aby + 18); ctx.lineTo(ax, aby + 10); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax - 3, aby + 14); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax + 3, aby + 14); ctx.stroke(); }
   const BLU = "rgba(110,205,255,1)", GLD = "rgba(255,235,140,1)";
   let my = aby + 22;
-  text("THE MIX ↑ — the operations that rebuild a & e each round (live values)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 12;
+  text("THE MIX ↑ — the lit registers feed each op:  teal e·f·g → Σ1·Ch    ·    violet a·b·c → Σ0·Maj", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 12;
   const mrow = (label, val, col, alpha, lc) => { text(label, x0, my + 3, { size: 8, weight: 600, color: lc || "rgba(255,255,255,0.72)", baseline: "middle", mono: true }); mbar(my, val, col, alpha); my += 12.5; };
-  mrow("Σ1  scramble e", S1, BLU);
-  mrow("Ch  choose(e,f,g)", chm, BLU);
+  mrow("Σ1  scramble e", S1, BLU, 1, TEALtx);
+  mrow("Ch  choose(e,f,g)", chm, BLU, 1, TEALtx);
   mrow("W   " + (R < 16 ? "your message" : "expanded word"), Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.55, "rgba(255,228,140,0.95)");
   mrow("= T1  (+h +K)  → a & e", T1v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
   ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1, my); ctx.stroke(); my += 4;
-  mrow("Σ0  scramble a", S0, BLU);
-  mrow("Maj majority(a,b,c)", maj, BLU);
+  mrow("Σ0  scramble a", S0, BLU, 1, VIOLtx);
+  mrow("Maj majority(a,b,c)", maj, BLU, 1, VIOLtx);
   mrow("= T2  → a", T2v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
   text("new e = d + T1   ·   new a = T1 + T2", x0, my + 3, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" }); my += 12;
   // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
