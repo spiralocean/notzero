@@ -958,7 +958,7 @@ function drawChurn(r) {
       if (curStep === o.to + 1) return slideOut < 1; // sliding out the step after its last use
       if (curStep > o.to) return false; // released and gone
       return curStep > o.h.f || (curStep === o.h.f && animDone); // only enters the store once its own compute animation is done
-    }).sort((a, b) => a.h.f - b.h.f);
+    }).sort((a, b) => ((a.h.u.includes(curStep) ? 1 : 0) - (b.h.u.includes(curStep) ? 1 : 0)) || (a.h.f - b.h.f)); // values used by THIS step sink to the bottom (next to the operation) so the sweep encloses only them
     live.forEach((o) => { const h = o.h, using = h.u.includes(curStep), rel = curStep === o.to + 1, fresh = curStep === h.f;
       let a = 1, dx = 0, dy = 0; if (rel) { a = 1 - slideOut; dx = slideOut * 20; } else if (fresh) { a = slideUp; dy = (1 - slideUp) * 15; } // fresh value rises into its slot
       const lc = using ? "rgba(255,250,210,1)" : h.c;
