@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 302, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 366, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -891,21 +891,31 @@ function drawChurn(r) {
   else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), glow = hot && mixP < 0.65; cell(gx + c * cwid, aby, dst[c] >>> 0, hot ? (glow ? "rgba(255,245,170,1)" : GOLD) : GREEN); if (hot) { ctx.strokeStyle = glow ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)"; ctx.lineWidth = glow ? 1.8 : 1; ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); } } }
   ctx.restore();
   // THE MIX, shown: registers (Σ1+Ch+h+K) + your message word W → T1, which lands in a & e
+  const a_ = src[0] >>> 0, b_ = src[1] >>> 0, c_ = src[2] >>> 0;
   const e_ = src[4] >>> 0, f_ = src[5] >>> 0, g_ = src[6] >>> 0, h_ = src[7] >>> 0;
   const S1 = (_rotr(e_, 6) ^ _rotr(e_, 11) ^ _rotr(e_, 25)) >>> 0, chm = ((e_ & f_) ^ (~e_ & g_)) >>> 0;
+  const S0 = (_rotr(a_, 2) ^ _rotr(a_, 13) ^ _rotr(a_, 22)) >>> 0, maj = ((a_ & b_) ^ (a_ & c_) ^ (b_ & c_)) >>> 0;
   const Km = _SHA_K[R % 64], Wt = (d.W[R % 64] || 0) >>> 0;
-  const regPart = (h_ + S1 + chm + Km) >>> 0, T1v = (regPart + Wt) >>> 0;
-  const mbarX = x0 + 132, mcw = (x1 - mbarX) / 32;
-  const mbar = (yy, val, color, alpha) => { ctx.globalAlpha = alpha == null ? 1 : alpha; for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 8); } ctx.globalAlpha = 1; };
+  const T1v = (h_ + S1 + chm + Km + Wt) >>> 0, T2v = (S0 + maj) >>> 0;
+  const mbarX = x0 + 150, mcw = (x1 - mbarX) / 32;
+  const mbar = (yy, val, color, alpha) => { ctx.globalAlpha = alpha == null ? 1 : alpha; for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } ctx.globalAlpha = 1; };
   ctx.strokeStyle = mixing ? "rgba(255,215,90,0.7)" : "rgba(255,215,90,0.28)"; ctx.lineWidth = 1.5; // arrows: the mix lands in a & e
   for (const col of [0, 4]) { const ax = gx + col * cwid + bw / 2; ctx.beginPath(); ctx.moveTo(ax, aby + 18); ctx.lineTo(ax, aby + 10); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax - 3, aby + 14); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax + 3, aby + 14); ctx.stroke(); }
+  const BLU = "rgba(110,205,255,1)", GLD = "rgba(255,235,140,1)";
   let my = aby + 22;
-  text("THE MIX ↑", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 11;
-  text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,205,255,1)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(110,205,255,1)"); my += 14;
-  text("+ W  " + (R < 16 ? "your message" : "(expanded)"), x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle", mono: true }); mbar(my, Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.5); my += 14;
-  text("= T1  → both a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
+  text("THE MIX ↑ — the operations that rebuild a & e each round (live values)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 12;
+  const mrow = (label, val, col, alpha, lc) => { text(label, x0, my + 3, { size: 8, weight: 600, color: lc || "rgba(255,255,255,0.72)", baseline: "middle", mono: true }); mbar(my, val, col, alpha); my += 12.5; };
+  mrow("Σ1  scramble e", S1, BLU);
+  mrow("Ch  choose(e,f,g)", chm, BLU);
+  mrow("W   " + (R < 16 ? "your message" : "expanded word"), Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.55, "rgba(255,228,140,0.95)");
+  mrow("= T1  (+h +K)  → a & e", T1v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
+  ctx.strokeStyle = "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my); ctx.lineTo(x1, my); ctx.stroke(); my += 4;
+  mrow("Σ0  scramble a", S0, BLU);
+  mrow("Maj majority(a,b,c)", maj, BLU);
+  mrow("= T2  → a", T2v, GLD, mixing ? 1 : 0.85, "rgba(255,235,140,1)");
+  text("new e = d + T1   ·   new a = T1 + T2", x0, my + 3, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" }); my += 12;
   // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
-  const msgY = my + 22;
+  const msgY = my + 8;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
   const base = Math.floor(R / VIS) * VIS; // a fixed page of words — the highlight walks across, then the page flips at the end (no per-round scroll)
