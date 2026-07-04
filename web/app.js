@@ -928,7 +928,7 @@ function drawChurn(r) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc && rdSet.indexOf(c) >= 0) { const rbk = 0.28 + 0.34 * (Math.sin(churnLiveNow / 130) * 0.5 + 0.5); ctx.globalAlpha = rbk; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = 1.2 + rbk * 1.6; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // light + blink the registers THIS step reads
+      if (isSrc && rdSet.indexOf(c) >= 0) { const rEl = churnLiveNow - churnRotStart, bOn = rEl > 700 || Math.floor(rEl / 175) % 2 === 0; ctx.globalAlpha = bOn ? 0.5 : 0.1; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // blink the registers THIS step reads a couple times, then hold
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
@@ -1043,7 +1043,11 @@ function drawChurn(r) {
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
     const eSide = curStep <= 6, showRef = eSide || (curStep >= 8 && curStep <= 12);
-    if (showRef) { const inC = eSide ? 4 : 0, inCol = eSide ? TEAL : VIOL; text("read " + (eSide ? "e" : "a"), x0, my + 3.5, { size: 8, weight: 700, color: inCol, baseline: "middle", mono: true }); mbar(my, src[inC] >>> 0, inCol); my += 11; ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3; }
+    if (showRef) { const inC = eSide ? 4 : 0, inCol = eSide ? TEAL : VIOL, rv = src[inC] >>> 0; text("read " + (eSide ? "e" : "a"), x0, my + 3.5, { size: 8, weight: 700, color: inCol, baseline: "middle", mono: true });
+      const fillP = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - 700) / 450)), shown = Math.round(fillP * 32); // after the register blinks, the read row fills its bits in, left → right
+      for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((rv >>> (31 - i)) & 1) ? inCol : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+      if (fillP > 0 && fillP < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, my - 1, 1.6, 9); }
+      my += 11; ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3; }
     const VIS = 6, first = Math.max(0, curStep - VIS + 1);
     const contrib = { 3: 3, 6: 2, 11: 3 }[curStep]; // Σ1 result ← 3 rotations · Ch ← 2 · Σ0 ← 3 rotations (XOR them)
     for (let si = first; si <= curStep; si++) {
@@ -1066,16 +1070,6 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
-  // READ-IN — at the start of a step, a ghost of each register it reads flies from the grid down into the mix
-  if (curStep >= 0 && rdSet.length && rdSet.every(cc => cc < 8)) {
-    const readProg = Math.min(1, animEl / 450), srcRowY = topY + (NHIST - 1) * rowH;
-    if (readProg < 1) { const ga = Math.sin(readProg * Math.PI), b32r = bw / 32;
-      rdSet.forEach(cc => { const sx = gx + cc * cwid, ex = mbarX, sy = srcRowY, ey = aby + 26, ix = sx + (ex - sx) * readProg, iy = sy + (ey - sy) * readProg;
-        ctx.globalAlpha = ga * 0.9;
-        for (let b = 0; b < 32; b++) { ctx.fillStyle = ((src[cc] >>> (31 - b)) & 1) ? curCol : DIM; ctx.fillRect(ix + b * b32r, iy, Math.max(0.7, b32r - 0.3), 6); }
-        ctx.globalAlpha = 1; });
-    }
-  }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
