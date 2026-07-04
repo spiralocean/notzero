@@ -4,9 +4,22 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.23
+## Unreleased — next: 0.1.24
 
 _Nothing yet._
+
+## 0.1.23
+
+**Dashboard — a full, animated walk through one SHA-256 round**
+- **THE CHURN** — watch a round get built live, one operation at a time: each register is read in (its source
+  blinks, then its row fills), the operation runs (rotate / XOR / choose / majority / add — shown bit by bit,
+  with carries), the result scrolls up into a "store" of intermediate values (Σ1, Ch, T1, Σ0, Maj, T2), and
+  spent values scroll out. It's a read → operate → store flow you can pause, step through operation by
+  operation, and slow down (speed pill: ¼×–4×). The register grid scrolls a row per round so you can watch
+  the message spread through a–h.
+- **ONE STEP · Σ1 / Ch / Maj** and **ONE ROUND** — roomier, clearer worked examples of each operation on real
+  round-0 register values.
+- The whole **INSIDE THE HASH** deep dive (previously lab-only) is now on by default.
 
 ## 0.1.22
 
