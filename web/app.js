@@ -872,6 +872,7 @@ function drawChurn(r) {
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   const CYCLE = CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / churnSpeed, dupEnd = CHURN_DUP_MS / CYCLE, shiftEnd = (CHURN_DUP_MS + CHURN_SHIFT_MS) / CYCLE;
+  const churnAnimMs = Math.max(200, CHURN_MIX_MS / churnSpeed / CHURN_STEPS * 0.85); // each per-step animation fits inside one step's dwell, so it fully plays out at any speed
   churnLiveNow = reduceMotion ? 2100 : Date.now();
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
@@ -903,16 +904,16 @@ function drawChurn(r) {
     { g: "Σ1", l: "e ⟲ 6", v: _rotr(e_, 6) >>> 0, rd: [4], c: TEAL, rn: 6 },
     { g: "Σ1", l: "e ⟲ 11", v: _rotr(e_, 11) >>> 0, rd: [4], c: TEAL, rn: 11 },
     { g: "Σ1", l: "e ⟲ 25", v: _rotr(e_, 25) >>> 0, rd: [4], c: TEAL, rn: 25 },
-    { g: "Σ1", l: "= ⊕ the three rotations", v: S1, rd: [4], c: TEAL, res: 1 },
+    { g: "Σ1", l: "= ⊕ the three rotations", v: S1, rd: [4], c: TEAL, res: 1, xops: [["e⟲6", _rotr(e_, 6) >>> 0], ["e⟲11", _rotr(e_, 11) >>> 0], ["e⟲25", _rotr(e_, 25) >>> 0]] },
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
-    { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1 },
+    { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1, chsel: [e_, f_, g_] },
     { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1 },
     { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
-    { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1 },
-    { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1 },
+    { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1, xops: [["a⟲2", _rotr(a_, 2) >>> 0], ["a⟲13", _rotr(a_, 13) >>> 0], ["a⟲22", _rotr(a_, 22) >>> 0]] },
+    { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1, xops: [["a∧b", (a_ & b_) >>> 0], ["a∧c", (a_ & c_) >>> 0], ["b∧c", (b_ & c_) >>> 0]] },
     { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1, ops: [["Σ0", S0], ["Maj", maj]] },
     { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v]] },
     { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v], ["T2", T2v]] },
@@ -934,7 +935,14 @@ function drawChurn(r) {
   const aby = topY + NHIST * rowH;
   text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
   if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
-  else { for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), ready = !hot || (c === 4 && curStep >= 14) || (c === 0 && curStep >= 15), fresh = hot && ready; cell(gx + c * cwid, aby, ready ? (dst[c] >>> 0) : 0, ready ? (hot ? (fresh ? "rgba(255,245,170,1)" : GOLD) : GREEN) : DIM); if (hot) { ctx.strokeStyle = ready ? (fresh ? "rgba(255,245,170,0.95)" : "rgba(255,215,90,0.45)") : "rgba(255,215,90,0.32)"; ctx.lineWidth = fresh ? 1.8 : 1; ctx.setLineDash(ready ? [] : [2, 2]); ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); ctx.setLineDash([]); } } }
+  else { const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs, blinkOn = Math.floor(churnLiveNow / 150) % 2 === 0; // new e/a only land once their add finishes (when paused), then blink
+    for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4);
+      const isRes = (c === 4 && curStep === 14) || (c === 0 && curStep === 15);
+      const ready = !hot || (c === 4 ? (curStep >= 15 || (curStep === 14 && animDone)) : (curStep === 15 && animDone));
+      const blinking = isRes && ready && animDone && animEl < churnAnimMs + 1800, fresh = hot && ready;
+      const col = !ready ? DIM : !hot ? GREEN : blinking ? (blinkOn ? "rgba(255,255,235,1)" : "rgba(255,210,110,0.7)") : (fresh ? "rgba(255,245,170,1)" : GOLD);
+      cell(gx + c * cwid, aby, ready ? (dst[c] >>> 0) : 0, col);
+      if (hot) { ctx.strokeStyle = !ready ? "rgba(255,215,90,0.32)" : blinking ? (blinkOn ? "rgba(255,255,240,1)" : "rgba(255,210,110,0.55)") : "rgba(255,215,90,0.5)"; ctx.lineWidth = blinking && blinkOn ? 2.4 : (fresh ? 1.8 : 1); ctx.setLineDash(ready ? [] : [2, 2]); ctx.strokeRect(gx + c * cwid - 1.5, aby - 1.5, bw + 3, 11); ctx.setLineDash([]); } } }
   ctx.restore();
   // THE MIX — walk the sub-steps that build new a & e, revealed one at a time (newest at the bottom)
   const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
@@ -944,7 +952,7 @@ function drawChurn(r) {
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
   else if (steps[curStep].ops) { // grade-school addition: two operands stacked, summed column by column with carry
     const st = steps[curStep], A = st.ops[0][1] >>> 0, B = st.ops[1][1] >>> 0, aColor = st.c;
-    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 4600), sweepPos = arp * 34; // one column at a time, LSB→MSB
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34; // one column at a time, LSB→MSB
     const carry = new Array(33).fill(0); for (let b = 0; b < 32; b++) carry[b + 1] = (((A >>> b) & 1) + ((B >>> b) & 1) + carry[b]) >> 1;
     const bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
@@ -960,6 +968,35 @@ function drawChurn(r) {
     const sa = (A >>> bCur) & 1, sb = (B >>> bCur) & 1, sc = carry[bCur], sum = sa + sb + sc;
     my += 13; text(arp < 1 ? `column ${bCur}:   ${sa} + ${sb} + ${sc} (carry)  =  ${sum.toString(2).padStart(2, "0")}₂   →   write ${sum & 1}, carry ${sum >> 1}` : `${st.g} — each column: bitA + bitB + carry → write the low bit, carry the high one`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
+  else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
+    const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    const yTop = my - 2;
+    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 11; }
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
+    text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    const xbits = xo.map(o => (o[1] >>> bCur) & 1);
+    my += 13; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}   (1 if an odd number are 1)` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+  }
+  else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
+    const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
+    const FCOL = "rgba(110,205,255,1)", GCOL = "rgba(205,168,255,1)";
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    const yTop = my - 2;
+    text("  e (selector)", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true }); rbar(my, eV, aColor); my += 11;
+    text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); rbar(my, fV, FCOL); my += 11;
+    text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); rbar(my, gV, GCOL); my += 11;
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
+    text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (bit ? (eb ? FCOL : GCOL) : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    const eb = (eV >>> bCur) & 1;
+    my += 13; text(arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+  }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
     const eSide = curStep <= 6, showRef = eSide || (curStep >= 8 && curStep <= 12);
@@ -970,7 +1007,7 @@ function drawChurn(r) {
       const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
       ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
-      const arp = (cur && (st.rn || st.add) && !reduceMotion) ? Math.min(1, (churnLiveNow - churnRotStart) / 900) : 1;
+      const arp = (cur && (st.rn || st.add) && !reduceMotion) ? Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs) : 1;
       if (cur && st.rn) { // animated rotate — ONCE per step: duplicate the input register, slide its bits right by rn, then hold
         const inV = src[st.rd[0]] >>> 0;
         for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
