@@ -865,7 +865,7 @@ function drawOneRound(r) {
 // THE CHURN (animated) — the honest round loop: one message word W drops into a MIX (which reads the whole
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
-let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
+let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
 const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 11000; // dup + shift stay fixed (~1×); only the mix scales with the speed control
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
@@ -918,6 +918,7 @@ function drawChurn(r) {
     { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1 },
   ];
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
+  if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
   const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
@@ -951,8 +952,8 @@ function drawChurn(r) {
       const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
       ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
-      if (cur && st.rn) { // animated rotate — duplicate the input register, then slide its bits right by rn (1× loop) so you SEE the rotate
-        const inV = src[st.rd[0]] >>> 0, raw = reduceMotion ? 1 : (Date.now() % 1600) / 1600, rp = Math.min(1, raw / 0.7);
+      if (cur && st.rn) { // animated rotate — ONCE per step: duplicate the input register, slide its bits right by rn, then hold
+        const inV = src[st.rd[0]] >>> 0, rp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 850);
         for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
         for (let i = 0; i < 32; i++) if ((inV >>> (31 - i)) & 1) { const p = (i + rp * st.rn) % 32; ctx.fillStyle = st.c; ctx.fillRect(mbarX + p * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
       } else mbar(my, st.v, st.c);
