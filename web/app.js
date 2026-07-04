@@ -913,9 +913,9 @@ function drawChurn(r) {
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
     { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1 },
     { g: "Maj", l: "= (a∧b)⊕(a∧c)⊕(b∧c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1 },
-    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1 },
-    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1 },
-    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1 },
+    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1, ops: [["Σ0", S0], ["Maj", maj]] },
+    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v]] },
+    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v], ["T2", T2v]] },
   ];
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
@@ -942,6 +942,21 @@ function drawChurn(r) {
   let my = aby + 20;
   text(`THE MIX — new a & e, one operation at a time${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
+  else if (steps[curStep].ops) { // grade-school addition: two operands stacked, summed column by column with carry
+    const st = steps[curStep], A = st.ops[0][1] >>> 0, B = st.ops[1][1] >>> 0, aColor = st.c;
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 1600), cols = Math.round(arp * 33); // result bits revealed LSB→MSB
+    const carry = new Array(33).fill(0); for (let b = 0; b < 32; b++) carry[b + 1] = (((A >>> b) & 1) + ((B >>> b) & 1) + carry[b]) >> 1;
+    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    text("carry", x0, my + 3.5, { size: 7.5, color: "rgba(255,240,150,0.75)", baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { const b = 31 - i; if (b < cols && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += 11;
+    text("  " + st.ops[0][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, A, aColor); my += 11;
+    text("+ " + st.ops[1][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, B, aColor); my += 11;
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
+    text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { const b = 31 - i, shown = b < cols; ctx.fillStyle = shown ? (((st.v >>> (31 - i)) & 1) ? aColor : DIM) : "rgba(255,255,255,0.035)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+    if (arp < 1) { const cxp = mbarX + (32 - cols) * mcw; ctx.fillStyle = "rgba(255,240,150,1)"; ctx.fillRect(cxp - 1, my - 36, 2, 44); } // cursor sweeps right→left through the columns
+    my += 12; text(`step ${curStep + 1}/${NS} — added column by column, low bit first; the carry ripples left`, x0, my + 2, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
     const eSide = curStep <= 6, showRef = eSide || (curStep >= 8 && curStep <= 12);
