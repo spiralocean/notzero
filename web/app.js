@@ -921,6 +921,10 @@ function drawChurn(r) {
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
   const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
+  // read → operate → store timing. Read each source in turn (blink it, then write its row); XOR reuses on-screen rotation rows; sigma reads only on its first rotation step.
+  const RDN = rdSet.length;
+  const stepReadMs = curStep < 0 ? 0 : (steps[curStep].xops ? 0 : steps[curStep].rn ? (curStep === 0 || curStep === 8 ? 1000 : 0) : (steps[curStep].chsel || steps[curStep].maj3) ? RDN * 380 : 0);
+  const stepPerReg = RDN > 0 ? stepReadMs / RDN : stepReadMs, stepOpMs = curStep < 0 ? 0 : (steps[curStep].rn ? churnAnimMs / 2 : churnAnimMs);
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
@@ -928,7 +932,8 @@ function drawChurn(r) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc && rdSet.indexOf(c) >= 0) { const rEl = churnLiveNow - churnRotStart, bOn = rEl > 700 || Math.floor(rEl / 175) % 2 === 0; ctx.globalAlpha = bOn ? 0.5 : 0.1; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // blink the registers THIS step reads a couple times, then hold
+      if (isSrc && rdSet.indexOf(c) >= 0) { const rEl = churnLiveNow - churnRotStart, kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepPerReg; // each source blinks in its turn (so the eye goes to it) before its row is written, then holds
+        if (rEl >= w0) { const bOn = rEl > w1 ? true : Math.floor((rEl - w0) / Math.max(70, stepPerReg / 4)) % 2 === 0; ctx.globalAlpha = bOn ? 0.5 : 0.1; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
@@ -953,8 +958,8 @@ function drawChurn(r) {
   else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
   my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
-  const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs;
-  const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - churnAnimMs) / 450));
+  const stepDoneMs = stepReadMs + stepOpMs, animEl = churnLiveNow - churnRotStart, animDone = animEl >= stepDoneMs; // a value is "done" only after its read AND its operation finish
+  const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
   let storedUseTop = null;
   if (curStep >= 0) { // HELD — a value enters the store only after its own animation finishes, rising up; it glows when a later step consumes it, then slides out
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
@@ -999,63 +1004,58 @@ function drawChurn(r) {
   }
   else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
-    const READ = reduceMotion ? 0 : n * 320; // read each input in turn, then XOR
-    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - READ) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
-    const fbar = (yy, val, col, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 320)), shown = Math.round(fp * 32);
-      for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((val >>> (31 - i)) & 1) ? col : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
-      if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
+    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - stepReadMs) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))); // stepReadMs is 0 here — the rotation rows are already on screen, so just combine them
+    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
     const yTop = my - 2;
-    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, xo[k][1] >>> 0, aColor, k * 320); my += 11; }
+    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 11; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1 && animEl >= READ) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
     my += 13; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}   (1 if an odd number are 1)` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
     const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
     const FCOL = "rgba(110,205,255,1)", GCOL = "rgba(205,168,255,1)";
-    const READ = reduceMotion ? 0 : 960; // read e, then f, then g, then choose
-    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - READ) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
-    const fbar = (yy, val, col, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 320)), shown = Math.round(fp * 32);
+    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - stepReadMs) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const fbar = (yy, val, col, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / stepPerReg)), shown = Math.round(fp * 32); // fills only after its source register has blinked
       for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((val >>> (31 - i)) & 1) ? col : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
       if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const yTop = my - 2;
     text("  e (selector)", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true }); fbar(my, eV, aColor, 0); my += 11;
-    const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); fbar(my, fV, FCOL, 320); my += 11;
-    const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); fbar(my, gV, GCOL, 640); my += 11;
+    const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); fbar(my, fV, FCOL, stepPerReg); my += 11;
+    const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); fbar(my, gV, GCOL, stepPerReg * 2); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : bit ? (eb ? FCOL : GCOL) : (eb ? "rgba(110,205,255,0.24)" : "rgba(205,168,255,0.24)"); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // every column tinted by e's pick (dim where the chosen bit is 0)
-    if (arp < 1 && animEl >= READ) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
+    if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
       const srcY = ((eV >>> bCur) & 1) ? fRowY : gRowY; ctx.strokeStyle = "rgba(255,255,255,0.98)"; ctx.lineWidth = 1.8; ctx.strokeRect(ix - 1.5, srcY - 1.5, mcw + 2, 10); } // the register e is pulling this column's bit from
     const eb = (eV >>> bCur) & 1;
     my += 13; text(arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].maj3) { // Majority — read a, then b, then c in, then vote (1 when ≥2 agree)
     const st = steps[curStep], aV = st.maj3[0] >>> 0, bV = st.maj3[1] >>> 0, cV = st.maj3[2] >>> 0, aColor = st.c;
-    const READ = reduceMotion ? 0 : 1200; // read each register in turn (400ms each) before the vote
-    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - READ) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
-    const fbar = (yy, val, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 400)), shown = Math.round(fp * 32); // reads its bits in left→right over its window
+    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - stepReadMs) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const fbar = (yy, val, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / stepPerReg)), shown = Math.round(fp * 32); // each register fills only after it has blinked
       for (let i = 0; i < 32; i++) { const b = 31 - i, on = i < shown && ((val >>> (31 - i)) & 1), hit = on && ((aV >>> b) & 1) + ((bV >>> b) & 1) + ((cV >>> b) & 1) >= 2; ctx.fillStyle = i < shown ? (on ? (hit ? aColor : "rgba(205,168,255,0.5)") : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
       if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const yTop = my - 2;
     text("  a", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, aV, 0); my += 11;
-    text("  b", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, bV, 400); my += 11;
-    text("  c", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, cV, 800); my += 11;
+    text("  b", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, bV, stepPerReg); my += 11;
+    text("  c", x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, cV, stepPerReg * 2); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1 && animEl >= READ) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
     my += 13; text(arp < 1 ? `column ${bCur}:   a=${av} b=${bv} c=${cv}  →  ${ones} of 3 are 1  →  ${ones >= 2 ? 1 : 0}` : `Maj — each output bit is the majority: 1 when at least two of a, b, c agree`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].rn) { // sigma rotate — read the register into all three rows first, then shift one row per step
     const isS1 = curStep <= 2, gStart = isS1 ? 0 : 8, amounts = isS1 ? [6, 11, 25] : [2, 13, 22], regV = (isS1 ? src[4] : src[0]) >>> 0, opCol = isS1 ? TEAL : VIOL, reg = isS1 ? "e" : "a", rotIdx = curStep - gStart;
-    const READ = reduceMotion ? 0 : 1000, rotDur = churnAnimMs / 2;
-    const fillP = (rotIdx === 0 && !reduceMotion) ? Math.min(1, animEl / READ) : 1; // read fills all three rows on the first step
-    const shiftProg = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - (rotIdx === 0 ? READ : 0)) / rotDur));
+    const READ = stepReadMs, rotDur = churnAnimMs / 2; // READ is 1000 on the first rotation step, 0 after (register already read)
+    const fillP = (READ > 0 && !reduceMotion) ? Math.min(1, animEl / READ) : 1; // read fills all three rows on the first step
+    const shiftProg = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - READ) / rotDur));
     text(fillP < 1 ? `reading ${reg} into all three rows…` : `shift row ${rotIdx + 1} · ${reg} rotated right ${amounts[rotIdx]}`, x0, my + 3.5, { size: 8.5, weight: 700, color: opCol, baseline: "middle", mono: true }); my += 12;
     const drawRow = (yy, slide) => { const shown = Math.round(fillP * 32);
       for (let i = 0; i < 32; i++) { ctx.fillStyle = (fillP >= 1 || i < shown) ? DIM : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
@@ -1099,13 +1099,6 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
-  // SOURCE CONNECTOR — during the read, a dashed line + a pulse travel from each register the step reads down into the mix, so you can see where the data comes from
-  if (curStep >= 0 && rdSet.length && rdSet.every(cc => cc < 8) && animEl < 1300 && !reduceMotion) {
-    const srcY = topY + (NHIST - 1) * rowH + 4, tgtY = aby + 30, pulse = (animEl % 620) / 620;
-    rdSet.forEach(cc => { const sx = gx + cc * cwid + bw / 2, tx = mbarX + 3;
-      ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(sx, srcY); ctx.lineTo(tx, tgtY); ctx.stroke(); ctx.setLineDash([]);
-      const px = sx + (tx - sx) * pulse, py = srcY + (tgtY - srcY) * pulse; ctx.fillStyle = curCol; ctx.beginPath(); ctx.arc(px, py, 2.3, 0, 7); ctx.fill(); });
-  }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
