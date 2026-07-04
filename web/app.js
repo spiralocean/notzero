@@ -908,15 +908,15 @@ function drawChurn(r) {
     { g: "Ch", l: "e ∧ f", v: (e_ & f_) >>> 0, rd: [4, 5], c: TEAL },
     { g: "Ch", l: "¬e ∧ g", v: (~e_ & g_) >>> 0, rd: [4, 6], c: TEAL },
     { g: "Ch", l: "= (e∧f) ⊕ (¬e∧g)", v: chm, rd: [4, 5, 6], c: TEAL, res: 1, chsel: [e_, f_, g_] },
-    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1, ops: [["Σ1", S1], ["Ch", chm], ["h", h_], ["K", Km], ["W", Wt]] },
+    { g: "T1", l: "= Σ1 + Ch + h + K + W", v: T1v, rd: [7], c: GLD, res: 1, add: 1, ops: [["Σ1", S1, 1], ["Ch", chm, 1], ["h", h_], ["K", Km], ["W", Wt]] },
     { g: "Σ0", l: "a ⟲ 2", v: _rotr(a_, 2) >>> 0, rd: [0], c: VIOL, rn: 2 },
     { g: "Σ0", l: "a ⟲ 13", v: _rotr(a_, 13) >>> 0, rd: [0], c: VIOL, rn: 13 },
     { g: "Σ0", l: "a ⟲ 22", v: _rotr(a_, 22) >>> 0, rd: [0], c: VIOL, rn: 22 },
     { g: "Σ0", l: "= ⊕ the three rotations", v: S0, rd: [0], c: VIOL, res: 1, xops: [["a⟲2", _rotr(a_, 2) >>> 0], ["a⟲13", _rotr(a_, 13) >>> 0], ["a⟲22", _rotr(a_, 22) >>> 0]] },
     { g: "Maj", l: "= majority(a, b, c)", v: maj, rd: [0, 1, 2], c: VIOL, res: 1, maj3: [a_, b_, c_] },
-    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1, ops: [["Σ0", S0], ["Maj", maj]] },
-    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v]] },
-    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v], ["T2", T2v]] },
+    { g: "T2", l: "= Σ0 + Maj", v: T2v, rd: [], c: GLD, res: 1, add: 1, ops: [["Σ0", S0, 1], ["Maj", maj, 1]] },
+    { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v, 1]] },
+    { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v, 1], ["T2", T2v, 1]] },
   ];
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
@@ -949,15 +949,22 @@ function drawChurn(r) {
   const mbar = (yy, val, color) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
   let my = aby + 20;
   text(`THE MIX — new a & e${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
-  if (curStep >= 0) { // HELD — stored temporaries pinned as full rows at the top of the mix; they glow when a step consumes them, then slide out
-    const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
-    const slide = Math.min(1, (churnLiveNow - churnRotStart) / 600);
-    const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => curStep >= o.h.f && curStep <= o.to + 1 && !(curStep === o.to + 1 && slide >= 1)).sort((a, b) => a.h.f - b.h.f);
-    live.forEach((o) => { const h = o.h, using = h.u.includes(curStep), rel = curStep === o.to + 1, a = rel ? 1 - slide : 1, dx = rel ? slide * 20 : 0, lc = using ? "rgba(255,250,210,1)" : h.c;
+  const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
+  if (curStep >= 0) { // HELD — a value enters the store only after its own animation finishes, rising up; it glows when a later step consumes it, then slides out
+    const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs;
+    const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - churnAnimMs) / 450));
+    const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
+      if (curStep === o.to + 1) return slideOut < 1; // sliding out the step after its last use
+      if (curStep > o.to) return false; // released and gone
+      return curStep > o.h.f || (curStep === o.h.f && animDone); // only enters the store once its own compute animation is done
+    }).sort((a, b) => a.h.f - b.h.f);
+    live.forEach((o) => { const h = o.h, using = h.u.includes(curStep), rel = curStep === o.to + 1, fresh = curStep === h.f;
+      let a = 1, dx = 0, dy = 0; if (rel) { a = 1 - slideOut; dx = slideOut * 20; } else if (fresh) { a = slideUp; dy = (1 - slideUp) * 15; } // fresh value rises into its slot
+      const lc = using ? "rgba(255,250,210,1)" : h.c;
       ctx.globalAlpha = a;
-      text(h.l, x0 + dx, my + 3.5, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
-      for (let i = 0; i < 32; i++) { ctx.fillStyle = ((h.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5 + dx, my, Math.max(1, mcw - 1), 7); }
-      if (using) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
+      text(h.l, x0 + dx, my + 3.5 + dy, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
+      for (let i = 0; i < 32; i++) { ctx.fillStyle = ((h.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5 + dx, my + dy, Math.max(1, mcw - 1), 7); }
+      if (using) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5 + dy, x1 - mbarX + 3, 10); }
       ctx.globalAlpha = 1; my += 9.5; });
     if (live.length) { ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 4; text("stored ↑ · current operation ↓", x0, my, { size: 7, color: "rgba(255,255,255,0.32)", baseline: "middle" }); my += 6; }
   }
@@ -966,12 +973,15 @@ function drawChurn(r) {
     const st = steps[curStep], vals = st.ops.map(o => o[1] >>> 0), n = vals.length, aColor = st.c;
     const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34; // one column at a time, LSB→MSB
     const carry = new Array(34).fill(0); for (let b = 0; b < 32; b++) { let s = carry[b]; for (const v of vals) s += (v >>> b) & 1; carry[b + 1] = s >> 1; }
-    const bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))), rh = n >= 4 ? 9.5 : 11;
+    const bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))), rh = 9.5;
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
     const yTop = my - 2;
     text("carry", x0, my + 3.5, { size: 7.5, color: "rgba(255,240,150,0.75)", baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i; if (sweepPos - b >= 0 && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += rh;
-    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "+ ") + st.ops[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, vals[k], aColor); my += rh; }
+    const storedNames = st.ops.filter(o => o[2]).map(o => o[0]); // operands already pinned in the store above — reference, don't redraw
+    if (storedNames.length) { text("  " + storedNames.join(" + ") + "   ↑ using stored", x0, my + 3.5, { size: 7.5, weight: 700, color: "rgba(255,240,150,0.65)", baseline: "middle", mono: true }); my += rh; }
+    let drew = storedNames.length;
+    for (let k = 0; k < n; k++) { if (st.ops[k][2]) continue; text((drew === 0 ? "  " : "+ ") + st.ops[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, vals[k], aColor); my += rh; drew++; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
