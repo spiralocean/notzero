@@ -928,7 +928,7 @@ function drawChurn(r) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc && rdSet.indexOf(c) >= 0) { ctx.globalAlpha = 0.4; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = 1.4; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // light the registers THIS step reads
+      if (isSrc && rdSet.indexOf(c) >= 0) { const rbk = 0.28 + 0.34 * (Math.sin(churnLiveNow / 130) * 0.5 + 0.5); ctx.globalAlpha = rbk; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = 1.2 + rbk * 1.6; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // light + blink the registers THIS step reads
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
@@ -948,7 +948,10 @@ function drawChurn(r) {
   const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
   const mbar = (yy, val, color) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
   let my = aby + 20;
-  text(`THE MIX — new a & e${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
+  const OP_LABEL = { "Σ1": "Σ1 · scramble e — rotate ×3 & XOR", "Ch": "Ch · choose — e picks f or g per bit", "T1": "T1 · sum  Σ1 + Ch + h + K + W", "Σ0": "Σ0 · scramble a — rotate ×3 & XOR", "Maj": "Maj · majority vote of a, b, c", "T2": "T2 · sum  Σ0 + Maj", "new e": "new e · add  d + T1", "new a": "new a · add  T1 + T2" };
+  if (curStep >= 0) text(`THE MIX · step ${curStep + 1}/${NS}   ▸   ${OP_LABEL[steps[curStep].g] || steps[curStep].g}`, x0, my, { size: 9.5, weight: 700, color: steps[curStep].c, baseline: "middle" });
+  else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
+  my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
   const animEl = churnLiveNow - churnRotStart, animDone = animEl >= churnAnimMs;
   const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - churnAnimMs) / 450));
@@ -1063,6 +1066,16 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
+  // READ-IN — at the start of a step, a ghost of each register it reads flies from the grid down into the mix
+  if (curStep >= 0 && rdSet.length && rdSet.every(cc => cc < 8)) {
+    const readProg = Math.min(1, animEl / 450), srcRowY = topY + (NHIST - 1) * rowH;
+    if (readProg < 1) { const ga = Math.sin(readProg * Math.PI), b32r = bw / 32;
+      rdSet.forEach(cc => { const sx = gx + cc * cwid, ex = mbarX, sy = srcRowY, ey = aby + 26, ix = sx + (ex - sx) * readProg, iy = sy + (ey - sy) * readProg;
+        ctx.globalAlpha = ga * 0.9;
+        for (let b = 0; b < 32; b++) { ctx.fillStyle = ((src[cc] >>> (31 - b)) & 1) ? curCol : DIM; ctx.fillRect(ix + b * b32r, iy, Math.max(0.7, b32r - 0.3), 6); }
+        ctx.globalAlpha = 1; });
+    }
+  }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
