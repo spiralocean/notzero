@@ -948,7 +948,18 @@ function drawChurn(r) {
   const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
   const mbar = (yy, val, color) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
   let my = aby + 20;
-  text(`THE MIX — new a & e, one operation at a time${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
+  text(`THE MIX — new a & e${curStep >= 0 ? " · step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
+  if (curStep >= 0) { // HELD — temporaries kept for a later step: appear when computed, glow when consumed, then slide out
+    const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
+    const slide = Math.min(1, (churnLiveNow - churnRotStart) / 550);
+    const vis = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => curStep >= o.h.f && curStep <= o.to + 1 && !(curStep === o.to + 1 && slide >= 1)).sort((a, b) => a.h.f - b.h.f);
+    const cw = 40, gp = 5, sx = x1 - vis.length * (cw + gp) + gp;
+    if (vis.length) text("held", sx - 7, my, { size: 7.5, weight: 700, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
+    vis.forEach((o, i) => { const h = o.h, using = h.u.includes(curStep), rel = curStep === o.to + 1, a = rel ? 1 - slide : 1, dx = rel ? slide * 26 : 0, cx = sx + i * (cw + gp) + dx;
+      ctx.globalAlpha = a; ctx.fillStyle = "rgba(8,12,18,0.82)"; ctx.fillRect(cx, my - 6, cw, 12); if (using) { ctx.fillStyle = "rgba(255,245,170,0.22)"; ctx.fillRect(cx, my - 6, cw, 12); } ctx.strokeStyle = using ? "rgba(255,245,170,0.95)" : h.c; ctx.lineWidth = using ? 1.5 : 0.9; ctx.strokeRect(cx, my - 6, cw, 12);
+      text(h.l, cx + cw / 2, my, { size: 8, weight: 700, color: using ? "rgba(255,250,210,1)" : h.c, align: "center", baseline: "middle" }); ctx.globalAlpha = 1; });
+  }
+  my += 13;
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
   else if (steps[curStep].ops) { // grade-school addition: the stored operands (e.g. Σ1, Ch, h, K, W) stacked, summed column by column with carry
     const st = steps[curStep], vals = st.ops.map(o => o[1] >>> 0), n = vals.length, aColor = st.c;
