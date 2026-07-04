@@ -1045,6 +1045,23 @@ function drawChurn(r) {
     const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
     my += 13; text(arp < 1 ? `column ${bCur}:   a=${av} b=${bv} c=${cv}  →  ${ones} of 3 are 1  →  ${ones >= 2 ? 1 : 0}` : `Maj — each output bit is the majority: 1 when at least two of a, b, c agree`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
+  else if (steps[curStep].rn) { // sigma rotate — read the register into all three rows first, then shift one row per step
+    const isS1 = curStep <= 2, gStart = isS1 ? 0 : 8, amounts = isS1 ? [6, 11, 25] : [2, 13, 22], regV = (isS1 ? src[4] : src[0]) >>> 0, opCol = isS1 ? TEAL : VIOL, reg = isS1 ? "e" : "a", rotIdx = curStep - gStart;
+    const READ = reduceMotion ? 0 : 1000, rotDur = churnAnimMs / 2;
+    const fillP = (rotIdx === 0 && !reduceMotion) ? Math.min(1, animEl / READ) : 1; // read fills all three rows on the first step
+    const shiftProg = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - (rotIdx === 0 ? READ : 0)) / rotDur));
+    text(fillP < 1 ? `reading ${reg} into all three rows…` : `shift row ${rotIdx + 1} · ${reg} rotated right ${amounts[rotIdx]}`, x0, my + 3.5, { size: 8.5, weight: 700, color: opCol, baseline: "middle", mono: true }); my += 12;
+    const drawRow = (yy, slide) => { const shown = Math.round(fillP * 32);
+      for (let i = 0; i < 32; i++) { ctx.fillStyle = (fillP >= 1 || i < shown) ? DIM : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
+      for (let i = 0; i < 32; i++) { if ((regV >>> (31 - i)) & 1) { if (fillP < 1) { if (i < shown) { ctx.fillStyle = opCol; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } } else { const p = (i + slide) % 32; ctx.fillStyle = opCol; ctx.fillRect(mbarX + p * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } } }
+      if (fillP > 0 && fillP < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
+    for (let k = 0; k < 3; k++) { const amt = amounts[k], done = k < rotIdx, curRow = k === rotIdx && fillP >= 1, slide = fillP < 1 ? 0 : (done ? amt : (curRow ? shiftProg * amt : 0));
+      text(`${reg}⟲${amt}`, x0, my + 3.5, { size: 8, weight: curRow ? 700 : 600, color: (done || curRow) ? opCol : "rgba(255,255,255,0.4)", baseline: "middle", mono: true });
+      drawRow(my, slide);
+      if (curRow && shiftProg < 1) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
+      my += 12; }
+    my += 2; text(fillP < 1 ? "one register feeds all three rotations" : "each row rotates the same bits by a different amount, then they XOR", x0, my, { size: 8, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
     const eSide = curStep <= 6, showRef = eSide || (curStep >= 8 && curStep <= 12);
