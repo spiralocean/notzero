@@ -865,26 +865,28 @@ function drawOneRound(r) {
 // THE CHURN (animated) — the honest round loop: one message word W drops into a MIX (which reads the whole
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
-let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnPlayHit = null, churnBackHit = null, churnFwdHit = null;
+let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
 const CHURN_CYCLE = 13000, CHURN_STEPS = 16; // slow, so the mix can be watched sub-step by sub-step
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  const CYCLE = CHURN_CYCLE;
+  const CYCLE = CHURN_CYCLE / churnSpeed;
   churnLiveNow = reduceMotion ? 2100 : Date.now();
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
   const dupP = Math.min(1, ph / 0.05), shiftP = ph < 0.06 ? 0 : Math.min(1, (ph - 0.06) / 0.09), mixing = ph >= 0.16;
   const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
   text(`${churnPaused ? "⏸ PAUSED · " : ""}building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: churnPaused ? "rgba(255,215,90,0.85)" : "rgba(255,255,255,0.5)", baseline: "middle" });
-  { // pause / step controls, top-right (shapes so they render everywhere): ⏮ step-back · ▶/❚❚ · ⏭ step-fwd
+  { // transport, top-right: [speed] · ⏮ step-back · ▶/❚❚ · ⏭ step-fwd  (shapes render everywhere)
     const bh = 19, bwd = 27, gp = 5, byy = r.y + 4, s = 5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2;
-    const box = (bx, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, bwd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, bwd, bh, 5); ctx.stroke(); };
+    const box = (bx, wd, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, wd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, wd, bh, 5); ctx.stroke(); };
     const GI = "rgba(255,228,140,0.98)";
-    box(b1, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
-    box(b2, churnPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (churnPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
-    box(b3, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
+    const spW = 40, sp0 = b1 - spW - gp; // speed pill (click to cycle 2× · 1× · ½× · ¼×)
+    box(sp0, spW, churnSpeed !== 1); text((churnSpeed === 2 ? "2×" : churnSpeed === 1 ? "1×" : churnSpeed === 0.5 ? "½×" : "¼×") + " speed", sp0 + spW / 2, cyy, { size: 8, weight: 700, color: GI, align: "center", baseline: "middle" }); churnSpeedHit = { x: sp0, y: byy, w: spW, h: bh };
+    box(b1, bwd, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
+    box(b2, bwd, churnPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (churnPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
+    box(b3, bwd, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
     churnBackHit = { x: b1, y: byy, w: bwd, h: bh }; churnPlayHit = { x: b2, y: byy, w: bwd, h: bh }; churnFwdHit = { x: b3, y: byy, w: bwd, h: bh };
   }
   if (!d) return;
@@ -917,14 +919,14 @@ function drawChurn(r) {
   ];
   const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - 0.16) / 0.83) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
   const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
-  for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: hot ? GOLD : "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
+  for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
   for (let i = 0; i < NHIST; i++) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc && rdSet.indexOf(c) >= 0) { ctx.globalAlpha = 0.32; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; } // light the registers THIS step reads
+      if (isSrc && rdSet.indexOf(c) >= 0) { ctx.globalAlpha = 0.4; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = 1.4; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } // light the registers THIS step reads
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
@@ -939,12 +941,18 @@ function drawChurn(r) {
   let my = aby + 20;
   text(`THE MIX — new a & e, one operation at a time${curStep >= 0 ? "   ·   step " + (curStep + 1) + " / " + NS : "  (waiting for the row to settle…)"}`, x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" }); my += 13;
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
-  else { const VIS = 7, first = Math.max(0, curStep - VIS + 1);
+  else {
+    // input reference — show the register this operation reads, so the rotations connect back to it
+    const eSide = curStep <= 6, showRef = eSide || (curStep >= 8 && curStep <= 12);
+    if (showRef) { const inC = eSide ? 4 : 0, inCol = eSide ? TEAL : VIOL; text("read " + (eSide ? "e" : "a"), x0, my + 3.5, { size: 8, weight: 700, color: inCol, baseline: "middle", mono: true }); mbar(my, src[inC] >>> 0, inCol); my += 11; ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3; }
+    const VIS = 6, first = Math.max(0, curStep - VIS + 1);
+    const contrib = { 3: 3, 6: 2, 11: 3 }[curStep]; // Σ1 result ← 3 rotations · Ch ← 2 · Σ0 ← 3 rotations (XOR them)
     for (let si = first; si <= curStep; si++) {
-      const st = steps[si], cur = si === curStep;
-      ctx.globalAlpha = cur ? 1 : Math.max(0.32, 1 - (curStep - si) * 0.12);
+      const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
+      ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
       mbar(my, st.v, st.c);
+      if (isContrib) text("⊕", mbarX - 10, my + 3.5, { size: 10, weight: 700, color: st.c, align: "center", baseline: "middle" });
       if (cur) { ctx.strokeStyle = st.c; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 2, x1 - mbarX + 3, 11); }
       ctx.globalAlpha = 1; my += 12.5;
     }
@@ -2863,9 +2871,10 @@ canvas.addEventListener("click", (e) => {
   }
   if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
-  if (expanded.has("churn")) { // THE CHURN transport: pause/play + step ONE mix sub-step at a time
-    const cyc = e.offsetY + scrollY, STEP = 0.83 * CHURN_CYCLE / CHURN_STEPS;
-    const enter = () => { const p = (churnLiveNow % CHURN_CYCLE) / CHURN_CYCLE; churnNow = p >= 0.16 ? churnLiveNow : Math.floor(churnLiveNow / CHURN_CYCLE) * CHURN_CYCLE + Math.round(0.17 * CHURN_CYCLE); };
+  if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
+    const cyc = e.offsetY + scrollY, effC = CHURN_CYCLE / churnSpeed, STEP = 0.83 * effC / CHURN_STEPS;
+    const enter = () => { const p = (churnLiveNow % effC) / effC; churnNow = p >= 0.16 ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round(0.17 * effC); };
+    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : 2; if (churnPaused) churnNow *= old / churnSpeed; requestRender(); return; }
     if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
     if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow = Math.max(0, churnNow - STEP); requestRender(); return; }
     if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow += STEP; requestRender(); return; }
