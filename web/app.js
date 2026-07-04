@@ -1113,6 +1113,17 @@ function drawNextBlock(r) {
   const progress = Math.min(1, elapsed / 600);
   ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
   ctx.strokeStyle = over ? "rgba(255,180,80,0.95)" : `rgba(${ACCENT}, 0.9)`; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, rad, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * progress); ctx.stroke(); ctx.lineCap = "butt";
+  // past 10 min: nest an inner ring for each further 10-min window; the innermost is the current one, filling.
+  const intervals = Math.floor(elapsed / 600); // # of 10-min windows entered beyond the first (0 until over)
+  if (over && intervals >= 1) {
+    const spacing = Math.min(8, (rad - 16) / intervals); // keep the centre (r<16) clear for the countdown text
+    for (let i = 1; i <= intervals; i++) {
+      const ir = rad - i * spacing, frac = i < intervals ? 1 : (elapsed % 600) / 600;
+      ctx.lineWidth = 3;
+      ctx.strokeStyle = "rgba(255,180,80,0.15)"; ctx.beginPath(); ctx.arc(cx, cy, ir, 0, Math.PI * 2); ctx.stroke();
+      ctx.strokeStyle = "rgba(255,190,90,0.9)"; ctx.lineCap = "round"; ctx.beginPath(); ctx.arc(cx, cy, ir, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * frac); ctx.stroke(); ctx.lineCap = "butt";
+    }
+  }
   const disp = over ? elapsed - 600 : 600 - elapsed;
   const ringTxt = `${over ? "+" : ""}${Math.floor(disp / 60)}:${String(disp % 60).padStart(2, "0")}`;
   let ringSize = 22; ctx.font = `700 ${ringSize}px ui-monospace, monospace`; // fit inside the ring for unusually long intervals
@@ -1122,7 +1133,7 @@ function drawNextBlock(r) {
   const rows = [["Elapsed", `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`], ["Avg block", "~10:00"], ["Last block", "#" + model.tipHeight.toLocaleString()]];
   let sy = cy - 38;
   for (const [l, v] of rows) { text(l, r.x + 200, sy, { size: 15, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 340, sy, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 32; }
-  if (over) text("long blocks are normal — ~37% run past 10 min, ~5% past 30", r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
+  if (over) text(`long blocks are normal — each inner ring = another 10-min window (now in #${intervals + 1}) · ~37% run past 10, ~5% past 30`, r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
 }
 
 // ---- MEMPOOL: live tx flow — pending transactions stream in, pool, then feed the next block ----
