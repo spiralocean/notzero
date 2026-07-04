@@ -1054,7 +1054,8 @@ function drawChurn(r) {
       const st = steps[si], cur = si === curStep, isContrib = contrib && si >= curStep - contrib && si < curStep;
       ctx.globalAlpha = cur ? 1 : (isContrib ? 0.92 : Math.max(0.3, 1 - (curStep - si) * 0.13));
       text((st.res ? "= " : "  ") + (st.g + "    ").slice(0, 5) + " " + st.l, x0, my + 3.5, { size: 8, weight: cur ? 700 : 600, color: st.c, baseline: "middle", mono: true });
-      const arp = (cur && (st.rn || st.add) && !reduceMotion) ? Math.min(1, (churnLiveNow - churnRotStart) / (st.rn ? churnAnimMs / 2 : churnAnimMs)) : 1; // rotations run at double speed
+      const rotDelay = st.rn ? 1150 : 0; // a rotation waits for the read-in (blink + fill) to finish, then shifts
+      const arp = (cur && (st.rn || st.add) && !reduceMotion) ? Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - rotDelay) / (st.rn ? churnAnimMs / 2 : churnAnimMs))) : 1; // rotations run at double speed, after the read
       if (cur && st.rn) { // animated rotate — ONCE per step: duplicate the input register, slide its bits right by rn, then hold
         const inV = src[st.rd[0]] >>> 0;
         for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
