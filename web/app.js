@@ -457,12 +457,12 @@ const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, 
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
 // preview URL, never linked publicly); elsewhere opt in with ?lab=1 (persists), off with ?lab=0.
-let LAB = false;
+let LAB = true; // SHIPPED — the INSIDE THE HASH deep dive (THE CHURN, the ONE STEP panels, THE SHIFT, the register breakout) is now public. Opt OUT with ?lab=0 (persists) for the older simplified view.
 try {
   const _lp = new URLSearchParams(location.search).get("lab");
-  if (_lp === "1") localStorage.setItem("bl.lab", "1");
-  else if (_lp === "0") localStorage.removeItem("bl.lab");
-  LAB = /^lab\./.test(location.hostname) || localStorage.getItem("bl.lab") === "1";
+  if (_lp === "0") localStorage.setItem("bl.lab", "0");
+  else if (_lp === "1") localStorage.removeItem("bl.lab");
+  LAB = localStorage.getItem("bl.lab") !== "0";
 } catch {}
 const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
 if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
