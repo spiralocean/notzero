@@ -999,30 +999,36 @@ function drawChurn(r) {
   }
   else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
-    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
-    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    const READ = reduceMotion ? 0 : n * 320; // read each input in turn, then XOR
+    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - READ) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const fbar = (yy, val, col, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 320)), shown = Math.round(fp * 32);
+      for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((val >>> (31 - i)) & 1) ? col : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
+      if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const yTop = my - 2;
-    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 11; }
+    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); fbar(my, xo[k][1] >>> 0, aColor, k * 320); my += 11; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
+    if (arp < 1 && animEl >= READ) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
     my += 13; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}   (1 if an odd number are 1)` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
     const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
     const FCOL = "rgba(110,205,255,1)", GCOL = "rgba(205,168,255,1)";
-    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / churnAnimMs), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
-    const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    const READ = reduceMotion ? 0 : 960; // read e, then f, then g, then choose
+    const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (churnLiveNow - churnRotStart - READ) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos)));
+    const fbar = (yy, val, col, startMs) => { const fp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - startMs) / 320)), shown = Math.round(fp * 32);
+      for (let i = 0; i < 32; i++) { ctx.fillStyle = i < shown ? (((val >>> (31 - i)) & 1) ? col : DIM) : "rgba(255,255,255,0.03)"; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); }
+      if (fp > 0 && fp < 1) { ctx.fillStyle = "rgba(255,255,255,0.9)"; ctx.fillRect(mbarX + shown * mcw - 0.5, yy - 1, 1.6, 9); } };
     const yTop = my - 2;
-    text("  e (selector)", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true }); rbar(my, eV, aColor); my += 11;
-    const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); rbar(my, fV, FCOL); my += 11;
-    const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); rbar(my, gV, GCOL); my += 11;
+    text("  e (selector)", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true }); fbar(my, eV, aColor, 0); my += 11;
+    const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); fbar(my, fV, FCOL, 320); my += 11;
+    const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); fbar(my, gV, GCOL, 640); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : bit ? (eb ? FCOL : GCOL) : (eb ? "rgba(110,205,255,0.24)" : "rgba(205,168,255,0.24)"); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // every column tinted by e's pick (dim where the chosen bit is 0)
-    if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
+    if (arp < 1 && animEl >= READ) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
       const srcY = ((eV >>> bCur) & 1) ? fRowY : gRowY; ctx.strokeStyle = "rgba(255,255,255,0.98)"; ctx.lineWidth = 1.8; ctx.strokeRect(ix - 1.5, srcY - 1.5, mcw + 2, 10); } // the register e is pulling this column's bit from
     const eb = (eV >>> bCur) & 1;
     my += 13; text(arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
@@ -1093,6 +1099,13 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
+  // SOURCE CONNECTOR — during the read, a dashed line + a pulse travel from each register the step reads down into the mix, so you can see where the data comes from
+  if (curStep >= 0 && rdSet.length && rdSet.every(cc => cc < 8) && animEl < 1300 && !reduceMotion) {
+    const srcY = topY + (NHIST - 1) * rowH + 4, tgtY = aby + 30, pulse = (animEl % 620) / 620;
+    rdSet.forEach(cc => { const sx = gx + cc * cwid + bw / 2, tx = mbarX + 3;
+      ctx.strokeStyle = "rgba(255,255,255,0.22)"; ctx.lineWidth = 1; ctx.setLineDash([2, 3]); ctx.beginPath(); ctx.moveTo(sx, srcY); ctx.lineTo(tx, tgtY); ctx.stroke(); ctx.setLineDash([]);
+      const px = sx + (tx - sx) * pulse, py = srcY + (tgtY - srcY) * pulse; ctx.fillStyle = curCol; ctx.beginPath(); ctx.arc(px, py, 2.3, 0, 7); ctx.fill(); });
+  }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
