@@ -934,8 +934,9 @@ function drawChurn(r) {
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
-  for (let i = 0; i < NHIST; i++) {
-    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
+  const gOff = mixing ? 0 : (1 - Math.min(1, ph / shiftEnd)) * rowH; // at the round boundary the grid scrolls up one row (draw an extra top row and slide everything up through the dup/shift) instead of popping
+  for (let i = -1; i < NHIST; i++) {
+    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH + gOff, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
       if (isSrc && rdSet.indexOf(c) >= 0) { const kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepBlinkMs; // each source blinks 4× in its 2s slot (eye goes to it), then holds while its row is written
@@ -944,8 +945,8 @@ function drawChurn(r) {
     }
   }
   const aby = topY + NHIST * rowH;
-  text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
-  if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
+  text("r" + (t + 1), x0 - 3, aby + 4 + gOff, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
+  if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby + gOff, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
   else { const animDone = animEl >= stepReadMs + churnAnimMs, blinkOn = Math.floor(churnLiveNow / 150) % 2 === 0; // new e/a only land once their read + add finish, then blink
     for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4);
       const isRes = (c === 4 && curStep === 14) || (c === 0 && curStep === 15);
