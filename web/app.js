@@ -866,7 +866,10 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
-const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 172000; // each of the 16 mix steps gets ~10.7s dwell so the longest read+operate (Maj/Ch ≈ 10s) never gets cut off
+const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200;
+const CHURN_STEP_DURS = [4800, 2300, 2300, 3200, 7800, 7800, 10700, 5700, 4800, 2300, 2300, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable, so short steps don't idle after they finish
+const CHURN_STEP_CUM = CHURN_STEP_DURS.reduce((a, d) => (a.push(a[a.length - 1] + d), a), [0]);
+const CHURN_MIX_MS = CHURN_STEP_CUM[16]; // = 84000
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
@@ -918,7 +921,8 @@ function drawChurn(r) {
     { g: "new e", l: "= old d + T1", v: dst[4] >>> 0, rd: [3], c: GRN, res: 1, add: 1, ops: [["d", src[3] >>> 0], ["T1", T1v, 1]] },
     { g: "new a", l: "= T1 + T2", v: dst[0] >>> 0, rd: [], c: GRN, res: 1, add: 1, ops: [["T1", T1v, 1], ["T2", T2v, 1]] },
   ];
-  const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, curStep = mixing ? Math.min(NS - 1, Math.floor(mixProg * NS)) : -1;
+  const NS = steps.length, mixProg = mixing ? Math.min(1, (ph - shiftEnd) / (1 - shiftEnd)) : 0, mixTimeMs = mixProg * CHURN_MIX_MS;
+  let curStep = -1; if (mixing) { curStep = 0; while (curStep < NS - 1 && CHURN_STEP_CUM[curStep + 1] <= mixTimeMs) curStep++; } // variable-width steps, mapped by cumulative duration
   if (curStep !== churnLastStep) { churnLastStep = curStep; churnRotStart = churnLiveNow; } // restart the one-shot rotate on a new step
   const rdSet = curStep >= 0 ? steps[curStep].rd : [], curCol = curStep >= 0 ? steps[curStep].c : TEAL;
   // read → operate → store timing. Read each source in turn (blink it, then write its row); XOR reuses on-screen rotation rows; sigma reads only on its first rotation step.
@@ -935,7 +939,7 @@ function drawChurn(r) {
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
       if (isSrc && rdSet.indexOf(c) >= 0) { const kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepBlinkMs; // each source blinks 4× in its 2s slot (eye goes to it), then holds while its row is written
-        if (animEl >= w0) { const bOn = animEl > w1 ? true : Math.floor((animEl - w0) / Math.max(60, stepBlinkMs / 8)) % 2 === 0; ctx.globalAlpha = bOn ? 0.55 : 0.08; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
+        if (animEl >= w0) { const bOn = animEl > w1 ? true : Math.floor((animEl - w0) / Math.max(50, stepBlinkMs / 16)) % 2 === 0; ctx.globalAlpha = bOn ? 0.55 : 0.08; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
@@ -960,18 +964,20 @@ function drawChurn(r) {
   else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
   my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
-  const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs; // a value is "done" only after its read AND its operation finish
-  const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
+  const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a hold 2s (register + row blink) before anything scrolls
+  const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
   let storedUseTop = null;
-  if (curStep >= 0) { // HELD — a value enters the store only after its own animation finishes, rising up; it glows when a later step consumes it, then slides out
+  if (curStep >= 0) { // HELD — a value enters the store once its own animation finishes (rising up), glows while a later step consumes it, then scrolls up when that step is done
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
-      if (curStep === o.to + 1) return slideOut < 1; // sliding out the step after its last use
       if (curStep > o.to) return false; // released and gone
       return curStep > o.h.f || (curStep === o.h.f && animDone); // only enters the store once its own compute animation is done
     }).sort((a, b) => ((a.h.u.includes(curStep) ? 1 : 0) - (b.h.u.includes(curStep) ? 1 : 0)) || (a.h.f - b.h.f)); // values used by THIS step sink to the bottom (next to the operation) so the sweep encloses only them
-    live.forEach((o) => { const h = o.h, using = h.u.includes(curStep), rel = curStep === o.to + 1, fresh = curStep === h.f;
-      let a = 1, dx = 0, dy = 0; if (rel) { a = 1 - slideOut; dy = -slideOut * 20; } else if (fresh) { a = slideUp; dy = (1 - slideUp) * 15; } // used-up values scroll up out of view; fresh values rise into their slot
-      const lc = using ? "rgba(255,250,210,1)" : h.c;
+    live.forEach((o) => { const h = o.h, fresh = curStep === h.f;
+      const relProg = (curStep === o.to) ? Math.min(1, Math.max(0, (animEl - (stepDoneMs + scrollHold + 300)) / 450)) : 0; // consumed → scroll up once its last-use operation (and any hold) finishes
+      if (relProg >= 1) return; // fully scrolled up — gone
+      const using = h.u.includes(curStep) && relProg === 0;
+      let a = 1, dx = 0, dy = 0; if (relProg > 0) { a = 1 - relProg; dy = -relProg * 22; } else if (fresh) { a = slideUp; dy = (1 - slideUp) * 15; } // consumed values scroll up out of view; fresh values rise into their slot
+      const lc = h.c; // keep each stored value its own colour; "being used" is shown by the border below, not a colour change
       ctx.globalAlpha = a;
       text(h.l, x0 + dx, my + 3.5 + dy, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
       for (let i = 0; i < 32; i++) { ctx.fillStyle = ((h.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5 + dx, my + dy, Math.max(1, mcw - 1), 7); }
@@ -979,7 +985,6 @@ function drawChurn(r) {
       ctx.globalAlpha = 1; my += 9.5; });
     if (live.length) { ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 4; text("stored ↑ · current operation ↓", x0, my, { size: 7, color: "rgba(255,255,255,0.32)", baseline: "middle" }); my += 6; }
   }
-  const scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a: hold 2s (register + row blink) before the rows scroll away
   const storedBottom = my, scrollP = (curStep >= 0 && steps[curStep].res && animEl >= stepDoneMs + scrollHold) ? Math.min(1, (animEl - stepDoneMs - scrollHold) / 450) : 0; // once an operation finishes (and any hold), its worked rows scroll up and vanish
   if (scrollP > 0) { ctx.save(); ctx.beginPath(); ctx.rect(x0 - 8, storedBottom - 1, (x1 - x0) + 20, (aby + 172) - storedBottom + 1); ctx.clip(); my -= scrollP * 80; }
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
@@ -3042,14 +3047,16 @@ canvas.addEventListener("click", (e) => {
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
     const cyc = e.offsetY + scrollY;
     const cycOf = (sp) => CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / sp, seOf = (sp) => (CHURN_DUP_MS + CHURN_SHIFT_MS) / cycOf(sp);
-    const effC = cycOf(churnSpeed), STEP = (CHURN_MIX_MS / churnSpeed) / CHURN_STEPS;
-    const enter = () => { const se = seOf(churnSpeed), p = (churnLiveNow % effC) / effC; churnNow = p >= se ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round((se + 0.004) * effC); };
+    const effC = cycOf(churnSpeed), se = seOf(churnSpeed);
+    const enter = () => { const p = (churnLiveNow % effC) / effC; churnNow = p >= se ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round((se + 0.004) * effC); };
+    const boundNow = (rb, s) => rb * effC + (se + (CHURN_STEP_CUM[Math.max(0, Math.min(16, s))] / CHURN_MIX_MS) * (1 - se)) * effC + 3; // churnNow at the start of mix step s
+    const stepAt = (now) => { const p = (now % effC) / effC; if (p < se) return -1; const mt = (p - se) / (1 - se) * CHURN_MIX_MS; let s = 0; while (s < 15 && CHURN_STEP_CUM[s + 1] <= mt) s++; return s; };
     if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 4 ? 2 : churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : 4;
       if (churnPaused) { const oc = cycOf(old), nc = cycOf(churnSpeed), rb = Math.floor(churnNow / oc), po = (churnNow % oc) / oc, so = seOf(old), sn = seOf(churnSpeed), pn = po >= so ? sn + (po - so) / (1 - so) * (1 - sn) : po * sn / so; churnNow = rb * nc + pn * nc; }
       requestRender(); return; }
     if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
-    if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow = Math.max(0, churnNow - STEP); requestRender(); return; }
-    if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow += STEP; requestRender(); return; }
+    if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } const rb = Math.floor(churnNow / effC), cs = stepAt(churnNow); churnNow = cs > 0 ? boundNow(rb, cs - 1) : (rb > 0 ? boundNow(rb - 1, 15) : boundNow(rb, 0)); requestRender(); return; }
+    if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } const rb = Math.floor(churnNow / effC), cs = stepAt(churnNow); churnNow = cs < 0 ? boundNow(rb, 0) : (cs < 15 ? boundNow(rb, cs + 1) : boundNow(rb + 1, 0)); requestRender(); return; }
   }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
