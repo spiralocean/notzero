@@ -866,13 +866,13 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
-const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 88000; // dup + shift stay fixed; the mix scales with speed — 1× is the slow study pace (old ¼×)
+const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200, CHURN_MIX_MS = 172000; // each of the 16 mix steps gets ~10.7s dwell so the longest read+operate (Maj/Ch ≈ 10s) never gets cut off
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
   const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   const CYCLE = CHURN_DUP_MS + CHURN_SHIFT_MS + CHURN_MIX_MS / churnSpeed, dupEnd = CHURN_DUP_MS / CYCLE, shiftEnd = (CHURN_DUP_MS + CHURN_SHIFT_MS) / CYCLE;
-  const churnAnimMs = Math.max(200, CHURN_MIX_MS / churnSpeed / CHURN_STEPS * 0.85); // each per-step animation fits inside one step's dwell, so it fully plays out at any speed
+  const churnAnimMs = 2500; // a fixed 2.5s per operation-sweep (in speed-scaled ms); the read stages are separate and the step dwell is large enough for both
   churnLiveNow = reduceMotion ? 2100 : Date.now();
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
@@ -926,6 +926,7 @@ function drawChurn(r) {
   const stepReadMs = curStep < 0 ? 0 : (steps[curStep].xops ? 0 : steps[curStep].rn ? (curStep === 0 || curStep === 8 ? 2500 : 0) : RDN * 2500); // each register a step reads gets a 2.5s slot (blink 2s, then write); XOR reuses on-screen rows
   const stepBlinkMs = 2000, stepPerReg = RDN > 0 ? stepReadMs / RDN : stepReadMs, stepWriteMs = Math.max(300, stepPerReg - stepBlinkMs); // each slot: blink the source 2s, THEN write the row
   const stepOpMs = curStep < 0 ? 0 : (steps[curStep].rn ? 2000 : churnAnimMs); // rotates take 2s each
+  const animEl = (churnLiveNow - churnRotStart) * churnSpeed; // animation clock scales with speed, so a step's animation always fits its (speed-scaled) dwell — never cut off
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * (NHIST + 1) + 6); ctx.clip();
@@ -933,15 +934,15 @@ function drawChurn(r) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
-      if (isSrc && rdSet.indexOf(c) >= 0) { const rEl = churnLiveNow - churnRotStart, kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepBlinkMs; // each source blinks in its own slot (eye goes to it), then holds while its row is written
-        if (rEl >= w0) { const bOn = rEl > w1 ? true : Math.floor((rEl - w0) / Math.max(70, stepBlinkMs / 2)) % 2 === 0; ctx.globalAlpha = bOn ? 0.5 : 0.1; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
+      if (isSrc && rdSet.indexOf(c) >= 0) { const kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepBlinkMs; // each source blinks 4× in its 2s slot (eye goes to it), then holds while its row is written
+        if (animEl >= w0) { const bOn = animEl > w1 ? true : Math.floor((animEl - w0) / Math.max(60, stepBlinkMs / 8)) % 2 === 0; ctx.globalAlpha = bOn ? 0.55 : 0.08; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
   }
   const aby = topY + NHIST * rowH;
   text("r" + (t + 1), x0 - 3, aby + 4, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
   if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
-  else { const animEl = churnLiveNow - churnRotStart, animDone = animEl >= stepReadMs + churnAnimMs, blinkOn = Math.floor(churnLiveNow / 150) % 2 === 0; // new e/a only land once their read + add finish, then blink
+  else { const animDone = animEl >= stepReadMs + churnAnimMs, blinkOn = Math.floor(churnLiveNow / 150) % 2 === 0; // new e/a only land once their read + add finish, then blink
     for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4);
       const isRes = (c === 4 && curStep === 14) || (c === 0 && curStep === 15);
       const ready = !hot || (c === 4 ? (curStep >= 15 || (curStep === 14 && animDone)) : (curStep === 15 && animDone));
@@ -959,7 +960,7 @@ function drawChurn(r) {
   else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
   my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
-  const stepDoneMs = stepReadMs + stepOpMs, animEl = churnLiveNow - churnRotStart, animDone = animEl >= stepDoneMs; // a value is "done" only after its read AND its operation finish
+  const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs; // a value is "done" only after its read AND its operation finish
   const slideOut = Math.min(1, animEl / 600), slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 450));
   let storedUseTop = null;
   if (curStep >= 0) { // HELD — a value enters the store only after its own animation finishes, rising up; it glows when a later step consumes it, then slides out
@@ -1014,8 +1015,9 @@ function drawChurn(r) {
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
     const arp = reduceMotion ? 1 : Math.min(1, Math.max(0, (animEl - stepReadMs) / churnAnimMs)), sweepPos = arp * 34, bCur = Math.max(0, Math.min(31, Math.floor(sweepPos))); // stepReadMs is 0 here — the rotation rows are already on screen, so just combine them
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+    text("XOR the three rotations →", x0, my + 3.5, { size: 8.5, weight: 700, color: aColor, baseline: "middle", mono: true }); my += 12; // header + 12px rows match the sigma-rotate view, so the three rows keep their place (no jump between the last shift and the XOR)
     const yTop = my - 2;
-    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 11; }
+    for (let k = 0; k < n; k++) { text((k === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 12; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
