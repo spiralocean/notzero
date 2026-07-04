@@ -747,8 +747,8 @@ function drawHashInside(r) {
   y = r.y + 128;
   text("2 · PADDED TO A FIXED 512-BIT BLOCK — a fixed recipe, no randomness", x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
   const msgBits = Math.min(447, d.bytes.length * 8), cwp = w / 512, oneX = x0 + msgBits * cwp;
-  for (let i = 0; i < 512; i++) { ctx.fillStyle = i < msgBits ? "rgba(120,200,255,0.7)" : i === msgBits ? "rgba(255,215,90,1)" : i >= 512 - 64 ? "rgba(180,140,255,0.85)" : DIM; ctx.fillRect(x0 + i * cwp, y + 10, Math.max(0.8, cwp - 0.25), 10); }
-  text("your message", x0 + (msgBits / 2) * cwp, y + 32, { size: 8, color: "rgba(120,200,255,0.75)", align: "center", baseline: "middle" });
+  for (let i = 0; i < 512; i++) { ctx.fillStyle = i < msgBits ? "rgba(120,205,255,0.95)" : i === msgBits ? "rgba(255,215,90,1)" : i >= 512 - 64 ? "rgba(180,140,255,0.85)" : DIM; ctx.fillRect(x0 + i * cwp, y + 10, Math.max(0.8, cwp - 0.25), 10); }
+  text("your message", x0 + (msgBits / 2) * cwp, y + 32, { size: 8, color: "rgba(120,205,255,0.95)", align: "center", baseline: "middle" });
   text("↑ one 1", oneX + 16, y + 32, { size: 8, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle" });
   text("just zeros (fill)", x0 + ((msgBits + 448) / 2) * cwp, y + 32, { size: 8, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   text("64-bit length", x0 + (512 - 32) * cwp, y + 32, { size: 8, color: "rgba(180,140,255,0.85)", align: "center", baseline: "middle" });
@@ -828,7 +828,7 @@ function drawOneRound(r) {
     for (let i = 0; i < 8; i++) {
       const rx = x0 + i * (rbW + rgap), hot = (i === 0 || i === 4), rcw = rbW / 32;
       text(names8[i], rx + rbW / 2, sy + 15, { size: 11, weight: 700, color: hot ? GO : "rgba(255,255,255,0.75)", align: "center", baseline: "middle", mono: true });
-      for (let q = 0; q < 32; q++) { ctx.fillStyle = ((regs8[i] >>> (31 - q)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(150,175,220,0.8)") : "rgba(255,255,255,0.06)"; ctx.fillRect(rx + q * rcw, sy + 22, Math.max(0.8, rcw - 0.3), 8); }
+      for (let q = 0; q < 32; q++) { ctx.fillStyle = ((regs8[i] >>> (31 - q)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(120,200,255,0.95)") : "rgba(255,255,255,0.06)"; ctx.fillRect(rx + q * rcw, sy + 22, Math.max(0.8, rcw - 0.3), 8); }
       text(`= frac √${primes8[i]}`, rx + rbW / 2, sy + 37, { size: 8.5, color: "rgba(255,255,255,0.44)", align: "center", baseline: "middle" });
     }
   }
@@ -866,7 +866,7 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 function drawChurn(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, d = hashViz.data;
-  const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
+  const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", GREEN = "rgba(90,220,140,0.82)", DIM = "rgba(255,255,255,0.06)";
   text("THE CHURN (animated) — each round built: duplicate the row, shift right, mix your message into a & e", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   const CYCLE = 4200, now = reduceMotion ? 2100 : Date.now();
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
@@ -901,7 +901,7 @@ function drawChurn(r) {
   for (const col of [0, 4]) { const ax = gx + col * cwid + bw / 2; ctx.beginPath(); ctx.moveTo(ax, aby + 18); ctx.lineTo(ax, aby + 10); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax - 3, aby + 14); ctx.moveTo(ax, aby + 10); ctx.lineTo(ax + 3, aby + 14); ctx.stroke(); }
   let my = aby + 22;
   text("THE MIX ↑", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" }); my += 11;
-  text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,180,235,0.95)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(120,180,235,0.8)"); my += 14;
+  text("registers  Σ1+Ch+h+K", x0, my + 4, { size: 8.5, color: "rgba(120,205,255,1)", baseline: "middle", mono: true }); mbar(my, regPart, "rgba(110,205,255,1)"); my += 14;
   text("+ W  " + (R < 16 ? "your message" : "(expanded)"), x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle", mono: true }); mbar(my, Wt, "rgba(255,215,90,0.92)", mixing ? 1 : 0.5); my += 14;
   text("= T1  → both a & e", x0, my + 4, { size: 8.5, weight: 700, color: "rgba(255,235,140,1)", baseline: "middle", mono: true }); mbar(my, T1v, mixing ? "rgba(255,245,170,1)" : "rgba(255,215,90,0.7)");
   // message words as a bigger SCROLLING window — one consumed per round; scrolls right past W15 into expanded words
@@ -927,7 +927,7 @@ function drawSigma1(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   const e = _SHA_H0[4] >>> 0; // round 0's register e = frac √11 (fixed, so this is a stable worked example)
   const r6 = _rotr(e, 6), r11 = _rotr(e, 11), r25 = _rotr(e, 25), S1 = (r6 ^ r11 ^ r25) >>> 0;
-  const IN = "rgba(120,200,255,0.92)", DIM = "rgba(150,168,215,0.75)", OUT = "rgba(90,235,150,0.95)";
+  const IN = "rgba(120,200,255,0.92)", DIM = "rgba(140,185,240,0.9)", OUT = "rgba(90,235,150,0.95)";
   text("SCRAMBLE (Σ1) — the round's FIRST operation, unpacked: input → change → output", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("Σ1 (“sigma-one” — a Greek letter, not E1) scrambles ONE register (e): make 3 rotated copies of e, then XOR them together. The result feeds into T1.", x0, r.y + 33, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   const lx = x0, barX = x0 + 132, cw = (w - 132) / 32;
@@ -952,7 +952,7 @@ function drawSigma1(r) {
 // teal outline traces one constant riding down the slots into a hot seat, where it finally gets mixed.
 function drawShift(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, d = hashViz.data;
-  const BLUE = "rgba(110,170,230,0.8)", GOLD = "rgba(255,215,90,0.95)", TRACE = "rgba(80,225,215,0.95)", DIM = "rgba(255,255,255,0.06)";
+  const BLUE = "rgba(110,205,255,1)", GOLD = "rgba(255,215,90,0.95)", TRACE = "rgba(80,225,215,0.95)", DIM = "rgba(255,255,255,0.06)";
   text("THE SHIFT — a few rounds stacked: how the message spreads to all 8 registers", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("Columns = the 8 registers · rows = rounds ↓. a & e are freshly mixed each round (gold, message word W added); the rest shift to the next register. Teal follows one value: it rides a→b→c→d, gets MIXED in the e hot seat, then keeps riding e→f→g→h.", x0, r.y + 33, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   if (!d) return;
