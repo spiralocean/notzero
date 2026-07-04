@@ -966,7 +966,7 @@ function drawChurn(r) {
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "e∧f", f: 4, u: [6], c: TEAL, v: (e_ & f_) >>> 0 }, { l: "¬e∧g", f: 5, u: [6], c: TEAL, v: (~e_ & g_) >>> 0 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
   const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a hold 2s (register + row blink) before anything scrolls
   const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 600)); // rises in sync with the detail scrolling up (600ms)
-  let storedUseTop = null;
+  let storedUseTop = null, freshRow = null, freshSlotY = 0;
   if (curStep >= 0) { // HELD — a value enters the store once its own animation finishes (rising up), glows while a later step consumes it, then scrolls up when that step is done
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
       if (curStep > o.to) return false; // released and gone
@@ -975,8 +975,9 @@ function drawChurn(r) {
     live.forEach((o) => { const h = o.h, fresh = curStep === h.f;
       const relProg = (curStep === o.to) ? Math.min(1, Math.max(0, (animEl - (stepDoneMs + scrollHold + 300)) / 450)) : 0; // consumed → scroll up once its last-use operation (and any hold) finishes
       if (relProg >= 1) return; // fully scrolled up — gone
+      if (fresh) { freshRow = h; freshSlotY = my; my += 9.5; return; } // reserve the slot; the result row itself travels up into it (drawn after the detail, below), so the store fills continuously
       const using = h.u.includes(curStep) && relProg === 0;
-      let a = 1, dx = 0, dy = 0; if (relProg > 0) { a = 1 - relProg; dy = -relProg * 22; } else if (fresh) { a = slideUp; dy = (1 - slideUp) * 15; } // consumed values scroll up out of view; fresh values rise into their slot
+      let a = 1, dx = 0, dy = 0; if (relProg > 0) { a = 1 - relProg; dy = -relProg * 22; } // consumed values scroll up out of view
       const lc = h.c; // keep each stored value its own colour; "being used" is shown by the border below, not a colour change
       ctx.globalAlpha = a;
       text(h.l, x0 + dx, my + 3.5 + dy, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
@@ -1134,6 +1135,13 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
+  if (freshRow) { // the just-computed result travels continuously up from the detail into its reserved store slot
+    const from = storedBottom + 30, ty = freshSlotY + (1 - slideUp) * Math.max(20, from - freshSlotY), lc = freshRow.c;
+    ctx.globalAlpha = Math.min(1, slideUp * 1.8);
+    text(freshRow.l, x0, ty + 3.5, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
+    for (let i = 0; i < 32; i++) { ctx.fillStyle = ((freshRow.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, ty, Math.max(1, mcw - 1), 7); }
+    ctx.globalAlpha = 1;
+  }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
   const msY = msgY + 11, VIS = 7, wordW = (x1 - x0) / VIS, wbw = wordW - 12, wbcw = wbw / 32;
