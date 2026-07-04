@@ -883,7 +883,7 @@ function drawChurn(r) {
     const box = (bx, wd, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, wd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, wd, bh, 5); ctx.stroke(); };
     const GI = "rgba(255,228,140,0.98)";
     const spW = 40, sp0 = b1 - spW - gp; // speed pill (click to cycle 2× · 1× · ½× · ¼×)
-    box(sp0, spW, churnSpeed !== 1); text((churnSpeed === 2 ? "2×" : churnSpeed === 1 ? "1×" : churnSpeed === 0.5 ? "½×" : "¼×") + " speed", sp0 + spW / 2, cyy, { size: 8, weight: 700, color: GI, align: "center", baseline: "middle" }); churnSpeedHit = { x: sp0, y: byy, w: spW, h: bh };
+    box(sp0, spW, churnSpeed !== 1); text((churnSpeed === 2 ? "2×" : churnSpeed === 1 ? "1×" : churnSpeed === 0.5 ? "½×" : churnSpeed === 0.25 ? "¼×" : "⅛×") + " speed", sp0 + spW / 2, cyy, { size: 8, weight: 700, color: GI, align: "center", baseline: "middle" }); churnSpeedHit = { x: sp0, y: byy, w: spW, h: bh };
     box(b1, bwd, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
     box(b2, bwd, churnPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (churnPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
     box(b3, bwd, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
@@ -2874,7 +2874,7 @@ canvas.addEventListener("click", (e) => {
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
     const cyc = e.offsetY + scrollY, effC = CHURN_CYCLE / churnSpeed, STEP = 0.83 * effC / CHURN_STEPS;
     const enter = () => { const p = (churnLiveNow % effC) / effC; churnNow = p >= 0.16 ? churnLiveNow : Math.floor(churnLiveNow / effC) * effC + Math.round(0.17 * effC); };
-    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : 2; if (churnPaused) churnNow *= old / churnSpeed; requestRender(); return; }
+    if (inHit(churnSpeedHit, e.offsetX, cyc)) { const old = churnSpeed; churnSpeed = churnSpeed === 2 ? 1 : churnSpeed === 1 ? 0.5 : churnSpeed === 0.5 ? 0.25 : churnSpeed === 0.25 ? 0.125 : 2; if (churnPaused) churnNow *= old / churnSpeed; requestRender(); return; }
     if (inHit(churnPlayHit, e.offsetX, cyc)) { churnPaused = !churnPaused; if (churnPaused) enter(); requestRender(); return; }
     if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow = Math.max(0, churnNow - STEP); requestRender(); return; }
     if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } churnNow += STEP; requestRender(); return; }
