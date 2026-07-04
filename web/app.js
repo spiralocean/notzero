@@ -944,18 +944,17 @@ function drawChurn(r) {
   if (curStep < 0) { text("↑ duplicating & shifting the row — the mix begins next. Runs slow; hit ⏸ then ⏭ / ⏮ to step through.", x0, my + 2, { size: 9, color: "rgba(255,255,255,0.5)", baseline: "middle" }); }
   else if (steps[curStep].ops) { // grade-school addition: two operands stacked, summed column by column with carry
     const st = steps[curStep], A = st.ops[0][1] >>> 0, B = st.ops[1][1] >>> 0, aColor = st.c;
-    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 1600), cols = Math.round(arp * 33); // result bits revealed LSB→MSB
+    const arp = reduceMotion ? 1 : Math.min(1, (churnLiveNow - churnRotStart) / 2400), sweepPos = arp * 35; // sweeps LSB→MSB; each column flickers on/off, then settles
     const carry = new Array(33).fill(0); for (let b = 0; b < 32; b++) carry[b + 1] = (((A >>> b) & 1) + ((B >>> b) & 1) + carry[b]) >> 1;
     const rbar = (yy, val, col) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? col : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
     text("carry", x0, my + 3.5, { size: 7.5, color: "rgba(255,240,150,0.75)", baseline: "middle", mono: true });
-    for (let i = 0; i < 32; i++) { const b = 31 - i; if (b < cols && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += 11;
+    for (let i = 0; i < 32; i++) { const b = 31 - i; if (sweepPos - b >= 3 && carry[b]) { ctx.fillStyle = "rgba(255,240,150,0.9)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } } my += 11;
     text("  " + st.ops[0][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, A, aColor); my += 11;
     text("+ " + st.ops[1][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, B, aColor); my += 11;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
     text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
-    for (let i = 0; i < 32; i++) { const b = 31 - i, shown = b < cols; ctx.fillStyle = shown ? (((st.v >>> (31 - i)) & 1) ? aColor : DIM) : "rgba(255,255,255,0.035)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-    if (arp < 1) { const cxp = mbarX + (32 - cols) * mcw; ctx.fillStyle = "rgba(255,240,150,1)"; ctx.fillRect(cxp - 1, my - 36, 2, 44); } // cursor sweeps right→left through the columns
-    my += 12; text(`step ${curStep + 1}/${NS} — added column by column, low bit first; the carry ripples left`, x0, my + 2, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : local < 3 ? (((Math.floor(churnLiveNow / 55) + b * 5) % 2) ? aColor : DIM) : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // each column flickers on/off as it's added, then settles
+    my += 12; text(`step ${curStep + 1}/${NS} — added column by column, low bit first; each bit flips, then settles as the carry ripples left`, x0, my + 2, { size: 8, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
@@ -972,10 +971,10 @@ function drawChurn(r) {
         const inV = src[st.rd[0]] >>> 0;
         for (let i = 0; i < 32; i++) { ctx.fillStyle = DIM; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
         for (let i = 0; i < 32; i++) if ((inV >>> (31 - i)) & 1) { const p = (i + arp * st.rn) % 32; ctx.fillStyle = st.c; ctx.fillRect(mbarX + p * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-      } else if (cur && st.add) { // animated add — sum forms LSB→MSB with a carry cursor sweeping right→left
-        const cols = Math.round(arp * 32);
-        for (let i = 0; i < 32; i++) { const rev = i >= 32 - cols; ctx.fillStyle = rev ? (((st.v >>> (31 - i)) & 1) ? st.c : DIM) : "rgba(255,255,255,0.035)"; ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
-        if (arp < 1) { const cxp = mbarX + (32 - cols) * mcw; ctx.fillStyle = "rgba(255,240,150,0.95)"; ctx.fillRect(cxp - 1, my - 2, 2.2, 11); text("+ carry ◂", mbarX - 52, my + 3.5, { size: 7, weight: 700, color: "rgba(255,240,150,0.9)", align: "left", baseline: "middle" }); }
+      } else if (cur && st.add) { // animated add — each column flickers on/off as it's added, then settles LSB→MSB
+        const sp = arp * 35;
+        for (let i = 0; i < 32; i++) { const b = 31 - i, local = sp - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : local < 3 ? (((Math.floor(churnLiveNow / 55) + b * 5) % 2) ? st.c : DIM) : (((st.v >>> (31 - i)) & 1) ? st.c : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
+        if (arp < 1) text("+ carry ◂", mbarX - 52, my + 3.5, { size: 7, weight: 700, color: "rgba(255,240,150,0.9)", align: "left", baseline: "middle" });
       } else mbar(my, st.v, st.c);
       if (isContrib) text("⊕", mbarX - 10, my + 3.5, { size: 10, weight: 700, color: st.c, align: "center", baseline: "middle" });
       if (cur) { ctx.strokeStyle = st.c; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 2, x1 - mbarX + 3, 11); }
