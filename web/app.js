@@ -452,7 +452,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 348, shift: 282, churn: 402, sigma1: 264, ch: 224, maj: 218, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 180, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -837,14 +837,14 @@ function drawOneRound(r) {
   // each row: bold left label (what it computes) + a plain-English sub (what it means) + the 32-bit result bar
   const line = (yy, label, val, on, sub) => { text(label, lx, yy + 5, { size: 12.5, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 10.5, color: "rgba(255,255,255,0.46)", baseline: "middle" }); bar(yy, val, on); };
   const rows = [
-    ["scramble e (Σ1)", S1, BL, "e⟲6 ⊕ e⟲11 ⊕ e⟲25 — three rotated copies of e, XORed together", 26, false],
-    ["Choose (Ch)", ch, BL, "(e∧f) ⊕ (¬e∧g) — for each bit, e picks register f or g", 26, false],
-    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "W = your message word — the ONLY per-input value in the whole round (everything else is fixed)", 28, false],
-    ["scramble a (Σ0)", S0, BL, "a⟲2 ⊕ a⟲13 ⊕ a⟲22 — three rotated copies of a, XORed together", 26, false],
-    ["Majority (Maj)", maj, BL, "(a∧b) ⊕ (a∧c) ⊕ (b∧c) — each bit = the majority of a, b, c", 26, false],
-    ["T2 = Σ0 + Maj", T2, GO, "= scramble a + Majority", 26, true],
-    ["new a = T1 + T2", newA, GR, "the round's brand-new register a", 26, false],
-    ["new e = d + T1", newE, GR, "old register d, plus T1", 26, false],
+    ["scramble e (Σ1)", S1, BL, "e⟲6 ⊕ e⟲11 ⊕ e⟲25 — three rotated copies of e, XORed together", 30, false],
+    ["Choose (Ch)", ch, BL, "(e∧f) ⊕ (¬e∧g) — for each bit, e picks register f or g", 30, false],
+    ["T1 = h + Σ1 + Ch + K + W", T1, GO, "W = your message word — the ONLY per-input value in the whole round (everything else is fixed)", 33, false],
+    ["scramble a (Σ0)", S0, BL, "a⟲2 ⊕ a⟲13 ⊕ a⟲22 — three rotated copies of a, XORed together", 30, false],
+    ["Majority (Maj)", maj, BL, "(a∧b) ⊕ (a∧c) ⊕ (b∧c) — each bit = the majority of a, b, c", 30, false],
+    ["T2 = Σ0 + Maj", T2, GO, "= scramble a + Majority", 30, true],
+    ["new a = T1 + T2", newA, GR, "the round's brand-new register a", 30, false],
+    ["new e = d + T1", newE, GR, "old register d, plus T1", 30, false],
   ];
   let y = r.y + 118;
   for (let i = 0; i < rows.length; i++) {
@@ -1175,11 +1175,11 @@ function drawSigma1(r) {
   const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
   let y = r.y + 54;
   note(y, "① INPUT"); y += 13;
-  rowL(y, "e", "register e  (= frac √11)", IN); bar(y, e, IN); y += 34;
+  rowL(y, "e", "register e  (= frac √11)", IN); bar(y, e, IN); y += 38;
   note(y, "② CHANGE — three rotated copies of e (rotate-right = slide bits right, wrapping around the end)"); y += 15;
-  rowL(y, "e ⟲ 6", "e rotated right 6", DIM); bar(y, r6, DIM); y += 22;
-  rowL(y, "e ⟲ 11", "…rotated right 11", DIM); bar(y, r11, DIM); y += 22;
-  rowL(y, "e ⟲ 25", "…rotated right 25", DIM); bar(y, r25, DIM); y += 33;
+  rowL(y, "e ⟲ 6", "e rotated right 6", DIM); bar(y, r6, DIM); y += 28;
+  rowL(y, "e ⟲ 11", "…rotated right 11", DIM); bar(y, r11, DIM); y += 28;
+  rowL(y, "e ⟲ 25", "…rotated right 25", DIM); bar(y, r25, DIM); y += 37;
   ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
   note(y + 6, "③ OUTPUT — XOR the three copies (each column: 1 if an ODD number of them are 1)"); y += 20;
   rowL(y, "Σ1", "→ feeds into T1", OUT); bar(y, S1, OUT); y += 32;
@@ -1228,9 +1228,9 @@ function drawCh(r) {
   const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
   let y = r.y + 54;
   note(y, "① INPUT — three registers: e is the selector, f & g are the options"); y += 14;
-  rowL(y, "e", "the selector (bit 1 → pick f · bit 0 → pick g)", SEL); bar(y, on(e, SEL)); y += 26;
-  rowL(y, "f", "taken where e = 1", F); bar(y, on(f, F)); y += 26;
-  rowL(y, "g", "taken where e = 0", G); bar(y, on(g, G)); y += 33;
+  rowL(y, "e", "the selector (bit 1 → pick f · bit 0 → pick g)", SEL); bar(y, on(e, SEL)); y += 31;
+  rowL(y, "f", "taken where e = 1", F); bar(y, on(f, F)); y += 31;
+  rowL(y, "g", "taken where e = 0", G); bar(y, on(g, G)); y += 37;
   ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
   note(y + 6, "③ OUTPUT — each lit bit copied from f (blue) or g (purple), chosen by e"); y += 20;
   rowL(y, "Ch", "= f and g interleaved, per e", "rgba(90,235,150,0.95)"); bar(y, (i) => { if (!((ch >>> (31 - i)) & 1)) return OFF; return ((e >>> (31 - i)) & 1) ? F : G; }); y += 32;
@@ -1251,9 +1251,9 @@ function drawMaj(r) {
   const note = (yy, t) => text(t, x0, yy, { size: 9.5, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
   let y = r.y + 54;
   note(y, "① INPUT — three registers a, b, c"); y += 14;
-  rowL(y, "a", "", A); bar(y, on(a, A)); y += 24;
-  rowL(y, "b", "", B); bar(y, on(b, B)); y += 24;
-  rowL(y, "c", "", C); bar(y, on(c, C)); y += 31;
+  rowL(y, "a", "", A); bar(y, on(a, A)); y += 30;
+  rowL(y, "b", "", B); bar(y, on(b, B)); y += 30;
+  rowL(y, "c", "", C); bar(y, on(c, C)); y += 36;
   ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(barX, y - 1); ctx.lineTo(x1, y - 1); ctx.stroke();
   note(y + 6, "③ OUTPUT — 1 wherever at least 2 of a, b, c have a 1 (the majority wins)"); y += 20;
   rowL(y, "Maj", "= the per-column majority", OUT); bar(y, on(maj, OUT)); y += 32;
