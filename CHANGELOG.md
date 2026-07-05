@@ -6,6 +6,10 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.24
 
+**App**
+- **Settings: "Send test notification" button** — fires a real OS notification so you can confirm delivery (and
+  trigger the macOS permission prompt). If your OS reports notifications aren't available, it says so.
+
 **Linux**
 - **Closing the window no longer quits — it keeps mining.** The Linux build now hides to a system tray on
   close (matching macOS's dock and the Windows tray) instead of stopping. Reopen from the tray, or just launch

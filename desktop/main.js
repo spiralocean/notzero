@@ -465,6 +465,15 @@ function handleNotifications(req, res) {
     json(200, { ok: true });
   });
 }
+// Fire a real notification so the user can confirm OS-level delivery (and trigger the macOS permission prompt).
+// `isSupported()` is true even when macOS permission is denied, so seeing the toast is the real test — if it's
+// supported but nothing appears, the OS is blocking it (Settings → Notifications / Focus).
+function handleNotificationTest(req, res) {
+  const supported = (() => { try { return Notification.isSupported(); } catch (_) { return false; } })();
+  if (supported) { try { new Notification({ title: "🔔 Test notification", body: "Notifications are working. You'll get these for node synced, a new best hash, and a block won — even with the window closed." }).show(); } catch (_) {} }
+  res.writeHead(200, { "Content-Type": "application/json" });
+  res.end(JSON.stringify({ ok: true, supported }));
+}
 
 // Remove the managed node entirely (stop it, delete Core + datadir + snapshot, reset to first-run).
 async function removeManagedNode() {
@@ -497,6 +506,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
+      if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
       if (urlPath === "/disk") { const free = freeBytes(DATA_DIR); res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ freeGB: free == null ? null : gb(free), requiredGB: gb(REQUIRED_FREE_BYTES), ok: free == null || free >= REQUIRED_FREE_BYTES })); return; }
       if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }

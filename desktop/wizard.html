@@ -134,6 +134,10 @@
         <input id="notifications_enabled" type="checkbox" style="width:auto" />
         <span>Show notifications <span style="opacity:.6">— block won, new best, node sync</span></span>
       </label>
+      <div style="display:flex; align-items:center; gap:10px; margin-top:8px; margin-left:26px">
+        <button type="button" id="notif-test" style="width:auto; padding:5px 12px; font-size:13px">Send test notification</button>
+        <span id="notif-test-msg" style="font-size:12px; opacity:.75"></span>
+      </div>
     </div>
 
     <div class="actions">
@@ -223,6 +227,7 @@
           $("notif-row").style.display = "block";
           $("notifications_enabled").checked = c.notifications_enabled !== false;
           $("notifications_enabled").onchange = () => { fetch("/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("notifications_enabled").checked }) }).catch(() => {}); };
+          $("notif-test").onclick = () => { const m = $("notif-test-msg"); m.style.color = ""; m.textContent = "Sending…"; fetch("/notifications/test", { method: "POST" }).then((r) => r.json()).then((r) => { if (r.supported) { m.style.color = "#7bd88f"; m.textContent = "Sent — see it? If not, allow notifications for this app in your OS settings."; } else { m.style.color = "#e0a030"; m.textContent = "Your OS reports notifications aren’t available."; } }).catch(() => { m.style.color = "#e0a030"; m.textContent = "Couldn’t send — try again."; }); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
