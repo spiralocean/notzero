@@ -128,7 +128,10 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, mempool: null, bwHistory: [], recentTxs: [], fees: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
+// true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
+// you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
+function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
@@ -157,6 +160,9 @@ async function pollNode() {
   try {
     const r = await fetch("./node.json", { cache: "no-store" });
     model.node = r.ok ? await r.json() : null;
+    // remember the last moment the node was genuinely up + has chain data, so a brief drop (e.g. the engines
+    // restarting when you save settings) can show "reconnecting…" instead of a scary "no node connected".
+    if (model.node && model.node.reachable !== false && ((model.node.headers || 0) > 0 || (model.node.blocks || 0) > 0)) model.nodeLastOk = Date.now();
     // the local node sees a new block within ~3s; if it's ahead of our last mempool fetch, refresh now
     // so the elapsed/countdown stays synced with current mining instead of lagging up to REFRESH_MS
     const n = model.node;
@@ -2226,6 +2232,11 @@ function drawSync(r) {
   // fake sync animation. (a real node reports its own headers/blocks; without one we must not pretend.)
   if (!(node && node.reachable !== false && (node.headers || node.blocks))) {
     const sym = node && node.miner && node.miner.mode === "symbolic", cx0 = r.x + r.w / 2, cy0 = r.y + r.h / 2;
+    if (!sym && nodeReconnecting()) { // brief drop just after a settings save / engine restart — don't alarm
+      text("reconnecting to your node…", cx0, cy0 - 14, { size: 15, weight: 700, color: "rgba(255,210,110,0.85)", align: "center", baseline: "middle" });
+      text("the miner restarted (normal after saving settings) — this fills back in a moment", cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+      return;
+    }
     text(sym ? "practice mode — no Bitcoin node yet" : "no node connected", cx0, cy0 - 14, { size: 15, weight: 700, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
     text(sym ? "set up a node (bitcoind) and this fills with the real chain syncing — then you mine for real"
              : "start bitcoind and this shows the blockchain downloading + verifying, block by block",
@@ -2765,7 +2776,7 @@ function drawMinerStatus() {
   const ageSec = haveTs ? (Date.now() - tMs) / 1000 : Infinity;
   const GREEN = "90,225,140", AMBER = "255,190,70", RED = "255,90,90";
   let dot, label, sub;
-  if (!reachable) { dot = RED; label = "not submitting"; sub = "node offline"; }
+  if (!reachable) { if (nodeReconnecting()) { dot = AMBER; label = "reconnecting"; sub = "miner restarting"; } else { dot = RED; label = "not submitting"; sub = "node offline"; } }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
   else if (!minerStalled(n, ageSec)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
@@ -2961,9 +2972,10 @@ function render(ts) {
   const stalled = Number.isFinite(lastTs) && minerStalled(node, (Date.now() - lastTs) / 1000);
   let fmsg, fcol;
   const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
-  if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
+  if (!node && nodeReconnecting()) { fmsg = `◌ reconnecting to your node… · ${ver}`; fcol = "rgba(255,200,90,0.95)"; }
+  else if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
-  else if (!reachable) { fmsg = `○ node unreachable — check your node · ${ver}`; fcol = "rgba(255,150,80,0.95)"; }
+  else if (!reachable) { fmsg = nodeReconnecting() ? `◌ reconnecting to your node… · ${ver}` : `○ node unreachable — check your node · ${ver}`; fcol = "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }

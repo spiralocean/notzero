@@ -9,6 +9,10 @@ version number and bump `desktop/package.json`.
 **App**
 - **Settings: "Send test notification" button** — fires a real OS notification so you can confirm delivery (and
   trigger the macOS permission prompt). If your OS reports notifications aren't available, it says so.
+- **Saving settings no longer looks like it disconnects you.** Saving restarts the miner + bridge, and for a
+  few seconds the dashboard showed a scary "no node connected." It now holds the last-good state and shows a
+  calm **"reconnecting to your node…"** for a short grace window (the panel, status pill, and footer), then
+  fills back in once the bridge reconnects.
 
 **Linux**
 - **Closing the window no longer quits — it keeps mining.** The Linux build now hides to a system tray on
