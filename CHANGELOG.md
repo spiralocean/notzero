@@ -18,6 +18,9 @@ version number and bump `desktop/package.json`.
   managed node already refuses to run any bitcoind that doesn't match a SHA-256 pinned inside the signed app;
   a new required release gate (`scripts/verify-core-pins.cjs`) confirms those pins match Core's builder-signed
   checksums, so a mistyped or tampered pin can never ship.
+- **Fail-fast on an incomplete assumeutxo snapshot download.** A dropped/partial 10 GB snapshot download is now
+  caught by an exact size check *before* it's loaded, with a clear "syncing normally — reopen to retry"
+  message, instead of a cryptic failure deep inside Core's load. (Core still validates the contents itself.)
 
 ## 0.1.24
 

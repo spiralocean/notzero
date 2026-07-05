@@ -50,6 +50,9 @@ const ASSUMEUTXO = {
   blockhash: "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880", // block 880000
   // our CDN URL for the loadtxoutset snapshot file (utxo-<height>.dat); null → full IBD fallback.
   snapshotUrl: "https://dl.getnotzero.com/utxo-880000.dat",
+  // exact byte size of that file — a fail-fast check for a truncated/incomplete download before we hand 10 GB
+  // to loadtxoutset (Core still crypto-verifies the contents; this just makes a dropped download obvious).
+  bytes: 10449923529,
 };
 
 const PRUNE_MIB = 10000; // ~10 GB of recent blocks; min allowed is 550. Chainstate (~snapshot) is on top.

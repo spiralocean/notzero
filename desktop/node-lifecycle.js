@@ -154,6 +154,17 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
         emit(STATES.LOADING_SNAPSHOT, 0, DL_MSG);
         await P.downloadFile(P.ASSUMEUTXO.snapshotUrl, snap, (p) => emit(STATES.LOADING_SNAPSHOT, p, DL_MSG));
       }
+      // Fail fast on a truncated/incomplete download (a dropped connection is the common case, and a leftover
+      // partial file from a prior run would otherwise be fed straight to loadtxoutset). Wrong size → discard it
+      // so the next attempt re-downloads cleanly, and fall back to normal IBD for now. (Core still validates the
+      // contents cryptographically on load; this just turns a cryptic mid-load failure into a clear, retryable one.)
+      if (P.ASSUMEUTXO.bytes && fs.existsSync(snap)) {
+        const got = fs.statSync(snap).size;
+        if (got !== P.ASSUMEUTXO.bytes) {
+          try { fs.unlinkSync(snap); } catch (_) {}
+          throw new Error(`snapshot download was incomplete (${got.toLocaleString()} of ${P.ASSUMEUTXO.bytes.toLocaleString()} bytes) — syncing normally instead; reopen the app to retry the fast start`);
+        }
+      }
       // loadtxoutset needs the snapshot's base block header (at ASSUMEUTXO.height) to ALREADY be in the
       // node's headers chain — otherwise it errors "base block header must appear in the headers chain".
       // Headers sync quickly from peers; wait for them to pass the snapshot height before loading.
