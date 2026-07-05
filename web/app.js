@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "hashInside", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "hashInside", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -128,7 +128,7 @@ function proximity(hashHex, target) {
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
 // true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
 // you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
 function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
@@ -152,6 +152,22 @@ async function loadHistory() {
   } catch {}
 }
 
+// Recent inter-block intervals (minutes) for the NEXT BLOCK distribution. Bitcoin block times are a Poisson
+// process — ~exponential, memoryless — so the histogram makes "10 min is an average, not a schedule" visible.
+async function pollBlockTimes() {
+  try {
+    const first = await (await fetch(`${API}/v1/blocks`)).json();
+    if (!Array.isArray(first) || !first.length) return;
+    const tip = first[0].height;
+    const more = await Promise.all([15, 30, 45, 60].map((d) => fetch(`${API}/v1/blocks/${tip - d}`).then((r) => r.json()).catch(() => [])));
+    const byH = new Map();
+    for (const b of [first, ...more].flat()) if (b && b.height != null && b.timestamp != null) byH.set(b.height, b.timestamp);
+    const heights = [...byH.keys()].sort((a, b) => a - b), iv = [];
+    // only diff CONSECUTIVE heights; drop clock-skew anomalies (miner timestamps can go slightly backward / far ahead)
+    for (let i = 1; i < heights.length; i++) if (heights[i] === heights[i - 1] + 1) { const d = (byH.get(heights[i]) - byH.get(heights[i - 1])) / 60; if (d >= 0 && d < 180) iv.push(d); }
+    if (iv.length >= 12) model.blockTimes = iv;
+  } catch (_) {}
+}
 // Same-origin feed from your local node (written by the bridge from bitcoind:
 // getpeerinfo / getblockchaininfo). No external query; 404/error → no node data.
 // Polled on its own fast cadence so head + per-peer rates stay fresh and the fill flows.
@@ -458,7 +474,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, hashInside: 464, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -477,7 +493,7 @@ if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register br
 const HASH_CHILDREN = new Set(["oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
-let ticketHits = [], youHit = null, bestHit = null; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers
+let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -633,6 +649,7 @@ function summary(s) {
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
+  if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
   if (s === "oneRound") { return "scramble · choose · majority → new a, e"; }
@@ -788,6 +805,26 @@ function drawHashInside(r) {
           if (isHot) { ctx.strokeStyle = "rgba(255,215,90,0.5)"; ctx.lineWidth = 1; ctx.strokeRect(cx - 1, ry - 1, bw3 + 2, 9); }
         }
       }
+    }
+    // 3½ · block chaining (Merkle–Damgård) — a longer message is just MORE 512-bit blocks run through this SAME
+    // churn, each STARTING from the previous block's output state (not the √-constants). That's the folding.
+    y = r.y + 336;
+    text(`3½ · LONGER MESSAGES CHAIN BLOCKS — each 512-bit block runs this same churn, but starts from the PREVIOUS block's output (not the constants) · your message = ${d.blocks} block${d.blocks === 1 ? "" : "s"}`, x0, y, { size: 10, weight: 700, color: BLUE, baseline: "middle" });
+    { const nb = Math.min(3, Math.max(2, d.blocks)), boxes = [{ l: "IV", s: "√-consts", c: "120,200,255" }];
+      for (let k = 0; k < nb; k++) boxes.push({ l: `block ${k + 1}`, s: "churn ×64", c: "255,215,90", churn: true });
+      boxes.push({ l: "HASH", s: "256 bits", c: "90,235,150" });
+      const N = boxes.length, bw = 84, gp = (w - N * bw) / (N - 1), by = y + 22, bh = 28;
+      for (let i = 0; i < N; i++) {
+        const bx = x0 + i * (bw + gp), b = boxes[i];
+        if (i < N - 1) { const ah = by + bh / 2, ex = bx + bw + gp; ctx.strokeStyle = "rgba(90,220,140,0.7)"; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(bx + bw, ah); ctx.lineTo(ex, ah); ctx.stroke();
+          ctx.fillStyle = "rgba(90,220,140,0.9)"; ctx.beginPath(); ctx.moveTo(ex, ah); ctx.lineTo(ex - 5, ah - 3); ctx.lineTo(ex - 5, ah + 3); ctx.fill();
+          text("state →", (bx + bw + ex) / 2, ah - 7, { size: 7.5, color: "rgba(90,220,140,0.8)", align: "center", baseline: "middle" }); }
+        ctx.fillStyle = `rgba(${b.c},0.1)`; roundRect(bx, by, bw, bh, 4); ctx.fill(); ctx.strokeStyle = `rgba(${b.c},0.8)`; ctx.lineWidth = 1; roundRect(bx, by, bw, bh, 4); ctx.stroke();
+        text(b.l, bx + bw / 2, by + 10, { size: 9.5, weight: 700, color: `rgba(${b.c},1)`, align: "center", baseline: "middle" });
+        text(b.s, bx + bw / 2, by + 20, { size: 8, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+        if (b.churn) text("↑ 512 bits", bx + bw / 2, by + bh + 8, { size: 7.5, color: "rgba(120,200,255,0.85)", align: "center", baseline: "middle" });
+      }
+      text("The previous block's output becomes the next block's STARTING registers; the block's 512 bits are the message mixed in. Not concatenated — chained.", x0, by + bh + 22, { size: 9.5, color: `rgba(${ACCENT},0.82)`, baseline: "middle" });
     }
   } else {
     // 3 · the churn — simple: snapshots of the whole 256-bit state at a few rounds, showing it scrambles completely
@@ -1338,6 +1375,7 @@ function drawContent(s, r) {
   if (s === "mempool") return drawMempool(r);
   if (s === "closeness") return drawCloseness(r);
   if (s === "tickets") return drawTickets(r);
+  if (s === "merkle") return drawMerkle(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
@@ -1385,7 +1423,33 @@ function drawNextBlock(r) {
   const rows = [["Elapsed", `${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`], ["Avg block", "~10:00"], ["Last block", "#" + model.tipHeight.toLocaleString()]];
   let sy = cy - 38;
   for (const [l, v] of rows) { text(l, r.x + 200, sy, { size: 15, color: "rgba(255,255,255,0.5)", baseline: "middle" }); text(v, r.x + 340, sy, { size: 15, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle" }); sy += 32; }
+  // block-time distribution (empty right side): the memoryless/exponential shape — most blocks quick, a long
+  // tail of slow ones, mean ~10. Same math as the hash lottery, which is the whole point.
+  if (model.blockTimes && model.blockTimes.length >= 12) {
+    const bt = model.blockTimes, hx = r.x + 452, hRight = r.x + r.w - 24, hw = hRight - hx;
+    if (hw > 200) {
+      const BW = 3, NB = 11, SPAN = NB * BW, buckets = new Array(NB).fill(0); // 3-min buckets: 0–3, 3–6, … 27–30, 30+
+      for (const v of bt) buckets[Math.min(NB - 1, Math.floor(v / BW))]++;
+      const maxC = Math.max(1, ...buckets), bw = hw / NB, hBot = r.y + r.h - 36, hTop = r.y + 36, hH = hBot - hTop;
+      const mean = bt.reduce((a, b) => a + b, 0) / bt.length;
+      text(`block times · last ${bt.length} blocks · avg ${mean.toFixed(1)} min`, hx, r.y + 20, { size: 11, weight: 600, color: "rgba(255,255,255,0.6)", baseline: "middle" });
+      for (let i = 0; i < NB; i++) {
+        const bh = (buckets[i] / maxC) * hH, bx = hx + i * bw;
+        ctx.fillStyle = i === Math.floor(10 / BW) ? "rgba(255,190,90,0.85)" : `rgba(${ACCENT},0.5)`; // gold = the bucket the ~10-min mean falls in; the tall first bar is the mode
+        ctx.fillRect(bx + 1, hBot - bh, Math.max(1, bw - 2), bh);
+        text(i === NB - 1 ? "30+" : `${i * BW}`, bx, hBot + 12, { size: 8.5, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" }); // the minute each bar starts at
+      }
+      ctx.strokeStyle = "rgba(255,255,255,0.15)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(hx, hBot + 0.5); ctx.lineTo(hRight, hBot + 0.5); ctx.stroke();
+      text("min", hRight, hBot + 12, { size: 8.5, color: "rgba(255,255,255,0.3)", align: "right", baseline: "middle" });
+      // "you are here" — where the current still-mining block's elapsed time lands in the distribution
+      const nowM = Math.min(elapsed / 60, SPAN), mx = hx + (nowM / SPAN) * hw, rightSide = nowM > SPAN * 0.76;
+      const mkCol = over ? "255,190,90" : ACCENT;
+      ctx.strokeStyle = `rgba(${mkCol},0.95)`; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(mx, hTop - 4); ctx.lineTo(mx, hBot); ctx.stroke(); ctx.setLineDash([]);
+      text(`▾ now ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`, mx + (rightSide ? -4 : 4), hTop + 3, { size: 9.5, weight: 700, color: `rgba(${mkCol},1)`, align: rightSide ? "right" : "left", baseline: "middle" });
+    }
+  }
   if (over) text(`long blocks are normal — each inner ring = another 10-min window (now in #${intervals + 1}) · ~37% run past 10, ~5% past 30`, r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
+  else if (model.blockTimes && model.blockTimes.length >= 12) text("Block times are memoryless — 10 min is an average, not a schedule. Same dice as your hash lottery: each try is independent.", r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
 }
 
 // ---- MEMPOOL: live tx flow — pending transactions stream in, pool, then feed the next block ----
@@ -1475,6 +1539,7 @@ function glyphCover(bx, by, bw, bh, alpha, lock = 0) {
   }
 }
 function drawMempool(r) {
+  mempoolHits = []; // rebuilt each frame — hover regions for the mined/next blocks (why some are taller)
   const mp = model.mempool;
   if (!mp || !mp.blocks || !mp.blocks.length) { text("loading the mempool…", r.x + r.w / 2, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); return; }
   // the API's final entry is usually a giant AGGREGATE of the deep low-fee backlog. Split it out: the priced
@@ -1554,6 +1619,7 @@ function drawMempool(r) {
   //     the snapshot of prior blocks slides one slot left (oldest sliding off the edge) while the
   //     freshly-set block rides in from the "now" line into the vacated newest slot. ---
   const baseX = (i) => r.x + padX + i * (bw + gap);
+  const histLines = (blk) => [`✓ Block #${(blk.height || 0).toLocaleString()}`, `${((blk.size || 0) / 1e6).toFixed(2)} MB · ${(blk.tx || 0).toLocaleString()} txs${blk.pool ? " · " + blk.pool : ""}`, "height = its data size — more (or bigger) txs make it taller", "block space is capped (~4M weight); how full varies with demand"];
   const slideEase = 1 - Math.pow(1 - slideP, 3);
   const drawConfirmed = (bx, bh, height, txc, alpha, flash) => {
     if (bx + bw < r.x - 2 || bx > r.x + r.w) return;
@@ -1577,7 +1643,7 @@ function drawMempool(r) {
       drawConfirmed(dx, dbh, mpHarvestTip, mpHarvestTx, 1, true);
     }
   } else {
-    for (let i = 0; i < nHist; i++) { const blk = hist[i]; drawConfirmed(baseX(i), Math.max(20, maxBH * sizeH(blk)), blk.height, blk.tx, 1, false); }
+    for (let i = 0; i < nHist; i++) { const blk = hist[i], bhc = Math.max(20, maxBH * sizeH(blk)); drawConfirmed(baseX(i), bhc, blk.height, blk.tx, 1, false); mempoolHits.push({ x: baseX(i), y: bot - bhc, w: bw, h: bhc, lines: histLines(blk) }); }
   }
   if (nHist) text("mined · the chain ◂", r.x + padX, top - 22, { size: 10, color: "rgba(90,200,130,0.6)", baseline: "middle" });
 
@@ -1610,6 +1676,7 @@ function drawMempool(r) {
     }
     text(`~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB`, bx + bw / 2, by - 9, { size: 10, weight: 700, color: "rgb(255,206,84)", align: "center", baseline: "middle" });
     text(`${blk.nTx >= 1000 ? (blk.nTx / 1000).toFixed(1) + "k" : blk.nTx} txs · ${((blk.blockSize || 0) / 1e6).toFixed(2)} MB`, bx + bw / 2, bot + 12, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    mempoolHits.push({ x: bx, y: by, w: bw, h: bh, lines: [`Next block · your ticket's target`, `~${med < 10 ? med.toFixed(1) : Math.round(med)} sat/vB · ${(blk.nTx || 0).toLocaleString()} txs · ${((blk.blockSize || 0) / 1e6).toFixed(2)} MB`, "the mempool packs the highest-fee txs into ~one block of space", "height = data size — a fuller block is taller"] });
     text("next · your ticket ▸", bx + bw, by - 22, { size: 10, weight: 700, color: `rgba(${ACCENT},0.9)`, align: "right", baseline: "middle" });
   }
 
@@ -2061,6 +2128,56 @@ function drawFieldDetail(idx, p, dr, b, tk, height) {
     fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 96, 24);
     text("we take ONE deterministic value — a real miner sweeps all ~4 billion of them", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   }
+}
+
+// Dedicated MERKLE section — makes the step everyone trips on explicit: two hashes are CONCATENATED into ONE
+// 64-byte string, then hashed. A small tree on the left for context; the pair being combined, up close, right.
+function drawMerkle(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, GRN = "rgb(90,225,140)", GLD = "255,205,110";
+  text("MERKLE TREE — how every transaction in a block folds into ONE hash", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("Hash the transactions in pairs; then hash those hashes in pairs; repeat until one is left — the merkle root, which goes into the block header.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+
+  const rt = model.recentTxs || [];
+  const leafHex = (k) => (rt[k] && rt[k].txid) ? rt[k].txid : (() => { let s = ""; for (let i = 0; i < 20; i++) s += _HEX[Math.floor(hrand(k * 13.1 + i * 2.7) * 16)]; return s; })();
+  const nodeHex = (id) => { let s = ""; for (let i = 0; i < 20; i++) s += _HEX[Math.floor(hrand(id * 91.7 + i * 3.3) * 16)]; return s; };
+  const leaves = [0, 1, 2, 3].map(leafHex), P = [nodeHex(101), nodeHex(102)], R = (model.block && model.block.merkle_root) || nodeHex(999);
+  const pairs = [
+    { a: leaves[0], b: leaves[1], p: P[0], na: "hash of tx 1", nb: "hash of tx 2", np: "parent hash" },
+    { a: leaves[2], b: leaves[3], p: P[1], na: "hash of tx 3", nb: "hash of tx 4", np: "parent hash" },
+    { a: P[0], b: P[1], p: R, na: "left parent", nb: "right parent", np: "MERKLE ROOT" },
+  ];
+  const pi = Math.floor(frame / 150) % 3, cur = pairs[pi];
+
+  // ---- left: the tree (4 leaves → 2 → root), active pair highlighted ----
+  const tw = w * 0.32, tx = x0, yLeaf = r.y + r.h - 58, yP = r.y + 132, yR = r.y + 82;
+  const lpos = (k) => ({ x: tx + tw * (k + 0.5) / 4, y: yLeaf }), ppos = (k) => ({ x: tx + tw * (k + 0.5) / 2, y: yP }), rpos = { x: tx + tw / 2, y: yR };
+  const aLeaf = (k) => (pi === 0 && k < 2) || (pi === 1 && k >= 2);
+  for (let k = 0; k < 4; k++) { const a = lpos(k), b = ppos(k >> 1), on = aLeaf(k); ctx.strokeStyle = on ? `rgba(${GLD},0.8)` : "rgba(255,255,255,0.16)"; ctx.lineWidth = on ? 1.6 : 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); }
+  for (let k = 0; k < 2; k++) { const a = ppos(k), on = pi === 2; ctx.strokeStyle = on ? `rgba(${GLD},0.8)` : "rgba(255,255,255,0.16)"; ctx.lineWidth = on ? 1.6 : 1; ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(rpos.x, rpos.y); ctx.stroke(); }
+  for (let k = 0; k < 4; k++) { const p = lpos(k), on = aLeaf(k); ctx.fillStyle = on ? `rgba(${GLD},0.92)` : `rgba(${ACCENT},0.55)`; roundRect(p.x - 13, p.y - 7, 26, 14, 3); ctx.fill(); text(`tx${k + 1}`, p.x, p.y, { size: 9, weight: 700, color: "rgba(10,8,14,0.9)", align: "center", baseline: "middle", mono: true }); text(leaves[k].slice(0, 6), p.x, p.y + 15, { size: 8, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
+  for (let k = 0; k < 2; k++) { const p = ppos(k), on = pi < 2 && k === pi; ctx.beginPath(); ctx.arc(p.x, p.y, 5, 0, 7); ctx.fillStyle = on ? `rgb(${GLD})` : `rgba(${ACCENT},0.7)`; ctx.fill(); text(P[k].slice(0, 6), p.x, p.y - 11, { size: 8, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle", mono: true }); }
+  ctx.beginPath(); ctx.arc(rpos.x, rpos.y, 6, 0, 7); ctx.fillStyle = GRN; ctx.fill(); ctx.strokeStyle = "rgba(255,255,255,0.6)"; ctx.lineWidth = 1.3; ctx.beginPath(); ctx.arc(rpos.x, rpos.y, 9, 0, 7); ctx.stroke();
+  text("merkle root", rpos.x, rpos.y - 16, { size: 9, weight: 700, color: GRN, align: "center", baseline: "middle" });
+
+  // ---- right: the active pair, up close (THE teaching) ----
+  const dx = x0 + tw + 34, dR = x1;
+  text("this step, up close:", dx, r.y + 60, { size: 10.5, weight: 700, color: `rgba(${GLD},0.9)`, baseline: "middle" });
+  const hbox = (bx, by, bw2, hex, label, col) => { ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(bx, by, bw2, 26, 4); ctx.fill(); ctx.strokeStyle = col; ctx.lineWidth = 1; roundRect(bx, by, bw2, 26, 4); ctx.stroke(); text(hex.slice(0, 13) + "…", bx + 8, by + 10, { size: 10, color: "rgba(255,255,255,0.85)", baseline: "middle", mono: true }); text(label, bx + 8, by + 19, { size: 8, color: col, baseline: "middle" }); text("32 bytes", bx + bw2 - 6, by + 19, { size: 8, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" }); };
+  const inW = Math.min(178, (dR - dx) * 0.32), ay = r.y + 78, by2 = r.y + 118;
+  hbox(dx, ay, inW, cur.a, cur.na, `rgba(${ACCENT},0.85)`);
+  hbox(dx, by2, inW, cur.b, cur.nb, `rgba(${ACCENT},0.85)`);
+  const gx = dx + inW + 30, gW = Math.min(232, (dR - dx) * 0.42), gy = r.y + 85;
+  ctx.strokeStyle = `rgba(${GLD},0.6)`; ctx.lineWidth = 1.2; ctx.beginPath(); ctx.moveTo(dx + inW, ay + 13); ctx.lineTo(gx, gy + 15); ctx.moveTo(dx + inW, by2 + 13); ctx.lineTo(gx, gy + 15); ctx.stroke();
+  ctx.fillStyle = `rgba(${GLD},0.13)`; roundRect(gx, gy, gW, 30, 4); ctx.fill(); ctx.strokeStyle = `rgba(${GLD},0.75)`; ctx.lineWidth = 1.2; roundRect(gx, gy, gW, 30, 4); ctx.stroke();
+  text(cur.a.slice(0, 7) + " ‖ " + cur.b.slice(0, 7) + "…", gx + gW / 2, gy + 11, { size: 10, weight: 600, color: "rgba(255,235,190,0.95)", align: "center", baseline: "middle", mono: true });
+  text("ONE 64-byte string — just glued end-to-end", gx + gW / 2, gy + 22, { size: 8.5, color: `rgba(${GLD},0.95)`, align: "center", baseline: "middle" });
+  const arrX = gx + gW, pbx = arrX + 66, pW = Math.min(176, dR - pbx);
+  text("SHA-256²", (arrX + pbx) / 2, gy + 7, { size: 9, weight: 700, color: "rgba(255,255,255,0.62)", align: "center", baseline: "middle" });
+  text("→", (arrX + pbx) / 2, gy + 20, { size: 15, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (pbx + 70 <= dR) hbox(pbx, gy, Math.max(110, pW), cur.p, cur.np, cur.np === "MERKLE ROOT" ? GRN : `rgba(${ACCENT},0.85)`);
+
+  text("Two 32-byte hashes are concatenated into ONE 64-byte string — then hashed back to 32 bytes. The hash only ever sees a single input; concatenation is the whole trick.", x0, r.y + r.h - 24, { size: 11, color: `rgba(${ACCENT},0.8)`, baseline: "middle" });
+  text("Odd number of nodes at a level? The last is paired with itself. · Leaves shown are real recent txids; parent hashes are illustrative.", x0, r.y + r.h - 9, { size: 9.5, color: "rgba(255,255,255,0.42)", baseline: "middle" });
 }
 
 // The merkle root is the top of a binary tree: every transaction is hashed (SHA-256²) into a txid, then
@@ -3070,6 +3187,7 @@ function drawHoverTooltip() {
   const my = mouseY + scrollY;
   let lines = null;
   for (const h of ticketHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
+  if (!lines) for (const h of mempoolHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
   if (!lines && youHit && mouseX >= youHit.x && mouseX <= youHit.x + youHit.w && my >= youHit.y && my <= youHit.y + youHit.h) lines = youHit.lines;
   if (!lines && bestHit && mouseX >= bestHit.x && mouseX <= bestHit.x + bestHit.w && my >= bestHit.y && my <= bestHit.y + bestHit.h) lines = bestHit.lines;
   if (!lines) return;
@@ -3140,4 +3258,6 @@ loadHistory();
 setInterval(pollNode, 3_000);
 setInterval(refresh, REFRESH_MS);
 setInterval(loadHistory, 300_000);
+pollBlockTimes();
+setInterval(pollBlockTimes, 120_000);
 render();

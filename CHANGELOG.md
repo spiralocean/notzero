@@ -11,6 +11,14 @@ version number and bump `desktop/package.json`.
   mechanism behind them: why the backlog sets the fee (*"cheaper txs wait for it to drain"*), and why more
   hashpower means higher difficulty, not faster blocks. Derived from the data already shown — mechanism only,
   no prediction or price commentary.
+- **New MERKLE TREE section** — how every transaction folds into one root by hashing in pairs, with the step
+  people trip on made explicit: two 32-byte hashes are *concatenated* into one 64-byte string, then hashed.
+- **Block-time distribution in NEXT BLOCK** — a histogram of recent block intervals (per-bar minute labels + a
+  live "you are here" marker) showing block times are memoryless: 10 min is an average, not a schedule.
+- **Block chaining in INSIDE THE HASH** — a strip showing a longer message runs the same churn once per 512-bit
+  block, each starting from the *previous* block's output (the Merkle–Damgård fold), not the constants.
+- **Hover tooltips on the MEMPOOL blocks** — size, tx count, and miner, plus why a block is taller than its
+  neighbor (height = data size; space is capped ~4M weight, so fullness tracks demand).
 
 **App**
 - **A clear "Installing update" screen when an update applies.** Auto-updates used to only fire an OS
