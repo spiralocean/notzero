@@ -4,9 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.24
+## Unreleased — next: 0.1.25
+
+_Nothing yet._
+
+## 0.1.24
 
 **App**
+- **New app icon** — a bigger, higher-contrast ₿ that stays legible at small sizes (menu bar, notifications,
+  System Settings), where the old one read as a dark blob.
 - **Settings: "Send test notification" button** — fires a real OS notification so you can confirm delivery (and
   trigger the macOS permission prompt). If your OS reports notifications aren't available, it says so.
 - **Saving settings no longer looks like it disconnects you.** Saving restarts the miner + bridge, and for a
