@@ -86,6 +86,23 @@ function buildMenu() {
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
 }
 
+// Full-window overlay injected into the dashboard while an update installs, so the restart reads as an
+// intentional update regardless of OS notification permission. Built via DOM (no HTML-attribute quoting).
+function updatingOverlayJs(version) {
+  const vtxt = version ? `updating to v${version}` : "installing the update";
+  return `(function(){
+    if(document.getElementById('nz-update-overlay'))return;
+    var mk=function(css){var e=document.createElement('div');e.style.cssText=css;return e;};
+    var o=mk('position:fixed;inset:0;z-index:2147483647;background:rgba(8,6,12,0.95);display:flex;flex-direction:column;align-items:center;justify-content:center;font-family:-apple-system,Helvetica,Arial,sans-serif;color:#fff');
+    o.id='nz-update-overlay';
+    var sp=mk('width:46px;height:46px;border:3px solid rgba(255,160,40,0.25);border-top-color:#FF9E22;border-radius:50%;animation:nzspin .8s linear infinite');
+    var t1=mk('margin-top:22px;font-size:18px;font-weight:700');t1.textContent='Installing update';
+    var t2=mk('margin-top:8px;font-size:13px;opacity:.7;text-align:center;max-width:340px;line-height:1.5');t2.innerHTML='notzero is restarting to finish ${vtxt}.<br>Mining resumes automatically.';
+    var st=document.createElement('style');st.textContent='@keyframes nzspin{to{transform:rotate(360deg)}}';document.head.appendChild(st);
+    o.appendChild(sp);o.appendChild(t1);o.appendChild(t2);document.body.appendChild(o);
+  })();`;
+}
+
 // ---- auto-update: quietly check the dl.getnotzero.com feed on launch + every few hours.
 // Downloads in the background and installs on quit. Errors are swallowed (a failed update
 // check must never bother a non-technical user). No-op in dev (no app-update.yml). ----
@@ -93,11 +110,16 @@ function initAutoUpdate() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = true;
   autoUpdater.on("error", () => {}); // a failed update check must never bother the user
-  autoUpdater.on("update-downloaded", () => {
+  autoUpdater.on("update-downloaded", (info) => {
     // auto-apply: a quick relaunch onto the new version (mining resumes on restart), so a published
     // fix reaches every running install within the check interval — no manual download needed.
-    try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: "Installing the latest version — back in a moment." }).show(); } catch (_) {}
-    setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (_) {} }, 4000);
+    const ver = info && info.version ? info.version : "";
+    // OS notification — the only signal when the window is closed / in the tray or dock...
+    try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
+    // ...plus an in-app overlay so the quit + relaunch always reads as an intentional update, even when OS
+    // notifications are off (otherwise the window just vanishes and reopens — looks like a crash).
+    try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
+    setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (_) {} }, 6000); // a beat longer so the message is readable before the relaunch
   });
   const check = () => autoUpdater.checkForUpdates().catch(() => {});
   check();

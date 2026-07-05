@@ -6,7 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.25
 
-_Nothing yet._
+**App**
+- **A clear "Installing update" screen when an update applies.** Auto-updates used to only fire an OS
+  notification, then quit + relaunch — which, if notifications were off, looked like a crash. The window now
+  shows a full-screen **"Installing update — notzero is restarting… mining resumes automatically"** overlay
+  (with the target version) before it relaunches, independent of notification permission, and waits a beat
+  longer (6s) so it's readable.
 
 ## 0.1.24
 
