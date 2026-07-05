@@ -139,6 +139,12 @@
         <span id="notif-test-msg" style="font-size:12px; opacity:.75"></span>
       </div>
     </div>
+    <div id="autoupdate-row" style="display:none; margin-top:4px">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+        <input id="auto_update" type="checkbox" style="width:auto" />
+        <span>Install updates automatically <span style="opacity:.6">— off: we’ll notify you; install from Help → Check for Updates</span></span>
+      </label>
+    </div>
 
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
@@ -228,6 +234,9 @@
           $("notifications_enabled").checked = c.notifications_enabled !== false;
           $("notifications_enabled").onchange = () => { fetch("/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("notifications_enabled").checked }) }).catch(() => {}); };
           $("notif-test").onclick = () => { const m = $("notif-test-msg"); m.style.color = ""; m.textContent = "Sending…"; fetch("/notifications/test", { method: "POST" }).then((r) => r.json()).then((r) => { if (r.supported) { m.style.color = "#7bd88f"; m.textContent = "Sent — see it? If not, allow notifications for this app in your OS settings."; } else { m.style.color = "#e0a030"; m.textContent = "Your OS reports notifications aren’t available."; } }).catch(() => { m.style.color = "#e0a030"; m.textContent = "Couldn’t send — try again."; }); };
+          $("autoupdate-row").style.display = "block";
+          $("auto_update").checked = c.auto_update !== false;
+          $("auto_update").onchange = () => { fetch("/auto-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_update").checked }) }).catch(() => {}); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.

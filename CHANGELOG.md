@@ -6,7 +6,16 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.26
 
-_Nothing yet._
+**App**
+- **Auto-update opt-out.** A new Settings toggle, *"Install updates automatically"* (default on). Turn it off
+  and notzero switches to **notify-only**: it tells you when a version is available but never downloads or
+  installs on its own — you install it yourself from **Help → Check for Updates**. For the security-conscious
+  who'd rather not have code auto-run from a server; everyone else keeps getting fixes automatically.
+
+**Website**
+- The *"The Mac app is signed & notarized by Apple"* trust line now shows to **all** visitors (it was hidden
+  for Windows/Linux), scoped clearly to the Mac app and worded so a non-Mac reader isn't misled that their own
+  download is signed.
 
 ## 0.1.25
 

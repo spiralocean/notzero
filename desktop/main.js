@@ -74,7 +74,7 @@ function buildMenu() {
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
     { role: "help", submenu: [
-      { label: "Check for Updates…", click: () => { if (app.isPackaged) autoUpdater.checkForUpdates().catch(() => {}); } },
+      { label: "Check for Updates…", click: () => checkForUpdatesNow() },
       { type: "separator" },
       { label: "Email Support", click: () => shell.openExternal("mailto:support@getnotzero.com") },
       { label: "Terms & Privacy", click: () => shell.openExternal("https://getnotzero.com/#terms") },
@@ -103,28 +103,37 @@ function updatingOverlayJs(version) {
   })();`;
 }
 
-// ---- auto-update: quietly check the dl.getnotzero.com feed on launch + every few hours.
-// Downloads in the background and installs on quit. Errors are swallowed (a failed update
-// check must never bother a non-technical user). No-op in dev (no app-update.yml). ----
+// ---- auto-update: check the dl.getnotzero.com feed on launch + every few hours.
+// DEFAULT (auto_update on): download in the background and install on quit, so a published fix reaches every
+// install fast. If the user turns auto-update OFF in Settings, we switch to NOTIFY-ONLY: we tell them a
+// version is available but never download or install on our own — they trigger it from Menu → Check for
+// Updates. This gives the security-conscious the wheel without punishing everyone else. No-op in dev. ----
+function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
+let updateAvailableVer = null, updateManual = false;
 function initAutoUpdate() {
   if (!app.isPackaged) return;
-  autoUpdater.autoDownload = true;
   autoUpdater.on("error", () => {}); // a failed update check must never bother the user
+  autoUpdater.on("update-available", (info) => {
+    updateAvailableVer = info && info.version ? info.version : "";
+    const wasManual = updateManual; updateManual = false;
+    if (autoUpdateOn()) return;                               // auto mode: autoDownload handles it → update-downloaded fires next
+    if (wasManual) { autoUpdater.downloadUpdate().catch(() => {}); return; } // user asked to install → download, then update-downloaded applies it
+    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Auto-update is off — open notzero → menu → Check for Updates to install.` }).show(); } catch (_) {} // notify-only
+  });
+  autoUpdater.on("update-not-available", () => { if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
   autoUpdater.on("update-downloaded", (info) => {
-    // auto-apply: a quick relaunch onto the new version (mining resumes on restart), so a published
-    // fix reaches every running install within the check interval — no manual download needed.
     const ver = info && info.version ? info.version : "";
-    // OS notification — the only signal when the window is closed / in the tray or dock...
     try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
-    // ...plus an in-app overlay so the quit + relaunch always reads as an intentional update, even when OS
-    // notifications are off (otherwise the window just vanishes and reopens — looks like a crash).
     try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
     setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (_) {} }, 6000); // a beat longer so the message is readable before the relaunch
   });
-  const check = () => autoUpdater.checkForUpdates().catch(() => {});
+  const check = () => { autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => {}); }; // re-read the pref each check so a toggle takes effect
   check();
   setInterval(check, 2 * 60 * 60 * 1000); // every 2 hours
 }
+// Menu → "Check for Updates…": in auto mode this downloads + installs as usual; in notify-only mode it
+// installs the available update on demand (updateManual routes update-available → downloadUpdate).
+function checkForUpdatesNow() { if (!app.isPackaged) return; updateManual = true; autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => { updateManual = false; }); }
 
 // ---- OS notifications for mining events ----
 // Fired from the MAIN process (not the renderer) so they reach the user even when the dashboard window is
@@ -351,6 +360,7 @@ function handleSetup(req, res) {
       machine_seed: existing.machine_seed || "",
       price_poll_interval_min: existing.price_poll_interval_min || 15,
       notifications_enabled: existing.notifications_enabled != null ? existing.notifications_enabled : true,
+      auto_update: existing.auto_update != null ? existing.auto_update : true,
     };
     try {
       fs.mkdirSync(DATA_DIR, { recursive: true });
@@ -472,6 +482,20 @@ function handleAutoStart(req, res) {
     json(200, { ok: true });
   });
 }
+// Toggle auto-update from the settings UI. The updater re-reads this on every check, so it takes effect on the
+// next check with no restart. OFF → notify-only: we tell the user about updates but never install on our own.
+function handleAutoUpdatePref(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 10000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    cfg.auto_update = !!p.enabled;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
+    json(200, { ok: true });
+  });
+}
 
 // Toggle the master notifications switch from the settings UI. The notifier reads config each tick, so
 // the change takes effect within seconds — no restart, nothing else to do here.
@@ -527,6 +551,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-setup") { handleNodeSetup(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
+      if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
@@ -536,7 +561,7 @@ function startServer() {
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;

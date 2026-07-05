@@ -367,11 +367,11 @@
   }
   configBtn(document.getElementById("dl"));
   configBtn(document.getElementById("dl2"));
-  // trust line: only claim Apple notarization on macOS — Windows/Linux ship unsigned (no paid cert),
-  // so don't imply a code-signing guarantee we don't have. Non-mac keeps the neutral open-source default.
-  if (os === "mac") {
-    const vt = document.getElementById("verify-text");
-    if (vt) vt.innerHTML = '<b>The Mac app is signed and notarized by Apple</b> — your computer confirms it’s genuine and untampered before it opens, with no “unknown developer” warnings. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn’t us.';
+  // trust line: show the Apple-notarization line to EVERYONE (it's a credibility signal), but keep it scoped
+  // to "the Mac app" and say "macOS confirms" — so a Windows/Linux reader isn't misled that THEIR download is
+  // signed (Windows/Linux ship unsigned, no paid cert).
+  { const vt = document.getElementById("verify-text");
+    if (vt) vt.innerHTML = '<b>The Mac app is signed and notarized by Apple</b> — macOS confirms it’s genuine and untampered before it opens, with no “unknown developer” warnings. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn’t us.';
   }
   // download counter (Pages Function + KV) — honest social proof, no tracking, no cookies.
   // Gated: only shown once it's a *confidence-builder*. A small number reads as anti-proof ("barely
