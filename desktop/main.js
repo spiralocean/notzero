@@ -34,7 +34,7 @@ const MIME = {
 };
 
 let DATA_DIR, NODE_JSON, ENGINE_ENV, serverPort = null, mainWindow = null;
-let tray = null, isQuitting = false; // Windows: window close hides to tray (keeps mining); only Quit sets isQuitting
+let tray = null, isQuitting = false; // Windows + Linux: window close hides to tray (keeps mining); only Quit sets isQuitting
 let managed = null, managedState = { state: "idle", progress: null, detail: null }; // managed-node provisioning state
 let managedLog = []; // human-readable step log, shown in the wizard + written to install.log
 let lastLogKey = "";
@@ -527,24 +527,33 @@ function startServer() {
   });
 }
 
-// ---- Windows system tray: lets the app keep the node + miner running after the window is closed,
-// matching macOS's "closing keeps it running" behavior. Mac keeps its dock; Windows gets a tray. ----
+// ---- Windows + Linux system tray: lets the app keep the node + miner running after the window is closed,
+// matching macOS's "closing keeps it running" behavior. Mac keeps its dock; Windows/Linux get a tray. ----
 function showMainWindow() {
   if (mainWindow && !mainWindow.isDestroyed()) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
   else createWindow();
 }
 function createTray() {
-  if (process.platform !== "win32" || tray) return;
+  if (process.platform === "darwin" || tray) return; // Windows + Linux get a tray; macOS keeps its dock
   let img = nativeImage.createFromPath(ICON);
   if (!img.isEmpty()) img = img.resize({ width: 16, height: 16 }); // ICON is 1024² → shrink for the tray
-  tray = new Tray(img.isEmpty() ? ICON : img);
+  try { tray = new Tray(img.isEmpty() ? ICON : img); } catch (_) { tray = null; return; } // headless / no-tray env: leave tray null so window-all-closed can fall back to quitting
   tray.setToolTip("Bitcoin Lottery — mining in the background");
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Dashboard", click: showMainWindow },
     { type: "separator" },
-    { label: "Quit Bitcoin Lottery", click: () => { isQuitting = true; app.quit(); } }, // the only way to really stop mining on Windows
+    { label: "Quit Bitcoin Lottery", click: () => { isQuitting = true; app.quit(); } }, // the only way to really stop mining
   ]));
   tray.on("double-click", showMainWindow);
+  tray.on("click", showMainWindow); // single click reopens too (some Linux DEs don't fire double-click)
+}
+// On Linux the desktop's tray may be hidden (e.g. GNOME without the AppIndicator extension), so on the first
+// window close tell the user it's still running — otherwise it looks like the app vanished.
+let bgNotified = false;
+function notifyBackgroundOnce() {
+  if (bgNotified || process.platform !== "linux") return;
+  bgNotified = true;
+  try { new Notification({ title: "Bitcoin Lottery is still mining", body: "It's running in the background. Reopen it from the tray, or just launch the app again. To stop mining, choose Quit from the tray." }).show(); } catch (_) {}
 }
 
 async function createWindow() {
@@ -556,9 +565,9 @@ async function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
-  // Windows: the X button hides to the tray and keeps the node + miner running in the background
+  // Windows + Linux: the X button hides to the tray and keeps the node + miner running in the background
   // (like macOS keeping the app in the dock). Only the tray's Quit / menu Exit really stops it.
-  win.on("close", (e) => { if (process.platform === "win32" && !isQuitting) { e.preventDefault(); win.hide(); } });
+  win.on("close", (e) => { if (process.platform !== "darwin" && !isQuitting && tray) { e.preventDefault(); win.hide(); notifyBackgroundOnce(); } });
   // open http(s)/mailto links (terms, support email) in the user's browser/mail client, not a new app window
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^(https?|mailto):/i.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // first run → wizard. Managed mode → setup screen too, so the install progress is visible
@@ -607,6 +616,7 @@ if (!app.requestSingleInstanceLock()) {
 }
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
 app.on("before-quit", () => { isQuitting = true; stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node)
-// On macOS, closing the window keeps the miner running in the background (app stays in the dock; reopen
-// from the dock). On Windows, the window hides to the tray (same effect). Only Linux quits on last close.
-app.on("window-all-closed", () => { if (process.platform !== "darwin" && process.platform !== "win32") { stopEngines(); app.quit(); } });
+// macOS keeps the app in the dock; Windows + Linux hide to the tray — in all three the miner keeps running and
+// only the tray Quit / menu Exit / ⌘Q stops it. We only quit here as a fallback: no tray could be created
+// (headless / unsupported desktop), so there'd be nothing to reopen from.
+app.on("window-all-closed", () => { if (process.platform !== "darwin" && !tray) { stopEngines(); app.quit(); } });

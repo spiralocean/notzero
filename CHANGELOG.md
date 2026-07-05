@@ -6,7 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.24
 
-_Nothing yet._
+**Linux**
+- **Closing the window no longer quits — it keeps mining.** The Linux build now hides to a system tray on
+  close (matching macOS's dock and the Windows tray) instead of stopping. Reopen from the tray, or just launch
+  the app again; **Quit** from the tray to actually stop. On desktops that hide the tray (e.g. GNOME without
+  the AppIndicator extension), a one-time notification tells you it's still running so it doesn't look like the
+  app vanished. (Falls back to quit-on-close only if no tray could be created at all.)
 
 ## 0.1.23
 
