@@ -11,12 +11,14 @@
 //    mismatch throws and the download is discarded.
 //  - The managed node is configured localhost-only with cookie auth (random per
 //    run), pruned to bound disk, and never exposes RPC off the machine.
-//  - PGP signature verification (Bitcoin Core's guix builder keys) is a
-//    defense-in-depth follow-up; the pinned hash is the enforced gate today.
+//  - The pins themselves are guarded at build time: scripts/verify-core-pins.cjs fetches Core's PGP-signed
+//    SHA256SUMS, verifies it against the guix builder keys, and asserts every hash below matches. It's a
+//    required gate in release.yml, so a mistyped or MITM'd pin can never ship.
 //
 // UPDATING CORE: bump CORE_VERSION + the CORE_ARTIFACTS hashes from
 // https://bitcoincore.org/bin/bitcoin-core-<v>/SHA256SUMS, and ASSUMEUTXO from
-// src/kernel/chainparams.cpp (m_assumeutxo_data) for that release.
+// src/kernel/chainparams.cpp (m_assumeutxo_data) for that release. Then run
+// `node scripts/verify-core-pins.cjs` to confirm the new hashes match Core's signed sums.
 // ---------------------------------------------------------------------------
 "use strict";
 const fs = require("fs");

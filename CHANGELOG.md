@@ -13,6 +13,12 @@ version number and bump `desktop/package.json`.
   (with the target version) before it relaunches, independent of notification permission, and waits a beat
   longer (6s) so it's readable.
 
+**Security / build**
+- **The pinned Bitcoin Core download hashes are now verified against Core's PGP-signed SHA256SUMS in CI.** The
+  managed node already refuses to run any bitcoind that doesn't match a SHA-256 pinned inside the signed app;
+  a new required release gate (`scripts/verify-core-pins.cjs`) confirms those pins match Core's builder-signed
+  checksums, so a mistyped or tampered pin can never ship.
+
 ## 0.1.24
 
 **App**

@@ -43,7 +43,19 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # Gate: the pinned Bitcoin Core hashes must match Core's PGP-signed SHA256SUMS before we build/ship anything.
+  verify-core:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Verify pinned Bitcoin Core hashes against the PGP-signed SHA256SUMS
+        run: node scripts/verify-core-pins.cjs
+
   release:
+    needs: verify-core
     strategy:
       fail-fast: false
       matrix:
