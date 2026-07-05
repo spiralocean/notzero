@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.25
 
+**Dashboard**
+- **Plain-English explainers on the MEMPOOL and NETWORK panels.** A live one-liner turns the numbers into the
+  mechanism behind them: why the backlog sets the fee (*"cheaper txs wait for it to drain"*), and why more
+  hashpower means higher difficulty, not faster blocks. Derived from the data already shown — mechanism only,
+  no prediction or price commentary.
+
 **App**
 - **A clear "Installing update" screen when an update applies.** Auto-updates used to only fire an OS
   notification, then quit + relaunch — which, if notifications were off, looked like a crash. The window now

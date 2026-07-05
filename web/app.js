@@ -458,7 +458,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 224, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 180, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, hashBuild: 340, hashInside: 400, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -1418,6 +1418,19 @@ function feeWeather(f) {
   if (f <= 70) return { mood: "congested", note: "fees high", col: "240,150,70" };
   return { mood: "jammed", note: "fees very high", col: "230,90,70" };
 }
+// Plain-English "why" for the mempool: turn the live next-block fee + backlog depth into one teaching sentence
+// about the fee market (mechanism, never prediction). Tiers mirror feeWeather. f = sat/vB, depth = blocks
+// of backlog, n = pending-tx count.
+function mempoolExplainer(f, depth, n) {
+  const fee = "~" + Math.max(1, Math.round(f || 0)) + " sat/vB";
+  if (f <= 2) return depth <= 3
+    ? "Mempool's nearly empty — the next block isn't even full, so almost any fee gets in. A cheap time to send."
+    : `Fees are cheap (${fee}) — the deep backlog is mostly min-fee dust, so even a small fee jumps into the next block.`;
+  if (f <= 8) return `Light backlog — a ${fee} fee gets you into the next block or two.`;
+  if (f <= 25) return `Backlog building (~${depth} blocks) — nudging the next-block fee to ${fee}; miners take the top bidders first.`;
+  if (f <= 70) return `Congested — ~${depth} blocks are queued, so the next block costs ${fee}; cheaper txs wait for it to drain.`;
+  return `Jammed — heavy competition for block space is spiking fees to ${fee}; they fall once the ${n.toLocaleString()}-tx backlog clears.`;
+}
 // squarified treemap (Bruls/Huizing/van Wijk) — pack items {v, fee} into a rect so each AREA ∝ v, keeping
 // squarish aspect ratios. This is how mempool.space draws a block: each tx is a tile sized by its vbytes.
 function mpWorst(row, side) { let s = 0, mx = 0, mn = Infinity; for (const it of row) { s += it.a; if (it.a > mx) mx = it.a; if (it.a < mn) mn = it.a; } const s2 = s * s, d2 = side * side; return Math.max(d2 * mx / s2, s2 / (d2 * mn)); }
@@ -1473,7 +1486,7 @@ function drawMempool(r) {
   const depth = Math.max(mem.length, Math.round((mp.vsize || mem.length * 1e6) / 1e6));
   text(`${mp.count.toLocaleString()} pending · ~${depth.toLocaleString()} blocks deep · time flows right → left: txs arrive, get mined, fall into history`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
 
-  const padX = 20, top = r.y + 54, bot = r.y + r.h - 38, maxBH = bot - top, gap = 10;
+  const padX = 20, top = r.y + 70, bot = r.y + r.h - 38, maxBH = bot - top, gap = 10; // top pushed down to give the fee explainer its own row under the title
   const dividerW = 22, nHist = hist.length, nBlocks = nHist + 1; // history blocks + the single "next" hero; the backlog is the fee-cliff strip
   const bw = Math.max(76, Math.min(108, ((r.w - 2 * padX - dividerW) * 0.46) / nBlocks - gap)); // blocks take ~left half; the strip fills the rest
   const SIZE_REF = 2.6e6, sizeH = (b) => Math.max(0.34, Math.min(1, (b.blockSize || b.size || b.blockVSize || 0) / SIZE_REF)); // height = data (bytes)
@@ -1493,6 +1506,8 @@ function drawMempool(r) {
 
   // #6 fee weather (top-left)
   if (model.fees) { const w = feeWeather(model.fees.fastestFee); ctx.fillStyle = `rgba(${w.col},0.95)`; ctx.beginPath(); ctx.arc(r.x + padX + 4, r.y + 18, 4, 0, 7); ctx.fill(); text(`${w.mood} · ${model.fees.fastestFee} sat/vB`, r.x + padX + 13, r.y + 18, { size: 11, weight: 700, color: `rgba(${w.col},0.95)`, baseline: "middle" }); }
+  // plain-English explainer: what the backlog is doing to fees, and why (mechanism, not a prediction)
+  { const explF = model.fees ? model.fees.fastestFee : (nextBlk && nextBlk.medianFee) || 0; if (explF) text(mempoolExplainer(explF, depth, mp.count), r.x + r.w / 2, r.y + 36, { size: 10.5, color: "rgba(255,255,255,0.52)", align: "center", baseline: "middle" }); }
 
   // #2 harvest — the next block is mined: it flashes, slides LEFT across "now" into history, txs fly off
   if (!reduceMotion) {
@@ -1627,7 +1642,7 @@ function drawMempool(r) {
     ctx.restore();
   }
   // (the set block's slide into history is drawn as part of the history train, above)
-  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 38, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
+  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 54, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
 
   // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
   const lt = model.recentTxs && model.recentTxs[0], ltVal = lt ? (lt.value || 0) / 1e8 : 0, whaleLt = ltVal >= 1;
@@ -2612,6 +2627,16 @@ function drawMiningChart(b) {
   chipText(`${above ? "▲" : "▼"} ${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`, badgeX, badgeY, { size: 11, weight: 700, color: above ? "rgb(90,225,140)" : "rgb(255,150,80)", align: "right" });
 }
 
+// Plain-English "why" for the network panel: the difficulty-adjustment feedback loop — the single most
+// misunderstood thing in Bitcoin (more miners ≠ faster blocks). Mechanism only, from the live retarget data.
+function networkExplainer(da) {
+  if (!da || da.remainingBlocks == null) return null;
+  const chg = da.difficultyChange || 0, blocks = da.remainingBlocks, days = (da.remainingTime || 0) / 86400000;
+  const when = `~${blocks.toLocaleString()} blocks (~${days.toFixed(1)}d)`, pct = `${chg >= 0 ? "+" : ""}${chg.toFixed(1)}%`;
+  if (chg > 0.5) return `Blocks came faster than 10 min → difficulty rises ${pct} in ${when}. More hashpower = higher difficulty, not faster blocks.`;
+  if (chg < -0.5) return `Blocks ran slower than 10 min → difficulty eases ${pct} in ${when}, nudging them back toward the 10-min target.`;
+  return `Hashpower ≈ difficulty — blocks are landing near 10 min. Next retarget ${when}, just ${pct}.`;
+}
 function drawNetwork(r) {
   let y = r.y + 16;
   if (model.difficulty) {
@@ -2620,6 +2645,8 @@ function drawNetwork(r) {
     text(`Difficulty ${model.difficulty.toExponential(2)}${hr}${pr}  ·  ~1 in ${(model.difficulty * 4294967296).toExponential(2)} per hash`, r.x + r.w / 2, y, { size: 13, weight: 600, color: `rgba(${ACCENT}, 0.9)`, align: "center", baseline: "middle" });
     y += 19;
   }
+  // difficulty-adjustment explainer — its own row under the title (why more miners ≠ faster blocks)
+  { const ne = networkExplainer(model.diffAdjust); if (ne) { text(ne, r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" }); y += 17; } }
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
