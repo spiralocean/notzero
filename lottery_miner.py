@@ -294,6 +294,46 @@ def _network_tip_height() -> Optional[int]:
         return None
 
 
+def _node_peer_addrs(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, limit: int = 40) -> list:
+    """IPv4 peers our node is connected to (getpeerinfo) or knows (getnodeaddresses) — reachable, well-connected
+    broadcast targets. Best-effort; empty if the node RPC is unavailable, in which case the DNS-seed peers carry
+    the block on their own."""
+    peers: list = []
+    seen: set = set()
+
+    def _add(ip: str, port) -> None:
+        if ip and "." in ip and ":" not in ip and not ip.endswith(".onion") and ip not in seen:
+            seen.add(ip)
+            try:
+                peers.append((ip, int(port) if port else p2p_broadcast.DEFAULT_PORT))
+            except (TypeError, ValueError):
+                peers.append((ip, p2p_broadcast.DEFAULT_PORT))
+
+    try:
+        for pi in rpc_call(rpc_url, rpc_user, rpc_pass, "getpeerinfo", [], cookie=rpc_cookie):
+            addr = str(pi.get("addr", ""))
+            if addr.startswith("[") or ".onion" in addr:  # skip IPv6 / Tor
+                continue
+            host, _, port = addr.rpartition(":")
+            _add(host, port)
+    except Exception:  # noqa: BLE001
+        pass
+    try:
+        for a in rpc_call(rpc_url, rpc_user, rpc_pass, "getnodeaddresses", [limit], cookie=rpc_cookie):
+            if a.get("network") == "ipv4":
+                _add(str(a.get("address", "")), a.get("port"))
+    except Exception:  # noqa: BLE001
+        pass
+    return peers[:limit]
+
+
+def _broadcast_with_node_peers(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, block_hex: str) -> None:
+    """Broadcast a won block over P2P, seeding the peer list with our node's own reachable peers (when RPC is up)
+    so it hits well-connected nodes first, then the DNS-seed peers. Meant to run in its own thread."""
+    extra = _node_peer_addrs(rpc_url, rpc_user, rpc_pass, rpc_cookie)
+    p2p_broadcast.broadcast_block(block_hex, log=log_daemon, extra_peers=extra)
+
+
 def _resubmit_worker(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path, p2p_enabled: bool = True) -> None:
     """Do WHATEVER IT TAKES to land a saved won block: keep calling submitblock on the node AND — while the node
     keeps failing — push the raw block straight to the P2P network, until an explorer confirms our block is on
@@ -336,7 +376,7 @@ def _resubmit_worker(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str
         if p2p_enabled and now - last_p2p >= P2P_REBROADCAST_SEC:
             last_p2p = now
             log_daemon(f"Node RPC failing ('{result}') — pushing won block #{height} to the P2P network directly.")
-            p2p_broadcast.broadcast_block(block_hex, log=log_daemon)
+            threading.Thread(target=_broadcast_with_node_peers, args=(rpc_url, rpc_user, rpc_pass, rpc_cookie, block_hex), daemon=True).start()
         # has another block already filled this height? (node tip, else the public tip) — ours would be caught above
         tip = _node_tip_height(rpc_url, rpc_user, rpc_pass, rpc_cookie)
         if tip is None:
@@ -1003,7 +1043,7 @@ def live_attempt(
         p2p_enabled = load_config().get("p2p_fallback", True)
         # do whatever it takes: push straight to the P2P network the FIRST time too, in parallel with the node RPC
         if p2p_enabled:
-            threading.Thread(target=p2p_broadcast.broadcast_block, args=(block_hex, log_daemon), daemon=True).start()
+            threading.Thread(target=_broadcast_with_node_peers, args=(rpc_url, rpc_user, rpc_pass, rpc_cookie, block_hex), daemon=True).start()
         try:
             result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex], cookie=rpc_cookie)
         except Exception as exc:  # noqa: BLE001 — never let a winning block vanish into a stack trace

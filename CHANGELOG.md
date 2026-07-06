@@ -16,9 +16,10 @@ version number and bump `desktop/package.json`.
 
 **Mining**
 - **Do-whatever-it-takes block submission.** A won block is now pushed through **two gateways at once** from the
-  first instant: the node's `submitblock` RPC *and* a direct **P2P broadcast** to public Bitcoin nodes (found via
-  the DNS seeds). If the node RPC keeps failing, a background worker hammers both — RPC retries fast-early and
-  capped at 30s; P2P re-pushed to fresh peers every ~45s — and independently confirms via a public explorer,
+  first instant: the node's `submitblock` RPC *and* a direct **P2P broadcast** fanned out in parallel to ~25
+  well-connected nodes (your node's own peers first, then the DNS seeds) so it reaches the big miners in ~1–2s.
+  If the node RPC keeps failing, a background worker hammers both — RPC retries fast-early and capped at 30s;
+  P2P re-pushed to fresh peers every ~45s — and independently confirms via a public explorer,
   until the block lands, the node reports a duplicate, or another block fills the height. Resumes on the next
   launch if the app crashed mid-retry; the found block is still written to disk first so it can never be lost.
   Previously a failed submit only saved the hex for **manual** resubmit — useless for an unattended miner in the

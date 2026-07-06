@@ -8,6 +8,7 @@ never raises into the caller; the return value is how many peers we successfully
 """
 from __future__ import annotations
 
+import concurrent.futures
 import hashlib
 import random
 import socket
@@ -156,9 +157,10 @@ def _discover_peers(want: int) -> list[tuple[str, int]]:
     return peers
 
 
-def broadcast_block(block_hex: str, log=None, max_peers: int = 8, timeout: int = 8) -> int:
-    """Push a raw block straight onto the network over P2P. Returns how many peers we sent it to (0 on total
-    failure). Never raises."""
+def broadcast_block(block_hex: str, log=None, max_peers: int = 25, timeout: int = 8, extra_peers=None) -> int:
+    """Push a raw block onto the network over P2P, to many peers IN PARALLEL so it reaches the best-connected
+    nodes (pools included) in ~1–2s. `extra_peers` (e.g. our node's own getpeerinfo peers) are tried first,
+    then peers discovered via the DNS seeds. Returns how many peers accepted the block. Never raises."""
     say = log or (lambda _m: None)
     try:
         block_bytes = bytes.fromhex(block_hex.strip())
@@ -168,19 +170,35 @@ def broadcast_block(block_hex: str, log=None, max_peers: int = 8, timeout: int =
         return 0
     block_hash_internal = _dsha(block_bytes[:80])  # inv wants the hash in internal (little-endian) order
     disp = block_hash_internal[::-1].hex()
-    peers = _discover_peers(max_peers * 4)
-    if not peers:
-        say("P2P fallback: couldn't resolve any peers from the DNS seeds.")
+
+    candidates: list[tuple[str, int]] = []
+    seen: set[str] = set()
+    for ip, port in list(extra_peers or []) + _discover_peers(max_peers * 3):  # our node's peers first, then DNS-seed peers
+        if ip and ip not in seen:
+            seen.add(ip)
+            candidates.append((ip, port))
+    candidates = candidates[:max_peers]
+    if not candidates:
+        say("P2P: no peers to broadcast to (DNS seeds unreachable?).")
         return 0
-    sent = 0
-    for ip, port in peers:
-        if sent >= max_peers:
-            break
+
+    def _one(peer):
+        ip, port = peer
         try:
-            if _handshake_and_send(ip, port, block_bytes, block_hash_internal, timeout):
-                sent += 1
-                say(f"P2P fallback: pushed block {disp[:16]}… to {ip}")
+            return ip if _handshake_and_send(ip, port, block_bytes, block_hash_internal, timeout) else None
         except (OSError, socket.timeout, struct.error, ValueError):
-            continue
-    say(f"P2P fallback: block sent directly to {sent} peer(s).")
+            return None
+
+    sent = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(len(candidates), 32)) as ex:
+        futures = [ex.submit(_one, peer) for peer in candidates]
+        try:
+            for fut in concurrent.futures.as_completed(futures, timeout=timeout + 10):
+                ip = fut.result()
+                if ip:
+                    sent += 1
+                    say(f"P2P: pushed block {disp[:16]}… to {ip}")
+        except concurrent.futures.TimeoutError:
+            say("P2P: some peers timed out (proceeding with those that answered).")
+    say(f"P2P: block sent directly to {sent}/{len(candidates)} peer(s) in parallel.")
     return sent
