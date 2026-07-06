@@ -6,7 +6,19 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.28
 
-_Nothing yet._
+**Desktop**
+- **Release notes / "what's new."** Updates no longer install silently: "Check for Updates" (and notify-only
+  when the window is open) shows a dialog with the changelog *since your version* and **Update Now / See Full
+  Notes / Later**. After an auto-update, the next launch gives a one-time recap of what changed — with a new
+  **Settings → "Show what's new after updates"** toggle. **Help → Release Notes** and a Settings link open the
+  new [getnotzero.com/changelog](https://getnotzero.com/changelog) page. Users who skip releases see *every*
+  version since theirs, not just the latest. Repeat notify-only notifications are deduped to one per version.
+
+**Dashboard**
+- **Best-match odds.** YOUR CLOSENESS now shows the true 1-in-2ⁿ rarity of your best hash (e.g. "7 bits ·
+  1 in 128") on the best row and in the ◆ best / ● you hover tooltips, framed against the target ("a win is
+  1 in ~10^N").
+- Fixed THE FOLD hash chip overlapping the box during the mid-slide keyframe.
 
 ## 0.1.27
 
