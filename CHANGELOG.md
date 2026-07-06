@@ -4,7 +4,11 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.27
+## Unreleased — next: 0.1.28
+
+_Nothing yet._
+
+## 0.1.27
 
 **Dashboard**
 - **THE FOLD** — a new animated panel (under INSIDE THE HASH, after THE CHURN) showing how SHA-256 digests a
