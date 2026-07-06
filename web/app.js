@@ -2962,7 +2962,7 @@ function drawBroadcast(r) {
   const nPeers = Math.max(6, Math.min(peerCount || 10, 16));
   nodes.slice().sort((a, b) => a.d - b.d).forEach((nd, rank) => { nd.isPeer = rank < nPeers; });
 
-  const PERIOD = burst ? 1100 : 2600, t = reduceMotion ? 0.72 : (now % PERIOD) / PERIOD, R = t * maxD * 1.15;
+  const PERIOD = 2600, t = reduceMotion ? 0.72 : (now % PERIOD) / PERIOD, R = t * maxD * 1.15;
   const peerFlash = t < 0.22 && !reduceMotion; // the direct-delivery flash at the start of each broadcast
 
   // links to your peers — always connected (dim), flashing bright at each broadcast
@@ -2972,10 +2972,8 @@ function drawBroadcast(r) {
     ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(nd.nx, nd.ny); ctx.stroke();
   });
 
-  // the sonar wavefront — one ring at rest, a second chasing ring during the burst
-  if (!reduceMotion) {
-    (burst ? [t, (t + 0.5) % 1] : [t]).forEach((tt) => { ctx.strokeStyle = `rgba(${C},${(burst ? 0.4 : 0.28) * (1 - tt)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, tt * maxD * 1.15, 0, 7); ctx.stroke(); });
-  }
+  // the sonar wavefront — the same gentle ping whether idle (green) or a win (gold), just recoloured
+  if (!reduceMotion) { ctx.strokeStyle = `rgba(${C},${0.28 * (1 - t)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, R, 0, 7); ctx.stroke(); }
 
   nodes.forEach((nd) => {
     const lit = nd.isPeer ? true : nd.d <= R;                       // peers are always connected; others light as the wave passes
