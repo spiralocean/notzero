@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>notzero — release notes</title>
+  <meta name="description" content="What's new in notzero — the full changelog." />
+  <style>
+    :root { --bg:#0a0a0f; --card:#12121a; --fg:#e8e8ee; --dim:#9a9aa8; --orange:#f7931a; --line:#23232e; --green:#5ae19a; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:var(--orange); text-decoration:none; } a:hover { text-decoration:underline; }
+    .wrap { max-width:760px; margin:0 auto; padding:40px 22px 80px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:18px; letter-spacing:.2px; }
+    .btc { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#f7931a,#ffb84d); color:#0a0a0f; display:grid; place-items:center; font-weight:900; }
+    h1 { font-size:26px; margin:18px 0 2px; letter-spacing:.2px; }
+    .sub { color:var(--dim); margin:0 0 26px; }
+    .ver { margin:30px 0 0; padding-top:20px; border-top:1px solid var(--line); }
+    .ver h2 { display:inline-block; margin:0; font-size:20px; }
+    .ver .tag { display:inline-block; margin-left:10px; padding:2px 9px; border:1px solid var(--orange); border-radius:999px; color:var(--orange); font-size:12px; font-weight:700; vertical-align:middle; }
+    .ver.unreleased h2 { color:var(--dim); } .ver.unreleased .tag { border-color:var(--line); color:var(--dim); }
+    h3 { font-size:13px; text-transform:uppercase; letter-spacing:.6px; color:var(--orange); margin:20px 0 6px; }
+    ul { margin:6px 0 6px; padding-left:22px; } li { margin:5px 0; }
+    p { margin:8px 0; color:var(--fg); } code { background:#1c1c26; border:1px solid var(--line); border-radius:5px; padding:1px 5px; font-size:.9em; }
+    strong { color:#fff; }
+    .loading, .err { color:var(--dim); padding:30px 0; }
+    footer { margin-top:50px; padding-top:20px; border-top:1px solid var(--line); color:var(--dim); font-size:13px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="https://getnotzero.com"><span class="btc">₿</span> notzero</a>
+      <a href="https://getnotzero.com">← Home</a>
+    </header>
+    <h1>Release notes</h1>
+    <p class="sub">Everything that's changed in notzero, newest first.</p>
+    <div id="log"><div class="loading">Loading the changelog…</div></div>
+    <footer>Auto-update keeps the desktop app current. You can also grab the latest at <a href="https://getnotzero.com">getnotzero.com</a>.</footer>
+  </div>
+
+  <script>
+    // Fetch CHANGELOG.md (freshest from GitHub, CDN fallback) and render our simple markdown to HTML.
+    const SOURCES = [
+      "https://raw.githubusercontent.com/spiralocean/notzero/main/CHANGELOG.md",
+      "https://dl.getnotzero.com/CHANGELOG.md",
+    ];
+    const esc = (s) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const inline = (s) => esc(s)
+      .replace(/`([^`]+)`/g, "<code>$1</code>")
+      .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
+      .replace(/\*([^*\n]+?)\*/g, "<em>$1</em>")
+      .replace(/(^|[\s(])_([^_\s][^_]*?)_(?=[\s.,)!?]|$)/g, "$1<em>$2</em>")
+      .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>');
+
+    // The changelog is hard-wrapped, so continuation lines must be JOINED into their paragraph/bullet (else
+    // every wrapped line becomes its own <p> and bold that spans a wrap shows literal **). Content before the
+    // first version header (the file's internal preamble) is skipped.
+    function render(md) {
+      const lines = md.split(/\r?\n/);
+      let html = "", section = false, list = null, para = null;
+      const flushPara = () => { if (para != null) { html += `<p>${inline(para)}</p>`; para = null; } };
+      const flushList = () => { if (list) { html += "<ul>" + list.map((t) => `<li>${inline(t)}</li>`).join("") + "</ul>"; list = null; } };
+      const flushBlocks = () => { flushPara(); flushList(); };
+      const closeSection = () => { flushBlocks(); if (section) { html += "</div>"; section = false; } };
+      for (const raw of lines) {
+        const ln = raw.replace(/\s+$/, "");
+        let m;
+        if (ln.startsWith("# ")) continue; // the file's top title
+        if ((m = ln.match(/^##\s+(.*)$/))) {
+          closeSection();
+          const vm = m[1].match(/^v?(\d+\.\d+\.\d+)/);
+          section = true;
+          html += `<div class="ver${vm ? "" : " unreleased"}">`;
+          html += vm ? `<h2>v${vm[1]}</h2>` : `<h2>${inline(m[1])}</h2><span class="tag">upcoming</span>`;
+          continue;
+        }
+        if (!section) continue; // skip the preamble before the first release
+        if ((m = ln.match(/^###\s+(.*)$/))) { flushBlocks(); html += `<h3>${inline(m[1])}</h3>`; continue; }
+        if ((m = ln.match(/^\s*[-*]\s+(.*)$/))) { flushPara(); if (!list) list = []; list.push(m[1]); continue; }
+        if (ln.trim() === "") { flushBlocks(); continue; }
+        if (list) list[list.length - 1] += " " + ln.trim();     // continuation of the current bullet
+        else para = (para == null ? "" : para + " ") + ln.trim(); // continuation of the current paragraph
+      }
+      closeSection();
+      return html || '<p class="err">No release notes found.</p>';
+    }
+
+    (async () => {
+      for (const url of SOURCES) {
+        try {
+          const r = await fetch(url, { cache: "no-store" });
+          if (!r.ok) continue;
+          const md = await r.text();
+          if (md && md.trim()) { document.getElementById("log").innerHTML = render(md); return; }
+        } catch (_) {}
+      }
+      document.getElementById("log").innerHTML =
+        '<p class="err">Couldn\'t load the changelog right now. See it on <a href="https://github.com/spiralocean/notzero/blob/main/CHANGELOG.md" target="_blank" rel="noopener">GitHub</a>.</p>';
+    })();
+  </script>
+</body>
+</html>

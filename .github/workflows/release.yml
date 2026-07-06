@@ -164,6 +164,15 @@ jobs:
           $global:LASTEXITCODE = 0
           & "C:\notzero\scripts\release-win.ps1"
 
+      # Publish the changelog to the CDN once (mac job) so the in-app "what's new" dialogs and the website
+      # release-notes page always fetch the version that shipped.
+      - name: Publish CHANGELOG to CDN
+        if: matrix.platform == 'mac' && env.IS_DRY != 'true'
+        shell: bash
+        run: |
+          rclone copyto CHANGELOG.md "$R2_BUCKET/CHANGELOG.md" --s3-no-check-bucket
+          echo "published CHANGELOG.md:"; curl -s "https://dl.getnotzero.com/CHANGELOG.md" | head -3
+
       - name: Verify the live feed
         if: env.IS_DRY != 'true'
         shell: bash

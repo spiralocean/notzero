@@ -8,7 +8,8 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog } = require("electron");
+const https = require("https");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
 const fs = require("node:fs");
@@ -75,6 +76,7 @@ function buildMenu() {
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
     { role: "help", submenu: [
       { label: "Check for Updates…", click: () => checkForUpdatesNow() },
+      { label: "Release Notes", click: () => shell.openExternal("https://getnotzero.com/changelog") },
       { type: "separator" },
       { label: "Email Support", click: () => shell.openExternal("mailto:support@getnotzero.com") },
       { label: "Terms & Privacy", click: () => shell.openExternal("https://getnotzero.com/#terms") },
@@ -109,16 +111,71 @@ function updatingOverlayJs(version) {
 // version is available but never download or install on our own — they trigger it from Menu → Check for
 // Updates. This gives the security-conscious the wheel without punishing everyone else. No-op in dev. ----
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
-let updateAvailableVer = null, updateManual = false;
+let updateAvailableVer = null, updateManual = false, notifiedVer = null;
+const SITE_CHANGELOG_URL = "https://getnotzero.com/changelog";
+const CHANGELOG_URLS = ["https://dl.getnotzero.com/CHANGELOG.md", "https://raw.githubusercontent.com/spiralocean/notzero/main/CHANGELOG.md"];
+
+// Fetch a URL as UTF-8 text (follows one redirect); tries each URL in turn, cb(text|null). Best-effort — a
+// failed changelog fetch just means the dialog shows a generic line, never an error.
+function fetchTextAny(urls, cb, i) {
+  i = i || 0;
+  if (i >= urls.length) return cb(null);
+  try {
+    const req = https.get(urls[i], (res) => {
+      if ([301, 302, 303, 307, 308].includes(res.statusCode) && res.headers.location) { res.resume(); return fetchTextAny([new URL(res.headers.location, urls[i]).toString()], cb); }
+      if (res.statusCode !== 200) { res.resume(); return fetchTextAny(urls, cb, i + 1); }
+      let d = ""; res.setEncoding("utf8"); res.on("data", (c) => { d += c; if (d.length > 300000) res.destroy(); }); res.on("end", () => cb(d));
+    });
+    req.on("error", () => fetchTextAny(urls, cb, i + 1));
+    req.setTimeout(6000, () => req.destroy());
+  } catch (_) { fetchTextAny(urls, cb, i + 1); }
+}
+function cmpVer(a, b) { const pa = String(a).split(".").map(Number), pb = String(b).split(".").map(Number); for (let i = 0; i < 3; i++) { const d = (pa[i] || 0) - (pb[i] || 0); if (d) return d; } return 0; }
+// Pull the changelog sections for every version in (fromVer, toVer] — so a user who skipped releases sees ALL
+// the changes they got, not just the newest. Returns readable plain text for a dialog.
+function changelogSince(md, fromVer, toVer) {
+  const out = []; let capture = false;
+  for (const ln of String(md).split(/\r?\n/)) {
+    const m = ln.match(/^##\s+v?(\d+\.\d+\.\d+)\b/);
+    if (m) { capture = cmpVer(m[1], fromVer) > 0 && cmpVer(m[1], toVer) <= 0; if (capture) out.push(`◆ v${m[1]}`); continue; }
+    if (/^##\s+/.test(ln)) { capture = false; continue; } // "Unreleased" / any other header ends a section
+    if (capture) out.push(ln.replace(/\*\*/g, "").replace(/^###\s+/, "").replace(/^-\s+/, "  • ").replace(/^\s\s-\s+/, "     • "));
+  }
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+}
+// A "what's new" dialog: fetch the changelog for (fromVer, toVer], show it with the given buttons, resolve the
+// chosen index. Shared by the pre-install choice and the post-update recap.
+function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
+  return new Promise((resolve) => {
+    fetchTextAny(CHANGELOG_URLS, (md) => {
+      let notes = md ? changelogSince(md, fromVer, toVer) : "";
+      if (notes.length > 1800) notes = notes.slice(0, 1800).replace(/\n[^\n]*$/, "") + "\n  …";
+      const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+      const opts = { type: "info", noLink: true, title, message: title, detail: (notes ? notes + "\n\n" : "") + (extraDetail || ""), buttons, defaultId: 0, cancelId: buttons.length - 1 };
+      try { (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then((r) => resolve(r.response)).catch(() => resolve(-1)); }
+      catch (_) { resolve(-1); }
+    });
+  });
+}
+// Pre-install: show what's new with an explicit Update / Later choice, instead of installing silently.
+function promptUpdateDialog(info) {
+  const target = (info && info.version) || updateAvailableVer || "", cur = app.getVersion();
+  whatsNewDialog({ fromVer: cur, toVer: target, title: `notzero ${target} is available` + (cur ? `  (you're on ${cur})` : ""), buttons: ["Update Now", "See Full Notes", "Later"], extraDetail: "Update now? notzero downloads it, restarts, and resumes mining automatically." })
+    .then((r) => { if (r === 0) autoUpdater.downloadUpdate().catch(() => {}); else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); });
+}
 function initAutoUpdate() {
   if (!app.isPackaged) return;
+  autoUpdater.autoDownload = autoUpdateOn();
   autoUpdater.on("error", () => {}); // a failed update check must never bother the user
   autoUpdater.on("update-available", (info) => {
     updateAvailableVer = info && info.version ? info.version : "";
     const wasManual = updateManual; updateManual = false;
-    if (autoUpdateOn()) return;                               // auto mode: autoDownload handles it → update-downloaded fires next
-    if (wasManual) { autoUpdater.downloadUpdate().catch(() => {}); return; } // user asked to install → download, then update-downloaded applies it
-    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Auto-update is off — open notzero → menu → Check for Updates to install.` }).show(); } catch (_) {} // notify-only
+    if (wasManual) { promptUpdateDialog(info); return; }        // explicit "Check for Updates" → what's new + choose
+    if (autoUpdateOn()) return;                                 // auto mode background: autoDownload installs on quit
+    if (updateAvailableVer && updateAvailableVer === notifiedVer) return; // notify-only: act once per version (no repeat nags)
+    notifiedVer = updateAvailableVer;
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) { promptUpdateDialog(info); return; } // app open → dialog with the choice
+    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → menu → Check for Updates to see what's new.` }).show(); } catch (_) {} // closed → one notification
   });
   autoUpdater.on("update-not-available", () => { if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
   autoUpdater.on("update-downloaded", (info) => {
@@ -131,9 +188,25 @@ function initAutoUpdate() {
   check();
   setInterval(check, 2 * 60 * 60 * 1000); // every 2 hours
 }
-// Menu → "Check for Updates…": in auto mode this downloads + installs as usual; in notify-only mode it
-// installs the available update on demand (updateManual routes update-available → downloadUpdate).
-function checkForUpdatesNow() { if (!app.isPackaged) return; updateManual = true; autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => { updateManual = false; }); }
+// Menu → "Check for Updates…": always show WHAT'S NEW with an Update/Later choice (autoDownload off so nothing
+// installs until the user picks Update Now). update-not-available → a quiet "up to date" toast.
+function checkForUpdatesNow() { if (!app.isPackaged) return; updateManual = true; autoUpdater.autoDownload = false; autoUpdater.checkForUpdates().catch(() => { updateManual = false; }); }
+// After an auto-update, on the next visible launch, recap what changed since the version the user last saw —
+// once per version, and only if they haven't turned it off. Never creates a config file (that would skip the
+// first-run wizard), and stays quiet in dev / boot-to-tray.
+function maybeShowWhatsNew() {
+  if (!app.isPackaged) return;
+  if (!fs.existsSync(configPath())) return; // not configured yet → nothing to recap, and don't create config
+  let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) { return; }
+  const cur = app.getVersion(), seen = cfg.last_seen_version || null;
+  const writeSeen = () => { try { cfg.last_seen_version = cur; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {} };
+  if (!seen) { writeSeen(); return; }                       // baseline the first time — no recap for the update that added this
+  if (cmpVer(cur, seen) <= 0) return;                       // no update since last launch
+  if (cfg.show_whats_new === false) { writeSeen(); return; } // user opted out
+  writeSeen();
+  whatsNewDialog({ fromVer: seen, toVer: cur, title: `Updated to notzero ${cur} — what's new`, buttons: ["Got it", "See Full Notes"], extraDetail: "You can turn these off in Settings → “Show what's new after updates.”" })
+    .then((r) => { if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); });
+}
 
 // ---- OS notifications for mining events ----
 // Fired from the MAIN process (not the renderer) so they reach the user even when the dashboard window is
@@ -497,6 +570,20 @@ function handleAutoUpdatePref(req, res) {
   });
 }
 
+// Toggle the post-update "what's new" recap from the settings UI (read on the next launch after an update).
+function handleWhatsNewPref(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 10000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    cfg.show_whats_new = !!p.enabled;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
+    json(200, { ok: true });
+  });
+}
+
 // Toggle the master notifications switch from the settings UI. The notifier reads config each tick, so
 // the change takes effect within seconds — no restart, nothing else to do here.
 function handleNotifications(req, res) {
@@ -552,6 +639,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-remove") { handleNodeRemove(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
+      if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
@@ -561,7 +649,7 @@ function startServer() {
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
@@ -666,7 +754,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     buildMenu();
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
-    if (!bootHidden) createWindow(); // boot autostart opens into the tray; a normal launch shows the window
+    if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
     startNotifier(); // OS notifications for block won / new best / node sync changes
   });

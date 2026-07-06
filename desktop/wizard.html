@@ -146,6 +146,13 @@
       </label>
     </div>
 
+    <div id="whatsnew-row" style="display:none; margin-top:4px">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+        <input id="show_whats_new" type="checkbox" style="width:auto" />
+        <span>Show what’s new after updates <span style="opacity:.6">— a quick recap on the next launch. <a href="https://getnotzero.com/changelog" target="_blank" rel="noopener" style="color:inherit">Release notes ↗</a></span></span>
+      </label>
+    </div>
+
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
       <button class="ghost" id="cancel" style="display:none">Cancel</button>
@@ -237,6 +244,9 @@
           $("autoupdate-row").style.display = "block";
           $("auto_update").checked = c.auto_update !== false;
           $("auto_update").onchange = () => { fetch("/auto-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_update").checked }) }).catch(() => {}); };
+          $("whatsnew-row").style.display = "block";
+          $("show_whats_new").checked = c.show_whats_new !== false;
+          $("show_whats_new").onchange = () => { fetch("/whats-new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("show_whats_new").checked }) }).catch(() => {}); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
