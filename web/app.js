@@ -126,6 +126,14 @@ function proximity(hashHex, target) {
   return { won: false, percent, leadingZeroBits: leading, label: percent.toFixed(8) + "%" };
 }
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
+// Rarity of a hash with ≥ b leading zero BITS: exactly 1 in 2^b random hashes. Human words while it's small
+// enough to feel (up to ~a trillion), then powers of ten — matching the odds-map's "1 in ~10^N" style.
+function oddsOneIn(b) {
+  if (b <= 0) return "1 in 1";
+  if (b <= 40) { const n = Math.pow(2, b); if (n < 1e4) return "1 in " + Math.round(n).toLocaleString();
+    for (const [v, name] of [[1e12, "trillion"], [1e9, "billion"], [1e6, "million"], [1e3, "thousand"]]) if (n >= v) return "1 in " + (n / v).toFixed(n / v < 10 ? 1 : 0) + " " + name; }
+  return "1 in ~10^" + Math.round(b * 0.30103);
+}
 
 // ---- model ----
 const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
@@ -1835,7 +1843,7 @@ function drawCloseness(r) {
     const best = mn.best;
     if (best && best.hash) {
       const bz = leadingZeroHexChars(best.hash), zb = typeof best.zero_bits === "number" ? best.zero_bits : bz * 4, rem = zb % 4;
-      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits${rem ? ` (+${rem}/4 to next)` : ""}`);
+      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits · ${oddsOneIn(zb)}${rem ? ` (+${rem}/4)` : ""}`);
       // NIBBLE GAUGE — bit-level progress into the NEXT leading "0", the resolution hex chars throw away.
       // zb = 4·(full zero chars) + (zero bits of the frontier nibble); rem (= zb % 4) of 4 dots = bits toward
       // the next whole "0". Drawn under the first non-zero char so it lines up with where the next 0 will appear.
@@ -1915,8 +1923,9 @@ function drawCloseness(r) {
     bestHit = { x: bX - 9, y: bY - 11, w: 18, h: 22, lines: [
       "◆ best — your closest hash yet",
       `${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} zero bits`,
+      `odds of a hash this good: ${oddsOneIn(bestBits)}`,
       best && best.height ? `on block #${(best.height || 0).toLocaleString()}` : "this session's record",
-      `still +${Math.max(0, tBits - bestBits)} bits from the target to win`,
+      `still +${Math.max(0, tBits - bestBits)} bits from the target — a win is ${oddsOneIn(tBits)}`,
     ] };
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
@@ -1928,6 +1937,7 @@ function drawCloseness(r) {
     youHit = { x: yx - 10, y: tkY - 12, w: 20, h: bandH + 26, lines: [
       "you — your current live hash",
       `${youBits} leading zero bit${youBits === 1 ? "" : "s"} (absolute)`,
+      `odds of a hash this good: ${oddsOneIn(youBits)}`,
       `target needs ${tBits} → +${Math.max(0, tBits - youBits)} more bits to win`,
     ] };
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
