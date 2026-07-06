@@ -15,6 +15,10 @@ version number and bump `desktop/package.json`.
   version since theirs, not just the latest. Repeat notify-only notifications are deduped to one per version.
 
 **Dashboard**
+- **VERIFY THIS BLOCK.** A new panel that independently recomputes a real recent block's proof-of-work
+  in-browser and shows the three checks a node runs turn green: double-SHA-256 of the 80-byte header matches
+  the block's hash, the hash is below the difficulty target, and the merkle root rebuilt from every txid
+  matches the header — no trust required. Closes the loop with HASH BUILD, MERKLE TREE, and YOUR CLOSENESS.
 - **Best-match odds.** YOUR CLOSENESS now shows the true 1-in-2ⁿ rarity of your best hash (e.g. "7 bits ·
   1 in 128") on the best row and in the ◆ best / ● you hover tooltips, framed against the target ("a win is
   1 in ~10^N").

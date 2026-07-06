@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -106,6 +106,44 @@ function serializeHeader(blk, nonce) {
 }
 async function hashBlockHeader(blk, nonce) {
   return bytesToHex(await dsha256(serializeHeader(blk, nonce)));
+}
+
+// ---- VERIFY THIS BLOCK: independently recompute a real block's proof-of-work from its 80-byte header ----
+// Rebuild the merkle root from the block's txids. txids/merkle_root are shown byte-reversed, but the tree
+// hashes INTERNAL byte order — so flip each txid in, and flip the final root back out to compare.
+async function merkleRootOf(txidsDisplay) {
+  let level = txidsDisplay.map((h) => hexToBytes(h).reverse());
+  while (level.length > 1) {
+    const next = [];
+    for (let i = 0; i < level.length; i += 2) {
+      const a = level[i], b = i + 1 < level.length ? level[i + 1] : level[i]; // odd count → duplicate the last
+      next.push(await dsha256(concat(a, b)));
+    }
+    level = next;
+  }
+  return bytesToHex(level[0].slice().reverse());
+}
+// Recompute the three checks a node runs — hash matches, hash ≤ target, merkle root commits to the txs — and
+// stash the result in model.verify. Best-effort: never throws into the render loop.
+async function computeVerify(blk) {
+  if (!blk || !blk.id || blk.version == null || !blk.previousblockhash || !blk.merkle_root || blk.bits == null || blk.nonce == null) return;
+  if (model.verify && model.verify.id === blk.id && model.verify.merkleMatch != null) return; // already verified this block
+  const v = { id: blk.id, height: blk.height, version: blk.version, prevHash: blk.previousblockhash, merkleRoot: blk.merkle_root, timestamp: blk.timestamp, bits: blk.bits, nonce: blk.nonce, txCount: blk.tx_count };
+  try {
+    v.recomputed = bytesToHex((await dsha256(serializeHeader(blk, blk.nonce))).slice().reverse()); // display order → matches blk.id
+    v.hashMatch = v.recomputed === blk.id;
+    v.target = bitsToTarget(blk.bits);
+    v.targetHex = v.target.toString(16).padStart(64, "0");
+    v.belowTarget = bigHex(blk.id) <= v.target;
+    v.leadingZeros = leadingZeroHexChars(blk.id);
+  } catch (_) { return; }
+  model.verify = v; requestRender();
+  try {
+    const txids = await (await fetch(`${API}/block/${blk.id}/txids`)).json();
+    if (Array.isArray(txids) && txids.length) { v.computedMerkle = await merkleRootOf(txids); v.merkleMatch = v.computedMerkle === blk.merkle_root; v.txids = txids.length; }
+    else v.merkleMatch = false;
+  } catch (_) { v.merkleMatch = null; } // couldn't fetch txids — leave it pending rather than claim a fail
+  model.verify = { ...v }; requestRender();
 }
 
 function bitsToTarget(bits) {
@@ -224,6 +262,7 @@ async function refresh() {
     model.block = blk;
     model.txCount = blk.tx_count;
     model.difficulty = blk.difficulty;
+    computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
 
     // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
     const seed = machineSeed();
@@ -482,7 +521,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -656,6 +695,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
+  if (s === "verify") { const v = model.verify; return v ? (v.merkleMatch == null ? "recomputing the proof-of-work…" : ((v.hashMatch && v.belowTarget && v.merkleMatch) ? "hash ✓ · below target ✓ · merkle ✓ — valid" : "check failed")) : "recompute a real block's hash yourself"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
@@ -1476,6 +1516,7 @@ function drawContent(s, r) {
   if (s === "merkle") return drawMerkle(r);
   if (s === "fold") return drawFold(r);
   if (s === "hashBuild") return drawHashBuild(r);
+  if (s === "verify") return drawVerify(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
   if (s === "shift") return drawShift(r);
@@ -1820,6 +1861,38 @@ function drawMempool(r) {
   for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 3, 1, 5); }
   text("low", lgX - 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
   text("high fee", lgX + lgW + 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+}
+
+// VERIFY THIS BLOCK — the three checks a node runs to validate a real block's hash, recomputed live in-browser.
+function drawVerify(r) {
+  const x0 = r.x + 16, GRN = "90,225,140", RED = "255,95,95";
+  text("VERIFY THIS BLOCK — recompute the proof-of-work yourself; no trust required", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("A node takes the 80-byte header, hashes it twice, and checks three things. Finding this hash took ~10²² tries; verifying it takes one — on any laptop or phone.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const v = model.verify;
+  if (!v) { text("waiting for the latest block…", x0, r.y + 66, { size: 12, color: "rgba(255,255,255,0.4)", baseline: "middle" }); return; }
+  text(`block #${(v.height || 0).toLocaleString()} · ${(v.txCount || 0).toLocaleString()} transactions · header = version ‖ prev hash ‖ merkle root ‖ time ‖ bits ‖ nonce  (80 bytes)`, x0, r.y + 55, { size: 10.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+
+  const short = (h) => h ? h.slice(0, 18) + "…" + h.slice(-6) : "—";
+  const st = (b) => b == null ? "pending" : (b ? "ok" : "fail");
+  const check = (yy, num, title, detail, state) => {
+    const c = state === "ok" ? GRN : state === "fail" ? RED : "255,255,255", pend = state === "pending", badge = state === "ok" ? "✓" : state === "fail" ? "✗" : "…";
+    ctx.fillStyle = `rgba(${c},${pend ? 0.1 : 0.16})`; roundRect(x0, yy - 9, 19, 19, 5); ctx.fill();
+    ctx.strokeStyle = `rgba(${c},${pend ? 0.4 : 0.9})`; ctx.lineWidth = 1.2; roundRect(x0, yy - 9, 19, 19, 5); ctx.stroke();
+    text(badge, x0 + 9.5, yy + 0.5, { size: 12, weight: 700, color: `rgba(${c},${pend ? 0.6 : 1})`, align: "center", baseline: "middle" });
+    text(`${num} · ${title}`, x0 + 30, yy - 6, { size: 11.5, weight: 700, color: `rgba(${c},${pend ? 0.6 : 0.95})`, baseline: "middle" });
+    text(detail, x0 + 30, yy + 9, { size: 10, color: "rgba(255,255,255,0.6)", baseline: "middle", mono: true });
+  };
+  check(r.y + 84, "1", "RECOMPUTE THE HASH · double-SHA-256 of the 80-byte header",
+    v.hashMatch == null ? "hashing…" : `${short(v.recomputed)}  ${v.hashMatch ? "=" : "≠"}  the block's own hash`, st(v.hashMatch));
+  check(r.y + 124, "2", "BELOW THE TARGET · this is the proof of work",
+    v.belowTarget == null ? "…" : `hash ${short(v.id)}  ${v.belowTarget ? "≤" : ">"}  target ${short(v.targetHex)}  ·  ${v.leadingZeros} leading zeros`, st(v.belowTarget));
+  check(r.y + 164, "3", "COMMITS TO THE TRANSACTIONS · rebuild the merkle root",
+    v.merkleMatch == null ? `rebuilding the root from ${(v.txCount || 0).toLocaleString()} txids…` : `${short(v.computedMerkle)}  ${v.merkleMatch ? "=" : "≠"}  the header's merkle root`, st(v.merkleMatch));
+
+  const allOk = v.hashMatch && v.belowTarget && v.merkleMatch, anyFail = v.hashMatch === false || v.belowTarget === false || v.merkleMatch === false;
+  text(allOk ? "✓ VALID — legit, and you just proved it without trusting the miner, the pool, or anyone else." : (anyFail ? "✗ a check failed — this block would be rejected" : "verifying…"),
+    x0, r.y + 206, { size: 12, weight: 700, color: allOk ? `rgba(${GRN},0.97)` : anyFail ? `rgba(${RED},0.95)` : "rgba(255,255,255,0.45)", baseline: "middle" });
+  text("Change one transaction → the merkle root changes → the header changes → the hash changes → it no longer beats the target. Tamper-evident, checkable by anyone in microseconds.", x0, r.y + r.h - 14, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 function drawCloseness(r) {
