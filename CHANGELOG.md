@@ -14,6 +14,14 @@ version number and bump `desktop/package.json`.
   new [getnotzero.com/changelog](https://getnotzero.com/changelog) page. Users who skip releases see *every*
   version since theirs, not just the latest. Repeat notify-only notifications are deduped to one per version.
 
+**Mining**
+- **Auto-resubmit a won block.** If `submitblock` fails on a win (transient RPC/node blip), a background
+  worker now keeps retrying — hard early (1s, 2s, 4s…), backing off and capped at 30s so it never spams the
+  node — until the node accepts it, reports it a duplicate (already in), or another block fills the height.
+  It resumes on the next launch if the app crashed/quit mid-retry. Previously the block was only saved to disk
+  for **manual** resubmit — which an unattended miner would miss inside the ~10-minute window. The found block
+  is still written to disk first, so it's never lost.
+
 **Dashboard**
 - **VERIFY THIS BLOCK.** A new panel that independently recomputes a real recent block's proof-of-work
   in-browser and shows the three checks a node runs turn green: double-SHA-256 of the 80-byte header matches

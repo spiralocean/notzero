@@ -74,7 +74,7 @@ A few things I cared about while building it:
 
 - **Correct Bitcoin internals**, hand-rolled and verified against the spec test vectors: 80-byte header serialization, double-SHA256, compact-`bits` → target, BIP-34 coinbase height, the merkle root, and bech32 / bech32m address validation (BIP-173 / BIP-350, including taproot).
 - **Honest by construction.** "LIVE" only appears when the node is genuinely synced *and* mining; the dashboard re-derives the block hash from the header and checks it byte-for-byte against the node's real submission before claiming "verified." Third-party data is never presented as proof.
-- **Failure modes matter when a win is once-in-a-lifetime.** A found block is written to disk *before* `submitblock`, so a transient RPC error can never lose it. The published `node.json` leaks no peer IPs or hostname; credential files are `0600`.
+- **Failure modes matter when a win is once-in-a-lifetime.** A found block is written to disk *before* `submitblock`, so a transient RPC error can never lose it — and a background worker then auto-resubmits (hard early, backing off to 30s, capped) until the node accepts it or the height is taken by another block, resuming even after a crash/restart. No manual step in the ~10-minute window. The published `node.json` leaks no peer IPs or hostname; credential files are `0600`.
 - **Deterministic tests for an animated canvas** — reduced-motion to freeze the loop, fully-mocked data, and exact panel-rect clipping so the rotating quote and version string never enter a baseline.
 - **Accessibility** — honours `prefers-reduced-motion`, colorblind-safe shape cues, pauses rendering on a hidden tab.
 

@@ -20,6 +20,7 @@ import platform
 import ssl
 import struct
 import sys
+import threading
 import time
 import urllib.error
 import urllib.request
@@ -55,6 +56,11 @@ HISTORY_LIMIT = 1000  # long on-disk record: seeds the odds-map cloud (zhist) ri
 # (was 50, then 200; dashboard graph still shows ~100, bridge sends ~120 — this only affects the stored record)
 PRICE_HISTORY_LIMIT = 96
 POLL_INTERVAL_SEC = 30
+# Backoff (seconds) between submitblock retries for a WON block. Aggressive early — a transient RPC blip
+# (node restarting) usually clears in a few seconds and the ~10-min window is unforgiving — then eased and
+# capped at 30s so we never hammer the node. We keep retrying until it lands or the height is taken.
+RESUBMIT_DELAYS = (1, 2, 4, 8, 16, 30)
+RESUBMIT_DEADLINE_SEC = 20 * 60  # give up after ~2 block windows if we simply can't reach the node
 DEFAULT_PRICE_POLL_MIN = 15
 AVG_BLOCK_SEC = 600
 # fallback payout when the operator hasn't set their own wallet — rewards go to the project owner.
@@ -225,6 +231,87 @@ def save_winning_block(height: int, block_hex: str) -> Path:
     except OSError:
         pass
     return path
+
+
+def pending_won_files() -> list[tuple[int, Path]]:
+    """Saved won blocks still awaiting confirmation. A resolved block is renamed (won_block_<h>.accepted /
+    .duplicate / .superseded / .expired) so it stays on disk as a record but is no longer retried."""
+    out = []
+    for p in APP_SUPPORT.glob("won_block_*.hex"):
+        tail = p.stem.rsplit("_", 1)[-1]  # won_block_<h> → <h>
+        if tail.isdigit():
+            out.append((int(tail), p))
+    return out
+
+
+def _mark_won_resolved(path: Path, outcome: str) -> None:
+    """A pending won block reached a terminal state — rename so it's kept for the record but not retried."""
+    try:
+        path.rename(path.with_suffix("." + outcome))
+    except OSError:
+        pass
+
+
+def _node_tip_height(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str) -> Optional[int]:
+    try:
+        return int(rpc_call(rpc_url, rpc_user, rpc_pass, "getblockcount", [], cookie=rpc_cookie))
+    except Exception:  # noqa: BLE001 — best-effort tip check
+        return None
+
+
+def _resubmit_worker(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path) -> None:
+    """Keep calling submitblock for a saved won block until the node ACCEPTS it (null), reports it a DUPLICATE
+    (already in the chain), or the height is FILLED by another block — then stop. Runs in its own thread so its
+    timing is independent of the 30s mining poll: a win is once in a lifetime and the window before a competing
+    block lands is ~10 min, so we retry hard early and back off gently. Gives up after RESUBMIT_DEADLINE_SEC if
+    the node is simply unreachable (the block is stale by then, but the hex is kept for manual recovery)."""
+    try:
+        block_hex = path.read_text().strip()
+    except OSError:
+        return
+    deadline = time.monotonic() + RESUBMIT_DEADLINE_SEC
+    attempt = 0
+    while time.monotonic() < deadline:
+        try:
+            result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex], cookie=rpc_cookie)
+        except Exception as exc:  # noqa: BLE001
+            result = f"error: {exc}"
+        if not result:  # null/empty → accepted onto the chain
+            log_daemon(f"✅ Won block #{height} ACCEPTED on resubmit — it's on the network.")
+            _mark_won_resolved(path, "accepted")
+            return
+        if result == "duplicate":  # already in the chain (ours from an earlier try, or identical)
+            log_daemon(f"✅ Won block #{height} confirmed in the chain (duplicate) — done.")
+            _mark_won_resolved(path, "duplicate")
+            return
+        tip = _node_tip_height(rpc_url, rpc_user, rpc_pass, rpc_cookie)
+        if tip is not None and tip >= height:  # the height is filled → we lost the race, stop
+            log_daemon(f"⚠ Won block #{height} lost the race — height filled at tip {tip}. Hex kept for the record.")
+            _mark_won_resolved(path, "superseded")
+            return
+        delay = RESUBMIT_DELAYS[min(attempt, len(RESUBMIT_DELAYS) - 1)]
+        attempt += 1
+        log_daemon(f"⚠ Resubmit of won block #{height} failed ('{result}') — retry #{attempt} in {delay}s.")
+        time.sleep(delay)
+    log_daemon(f"⚠ Won block #{height}: gave up auto-resubmit after {RESUBMIT_DEADLINE_SEC // 60} min (node unreachable?). Hex kept: {path}")
+    _mark_won_resolved(path, "expired")
+
+
+def spawn_resubmit(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path) -> None:
+    """Start a background resubmit worker for a won block (daemon thread — the .hex on disk is the durable state,
+    so if the process exits mid-retry, rescue_pending_won_blocks() picks it back up on the next launch)."""
+    threading.Thread(
+        target=_resubmit_worker,
+        args=(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path),
+        daemon=True,
+    ).start()
+
+
+def rescue_pending_won_blocks(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str) -> None:
+    """On startup, resume auto-resubmit for any won block left unconfirmed by a crash/quit mid-retry."""
+    for height, path in pending_won_files():
+        log_daemon(f"Found unsubmitted won block #{height} on disk — resuming auto-resubmit.")
+        spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path)
 
 
 def log_daemon(message: str) -> None:
@@ -862,11 +949,17 @@ def live_attempt(
         except Exception as exc:  # noqa: BLE001 — never let a winning block vanish into a stack trace
             result = f"error: {exc}"
         submitted = not result  # submitblock returns null on accept, a reason string otherwise (e.g. "duplicate")
-        print(
-            f"🎉 WON and submitted block #{height}!" if submitted
-            else f"⚠ WON block #{height} but submitblock returned '{result}' — saved {saved} for manual resubmit.",
-            file=sys.stderr,
-        )
+        if submitted:
+            _mark_won_resolved(saved, "accepted")
+            print(f"🎉 WON and submitted block #{height}!", file=sys.stderr)
+        elif result == "duplicate":
+            submitted = True  # already in the chain — count it as in
+            _mark_won_resolved(saved, "duplicate")
+            print(f"🎉 WON block #{height} — already in the chain (duplicate).", file=sys.stderr)
+        else:
+            # transient failure → a background worker retries until it lands or the height is taken (no manual step)
+            spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, saved)
+            print(f"⚠ WON block #{height} but submitblock returned '{result}' — AUTO-RETRYING every few seconds until it lands or the block is taken (saved {saved}).", file=sys.stderr)
 
     mempool_txs = template.get("transactions", [])
     return BlockAttempt(
@@ -1132,6 +1225,9 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
         if settings["payout_address"]:
             print(f"Payout address: {mask_address(settings['payout_address'])}")
         print("Waiting for new blocks (~10 min each)...\n")
+
+    if mode == "live":  # resume auto-resubmit for any won block left unconfirmed by a previous crash/quit
+        rescue_pending_won_blocks(settings.get("rpc_url", ""), settings.get("rpc_user", ""), settings.get("rpc_pass", ""), settings.get("rpc_cookie", ""))
 
     while True:
         try:
