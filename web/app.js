@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -521,7 +521,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -696,6 +696,7 @@ function summary(s) {
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "verify") { const v = model.verify; return v ? (v.merkleMatch == null ? "recomputing the proof-of-work…" : ((v.hashMatch && v.belowTarget && v.merkleMatch) ? "hash ✓ · below target ✓ · merkle ✓ — valid" : "check failed")) : "recompute a real block's hash yourself"; }
+  if (s === "broadcast") { const n = model.node, rdy = n && n.reachable !== false && !(n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)); return rdy ? "node ready · P2P armed" : "P2P armed · node syncing"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
@@ -1526,6 +1527,7 @@ function drawContent(s, r) {
   if (s === "maj") return drawMaj(r);
   if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
+  if (s === "broadcast") return drawBroadcast(r);
   if (s === "sync") return drawSync(r);
 }
 
@@ -2928,6 +2930,67 @@ function networkExplainer(da) {
   if (chg < -0.5) return `Blocks ran slower than 10 min → difficulty eases ${pct} in ${when}, nudging them back toward the 10-min target.`;
   return `Hashpower ≈ difficulty — blocks are landing near 10 min. Next retarget ${when}, just ${pct}.`;
 }
+// BROADCAST — the instant you win, your block radiates out to the whole network via your node's peers AND a
+// direct P2P push. A repeating wavefront shows it reaching nodes (pools labelled); badges show live readiness.
+function drawBroadcast(r) {
+  const x0 = r.x + 16, x1 = r.x + r.w - 16, now = Date.now(), GRN = "90,225,140", GLD = "255,205,110";
+  text("BROADCAST — the instant you win, your block hits the whole network", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("It goes out two ways at once: through your node to its peers, and a direct P2P push to well-connected nodes. The big miners see it in ~1–2s and start building on top.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+
+  const n = model.node, reachable = !!(n && n.reachable !== false);
+  const syncing = reachable && (n.initialblockdownload || (n.headers || 0) > (n.blocks || 0));
+  const nodeReady = reachable && !syncing;
+  const peerCount = (n && Array.isArray(n.peers)) ? n.peers.length : 0;
+
+  const mx = x0 + 80, my = r.y + 118, RB = 22;
+  const fx0 = mx + 78, fx1 = x1 - 14, fy0 = r.y + 56, fy1 = r.y + r.h - 54;
+  const NN = 46, pools = { 4: "Foundry USA", 13: "AntPool", 22: "F2Pool", 33: "ViaBTC", 41: "MARA" };
+  const nodes = []; let maxD = 1;
+  for (let i = 0; i < NN; i++) {
+    const nx = fx0 + hrand(i * 1.73 + 0.2) * (fx1 - fx0), ny = fy0 + hrand(i * 2.91 + 0.7) * (fy1 - fy0), d = Math.hypot(nx - mx, ny - my);
+    if (d > maxD) maxD = d;
+    nodes.push({ nx, ny, d, pool: pools[i] });
+  }
+  const PERIOD = 2600, t = reduceMotion ? 0.72 : (now % PERIOD) / PERIOD, R = t * maxD * 1.15; // expanding wavefront
+
+  // links to the nearest ~peers (your node's real relay), lit as the wavefront passes them
+  nodes.slice().sort((a, b) => a.d - b.d).forEach((nd, rank) => {
+    if (rank >= Math.max(6, Math.min(peerCount || 10, 16))) return;
+    ctx.strokeStyle = nd.d <= R ? `rgba(${GRN},0.32)` : "rgba(255,255,255,0.07)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(nd.nx, nd.ny); ctx.stroke();
+  });
+  if (!reduceMotion) { ctx.strokeStyle = `rgba(${GRN},${0.28 * (1 - t)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, R, 0, 7); ctx.stroke(); }
+
+  nodes.forEach((nd) => {
+    const lit = nd.d <= R, fresh = lit && nd.d > R - 42;
+    ctx.fillStyle = lit ? `rgba(${GRN},${fresh ? 1 : 0.7})` : "rgba(255,255,255,0.22)";
+    ctx.beginPath(); ctx.arc(nd.nx, nd.ny, nd.pool ? 4.5 : 2.6, 0, 7); ctx.fill();
+    if (fresh) { ctx.strokeStyle = `rgba(${GRN},0.5)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(nd.nx, nd.ny, 6.5, 0, 7); ctx.stroke(); }
+    if (nd.pool) text(nd.pool, nd.nx, nd.ny + 12, { size: 8, weight: 600, color: lit ? `rgba(${GRN},0.9)` : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  });
+
+  // the miner (you) at the hub
+  ctx.fillStyle = "rgba(247,147,26,0.16)"; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.fill();
+  ctx.strokeStyle = "rgba(247,147,26,0.9)"; ctx.lineWidth = 1.5; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.stroke();
+  text("₿", mx, my, { size: 20, weight: 800, color: "rgba(247,147,26,1)", align: "center", baseline: "middle" });
+  text("YOU", mx, my + RB + 10, { size: 9, weight: 700, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+  text("① your node → its peers", mx + RB + 8, my - 9, { size: 9, weight: 600, color: `rgba(${GRN},0.85)`, baseline: "middle" });
+  text("② direct P2P → nodes", mx + RB + 8, my + 9, { size: 9, weight: 600, color: `rgba(${GRN},0.85)`, baseline: "middle" });
+
+  // readiness badges
+  const badge = (bx, ok, label, sub) => {
+    const c = ok ? GRN : GLD, by = r.y + r.h - 30;
+    ctx.fillStyle = `rgba(${c},0.12)`; roundRect(bx, by, 248, 20, 5); ctx.fill();
+    ctx.strokeStyle = `rgba(${c},0.7)`; ctx.lineWidth = 1; roundRect(bx, by, 248, 20, 5); ctx.stroke();
+    text(`${ok ? "✓" : "…"} ${label}`, bx + 10, by + 10, { size: 10, weight: 700, color: `rgba(${c},1)`, baseline: "middle" });
+    text(sub, bx + 238, by + 10, { size: 9, color: "rgba(255,255,255,0.5)", align: "right", baseline: "middle" });
+  };
+  badge(x0, nodeReady, nodeReady ? "Your node: ready" : (reachable ? "Your node: syncing" : "Your node: offline"), peerCount ? `${peerCount} peers` : "relays your block");
+  badge(x0 + 258, true, "Direct P2P: armed", "~25 nodes on standby");
+  text(nodeReady ? "If you win right now, your block goes out instantly — both paths, no manual step." : "Even while your node syncs, the direct P2P path is armed — a win still gets broadcast.",
+    x0 + 520, r.y + r.h - 20, { size: 10, weight: 600, color: nodeReady ? `rgba(${GRN},0.9)` : `rgba(${GLD},0.9)`, baseline: "middle" });
+}
+
 function drawNetwork(r) {
   let y = r.y + 16;
   if (model.difficulty) {
