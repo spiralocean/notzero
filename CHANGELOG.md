@@ -27,8 +27,10 @@ version number and bump `desktop/package.json`.
 
 **Dashboard**
 - **BROADCAST panel.** A live "if you win" view: your miner at the hub with the block radiating out to the
-  network (major pools labelled) via your node's peers *and* a direct P2P push, with a repeating propagation
-  wavefront. Real readiness badges — your node's sync state + live peer count (`getpeerinfo`), and "Direct
+  network (major pools labelled) via your node's peers *and* a direct P2P push, as a sonar wavefront — your
+  directly-connected peers light first (instant), then gossip carries it outward, and on an actual win it flips
+  to a gold "BLOCK FOUND — broadcasting" burst. Real readiness badges — node sync state + live peer count
+  (`getpeerinfo`), and "Direct
   P2P: armed" — so you can see at a glance that a win would go out instantly. Ties together the do-whatever-
   it-takes submission work.
 - **VERIFY THIS BLOCK.** A new panel that independently recomputes a real recent block's proof-of-work

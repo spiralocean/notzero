@@ -544,6 +544,7 @@ let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover h
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
+let broadcastBurstUntil = 0; // BROADCAST panel fires an intense "block found" burst for a window after a win
 let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null;
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
@@ -554,6 +555,7 @@ const dismissedLost = new Set(); // heights whose 'lost the race' notice the use
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
   Object.assign(celebration, { active: true, t: 0, preview, mode, verified, height: height || 0, hash: hash || "", reward: reward != null ? reward : blockSubsidy(height) });
+  broadcastBurstUntil = Date.now() + 90_000; // the BROADCAST panel shows the "block found" burst for ~90s after
 }
 // new-best toast: a small, non-intrusive reward when the miner beats its own leading-zero record
 // (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
@@ -2931,10 +2933,15 @@ function networkExplainer(da) {
   return `Hashpower ≈ difficulty — blocks are landing near 10 min. Next retarget ${when}, just ${pct}.`;
 }
 // BROADCAST — the instant you win, your block radiates out to the whole network via your node's peers AND a
-// direct P2P push. A repeating wavefront shows it reaching nodes (pools labelled); badges show live readiness.
+// direct P2P push. A sonar wavefront shows it reaching nodes (pools labelled); your directly-connected peers
+// light FIRST (instant delivery), then gossip carries it outward. On a real win it flips to a gold "BLOCK
+// FOUND" burst. Badges show live readiness.
 function drawBroadcast(r) {
   const x0 = r.x + 16, x1 = r.x + r.w - 16, now = Date.now(), GRN = "90,225,140", GLD = "255,205,110";
+  const burst = now < broadcastBurstUntil; // a win just landed → intense broadcast burst
+  const C = burst ? GLD : GRN;
   text("BROADCAST — the instant you win, your block hits the whole network", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  if (burst) text("★ BLOCK FOUND — BROADCASTING", x1, r.y + 16, { size: 12, weight: 800, color: `rgba(${GLD},${0.7 + 0.3 * Math.sin(now / 120)})`, align: "right", baseline: "middle" });
   text("It goes out two ways at once: through your node to its peers, and a direct P2P push to well-connected nodes. The big miners see it in ~1–2s and start building on top.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
 
   const n = model.node, reachable = !!(n && n.reachable !== false);
@@ -2944,38 +2951,49 @@ function drawBroadcast(r) {
 
   const mx = x0 + 80, my = r.y + 118, RB = 22;
   const fx0 = mx + 78, fx1 = x1 - 14, fy0 = r.y + 56, fy1 = r.y + r.h - 54;
-  const NN = 46, pools = { 4: "Foundry USA", 13: "AntPool", 22: "F2Pool", 33: "ViaBTC", 41: "MARA" };
+  const NN = 46, poolNames = { 4: "Foundry USA", 13: "AntPool", 22: "F2Pool", 33: "ViaBTC", 41: "MARA" };
   const nodes = []; let maxD = 1;
   for (let i = 0; i < NN; i++) {
     const nx = fx0 + hrand(i * 1.73 + 0.2) * (fx1 - fx0), ny = fy0 + hrand(i * 2.91 + 0.7) * (fy1 - fy0), d = Math.hypot(nx - mx, ny - my);
     if (d > maxD) maxD = d;
-    nodes.push({ nx, ny, d, pool: pools[i] });
+    nodes.push({ nx, ny, d, pool: poolNames[i] });
   }
-  const PERIOD = 2600, t = reduceMotion ? 0.72 : (now % PERIOD) / PERIOD, R = t * maxD * 1.15; // expanding wavefront
+  // your directly-connected peers = the nearest nodes; they get the block FIRST (direct), the rest via gossip
+  const nPeers = Math.max(6, Math.min(peerCount || 10, 16));
+  nodes.slice().sort((a, b) => a.d - b.d).forEach((nd, rank) => { nd.isPeer = rank < nPeers; });
 
-  // links to the nearest ~peers (your node's real relay), lit as the wavefront passes them
-  nodes.slice().sort((a, b) => a.d - b.d).forEach((nd, rank) => {
-    if (rank >= Math.max(6, Math.min(peerCount || 10, 16))) return;
-    ctx.strokeStyle = nd.d <= R ? `rgba(${GRN},0.32)` : "rgba(255,255,255,0.07)"; ctx.lineWidth = 1;
+  const PERIOD = burst ? 1100 : 2600, t = reduceMotion ? 0.72 : (now % PERIOD) / PERIOD, R = t * maxD * 1.15;
+  const peerFlash = t < 0.22 && !reduceMotion; // the direct-delivery flash at the start of each broadcast
+
+  // links to your peers — always connected (dim), flashing bright at each broadcast
+  nodes.forEach((nd) => {
+    if (!nd.isPeer) return;
+    ctx.strokeStyle = `rgba(${C},${peerFlash ? (burst ? 0.6 : 0.42) : 0.16})`; ctx.lineWidth = peerFlash && burst ? 1.5 : 1;
     ctx.beginPath(); ctx.moveTo(mx, my); ctx.lineTo(nd.nx, nd.ny); ctx.stroke();
   });
-  if (!reduceMotion) { ctx.strokeStyle = `rgba(${GRN},${0.28 * (1 - t)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, R, 0, 7); ctx.stroke(); }
+
+  // the sonar wavefront — one ring at rest, a second chasing ring during the burst
+  if (!reduceMotion) {
+    (burst ? [t, (t + 0.5) % 1] : [t]).forEach((tt) => { ctx.strokeStyle = `rgba(${C},${(burst ? 0.4 : 0.28) * (1 - tt)})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(mx, my, tt * maxD * 1.15, 0, 7); ctx.stroke(); });
+  }
 
   nodes.forEach((nd) => {
-    const lit = nd.d <= R, fresh = lit && nd.d > R - 42;
-    ctx.fillStyle = lit ? `rgba(${GRN},${fresh ? 1 : 0.7})` : "rgba(255,255,255,0.22)";
+    const lit = nd.isPeer ? true : nd.d <= R;                       // peers are always connected; others light as the wave passes
+    const fresh = nd.isPeer ? peerFlash : (lit && nd.d > R - 42);
+    ctx.fillStyle = nd.isPeer ? `rgba(${C},${fresh ? 1 : 0.5})` : (lit ? `rgba(${C},${fresh ? 1 : 0.72})` : "rgba(255,255,255,0.22)");
     ctx.beginPath(); ctx.arc(nd.nx, nd.ny, nd.pool ? 4.5 : 2.6, 0, 7); ctx.fill();
-    if (fresh) { ctx.strokeStyle = `rgba(${GRN},0.5)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(nd.nx, nd.ny, 6.5, 0, 7); ctx.stroke(); }
-    if (nd.pool) text(nd.pool, nd.nx, nd.ny + 12, { size: 8, weight: 600, color: lit ? `rgba(${GRN},0.9)` : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+    if (fresh) { ctx.strokeStyle = `rgba(${C},0.5)`; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(nd.nx, nd.ny, 6.5, 0, 7); ctx.stroke(); }
+    if (nd.pool) text(nd.pool, nd.nx, nd.ny + 12, { size: 8, weight: 600, color: lit ? `rgba(${C},0.9)` : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   });
 
   // the miner (you) at the hub
-  ctx.fillStyle = "rgba(247,147,26,0.16)"; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.fill();
-  ctx.strokeStyle = "rgba(247,147,26,0.9)"; ctx.lineWidth = 1.5; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.stroke();
-  text("₿", mx, my, { size: 20, weight: 800, color: "rgba(247,147,26,1)", align: "center", baseline: "middle" });
+  const hub = burst ? "255,205,110" : "247,147,26";
+  ctx.fillStyle = `rgba(${hub},0.16)`; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.fill();
+  ctx.strokeStyle = `rgba(${hub},0.9)`; ctx.lineWidth = 1.5; roundRect(mx - RB, my - RB, RB * 2, RB * 2, 8); ctx.stroke();
+  text("₿", mx, my, { size: 20, weight: 800, color: `rgba(${hub},1)`, align: "center", baseline: "middle" });
   text("YOU", mx, my + RB + 10, { size: 9, weight: 700, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
-  text("① your node → its peers", mx + RB + 8, my - 9, { size: 9, weight: 600, color: `rgba(${GRN},0.85)`, baseline: "middle" });
-  text("② direct P2P → nodes", mx + RB + 8, my + 9, { size: 9, weight: 600, color: `rgba(${GRN},0.85)`, baseline: "middle" });
+  text("① your node → its peers", mx + RB + 8, my - 9, { size: 9, weight: 600, color: `rgba(${C},0.85)`, baseline: "middle" });
+  text("② direct P2P → nodes", mx + RB + 8, my + 9, { size: 9, weight: 600, color: `rgba(${C},0.85)`, baseline: "middle" });
 
   // readiness badges
   const badge = (bx, ok, label, sub) => {
@@ -2987,8 +3005,8 @@ function drawBroadcast(r) {
   };
   badge(x0, nodeReady, nodeReady ? "Your node: ready" : (reachable ? "Your node: syncing" : "Your node: offline"), peerCount ? `${peerCount} peers` : "relays your block");
   badge(x0 + 258, true, "Direct P2P: armed", "~25 nodes on standby");
-  text(nodeReady ? "If you win right now, your block goes out instantly — both paths, no manual step." : "Even while your node syncs, the direct P2P path is armed — a win still gets broadcast.",
-    x0 + 520, r.y + r.h - 20, { size: 10, weight: 600, color: nodeReady ? `rgba(${GRN},0.9)` : `rgba(${GLD},0.9)`, baseline: "middle" });
+  text(burst ? "★ Block found — broadcasting to your peers and the wider network right now." : (nodeReady ? "If you win right now, your block goes out instantly — both paths, no manual step." : "Even while your node syncs, the direct P2P path is armed — a win still gets broadcast."),
+    x0 + 520, r.y + r.h - 20, { size: 10, weight: 600, color: burst ? `rgba(${GLD},1)` : (nodeReady ? `rgba(${GRN},0.9)` : `rgba(${GLD},0.9)`), baseline: "middle" });
 }
 
 function drawNetwork(r) {
