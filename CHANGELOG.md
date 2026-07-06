@@ -15,12 +15,14 @@ version number and bump `desktop/package.json`.
   version since theirs, not just the latest. Repeat notify-only notifications are deduped to one per version.
 
 **Mining**
-- **Auto-resubmit a won block.** If `submitblock` fails on a win (transient RPC/node blip), a background
-  worker now keeps retrying — hard early (1s, 2s, 4s…), backing off and capped at 30s so it never spams the
-  node — until the node accepts it, reports it a duplicate (already in), or another block fills the height.
-  It resumes on the next launch if the app crashed/quit mid-retry. Previously the block was only saved to disk
-  for **manual** resubmit — which an unattended miner would miss inside the ~10-minute window. The found block
-  is still written to disk first, so it's never lost.
+- **Do-whatever-it-takes block submission.** A won block is now pushed through **two gateways at once** from the
+  first instant: the node's `submitblock` RPC *and* a direct **P2P broadcast** to public Bitcoin nodes (found via
+  the DNS seeds). If the node RPC keeps failing, a background worker hammers both — RPC retries fast-early and
+  capped at 30s; P2P re-pushed to fresh peers every ~45s — and independently confirms via a public explorer,
+  until the block lands, the node reports a duplicate, or another block fills the height. Resumes on the next
+  launch if the app crashed mid-retry; the found block is still written to disk first so it can never be lost.
+  Previously a failed submit only saved the hex for **manual** resubmit — useless for an unattended miner in the
+  ~10-minute window. (Opt out with `"p2p_fallback": false` in config.)
 
 **Dashboard**
 - **VERIFY THIS BLOCK.** A new panel that independently recomputes a real recent block's proof-of-work

@@ -29,6 +29,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+import p2p_broadcast  # local: direct P2P block broadcast — last-resort submission gateway when node RPC is down
+
 # PyInstaller-frozen builds ignore PYTHONUTF8, and Windows pipes/consoles default to cp1252 — so any
 # non-Latin-1 char we print (₿, →, …) crashes with UnicodeEncodeError. Force UTF-8 on our streams.
 for _stream in (sys.stdout, sys.stderr):
@@ -61,6 +63,8 @@ POLL_INTERVAL_SEC = 30
 # capped at 30s so we never hammer the node. We keep retrying until it lands or the height is taken.
 RESUBMIT_DELAYS = (1, 2, 4, 8, 16, 30)
 RESUBMIT_DEADLINE_SEC = 20 * 60  # give up after ~2 block windows if we simply can't reach the node
+P2P_REBROADCAST_SEC = 45   # while the node RPC keeps failing, re-push the block to fresh peers this often
+CONFIRM_INTERVAL_SEC = 20  # how often to ask the public network whether our block has landed (via any gateway)
 DEFAULT_PRICE_POLL_MIN = 15
 AVG_BLOCK_SEC = 600
 # fallback payout when the operator hasn't set their own wallet — rewards go to the project owner.
@@ -134,6 +138,7 @@ def load_config() -> dict:
     config.setdefault("notifications_enabled", True)
     config.setdefault("notify_closeness_above_zero", True)
     config.setdefault("notify_block_won", True)
+    config.setdefault("p2p_fallback", True)  # on a win, also push the block straight to the P2P network
     config.setdefault("notify_node_synced", True)
     config.setdefault("notify_node_out_of_sync", True)
     return config
@@ -259,59 +264,110 @@ def _node_tip_height(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str
         return None
 
 
-def _resubmit_worker(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path) -> None:
-    """Keep calling submitblock for a saved won block until the node ACCEPTS it (null), reports it a DUPLICATE
-    (already in the chain), or the height is FILLED by another block — then stop. Runs in its own thread so its
-    timing is independent of the 30s mining poll: a win is once in a lifetime and the window before a competing
-    block lands is ~10 min, so we retry hard early and back off gently. Gives up after RESUBMIT_DEADLINE_SEC if
-    the node is simply unreachable (the block is stale by then, but the hex is kept for manual recovery)."""
+def _block_hash_from_hex(block_hex: str) -> str:
+    """The block's display hash (big-endian) = reversed double-SHA256 of its 80-byte header."""
+    try:
+        header = bytes.fromhex(block_hex.strip())[:80]
+    except ValueError:
+        return ""
+    if len(header) < 80:
+        return ""
+    return hashlib.sha256(hashlib.sha256(header).digest()).digest()[::-1].hex()
+
+
+def _block_on_network(block_hash: str) -> bool:
+    """Independently confirm a block reached the network via a public explorer — works even if our node is down,
+    and regardless of which gateway (RPC or P2P) actually delivered it."""
+    if not block_hash:
+        return False
+    try:
+        blk = http_get(f"{MEMPOOL_API}/block/{block_hash}", timeout=15)
+        return isinstance(blk, dict) and str(blk.get("id", "")).lower() == block_hash.lower()
+    except Exception:  # noqa: BLE001 — 404/timeout → not (yet) seen
+        return False
+
+
+def _network_tip_height() -> Optional[int]:
+    try:
+        return int(http_get(f"{MEMPOOL_API}/blocks/tip/height", timeout=15))
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _resubmit_worker(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path, p2p_enabled: bool = True) -> None:
+    """Do WHATEVER IT TAKES to land a saved won block: keep calling submitblock on the node AND — while the node
+    keeps failing — push the raw block straight to the P2P network, until an explorer confirms our block is on
+    the chain, the node accepts it, or another block fills the height. Own thread, timing independent of the 30s
+    mining poll: a win is once in a lifetime and the window before a competing block lands is ~10 min, so we
+    retry hard early. Gives up only after RESUBMIT_DEADLINE_SEC of a fully unreachable world (block is stale by
+    then; the hex is kept for manual recovery)."""
     try:
         block_hex = path.read_text().strip()
     except OSError:
         return
+    block_hash = _block_hash_from_hex(block_hex)
     deadline = time.monotonic() + RESUBMIT_DEADLINE_SEC
     attempt = 0
+    last_p2p = 0.0
+    last_confirm = 0.0
     while time.monotonic() < deadline:
+        now = time.monotonic()
+        # primary gateway — submit through our own node
         try:
             result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex], cookie=rpc_cookie)
         except Exception as exc:  # noqa: BLE001
             result = f"error: {exc}"
-        if not result:  # null/empty → accepted onto the chain
-            log_daemon(f"✅ Won block #{height} ACCEPTED on resubmit — it's on the network.")
+        if not result:
+            log_daemon(f"✅ Won block #{height} ACCEPTED via node RPC — it's on the network.")
             _mark_won_resolved(path, "accepted")
             return
-        if result == "duplicate":  # already in the chain (ours from an earlier try, or identical)
-            log_daemon(f"✅ Won block #{height} confirmed in the chain (duplicate) — done.")
+        if result == "duplicate":
+            log_daemon(f"✅ Won block #{height} already in the chain (duplicate) — done.")
             _mark_won_resolved(path, "duplicate")
             return
+        # independent confirmation — did our block land, via ANY gateway? (throttled)
+        if block_hash and now - last_confirm >= CONFIRM_INTERVAL_SEC:
+            last_confirm = now
+            if _block_on_network(block_hash):
+                log_daemon(f"✅ Won block #{height} CONFIRMED on the network ({block_hash[:12]}…) — done.")
+                _mark_won_resolved(path, "accepted")
+                return
+        # node isn't taking it → push straight to the P2P network, re-pushing to fresh peers periodically
+        if p2p_enabled and now - last_p2p >= P2P_REBROADCAST_SEC:
+            last_p2p = now
+            log_daemon(f"Node RPC failing ('{result}') — pushing won block #{height} to the P2P network directly.")
+            p2p_broadcast.broadcast_block(block_hex, log=log_daemon)
+        # has another block already filled this height? (node tip, else the public tip) — ours would be caught above
         tip = _node_tip_height(rpc_url, rpc_user, rpc_pass, rpc_cookie)
-        if tip is not None and tip >= height:  # the height is filled → we lost the race, stop
+        if tip is None:
+            tip = _network_tip_height()
+        if tip is not None and tip >= height:
             log_daemon(f"⚠ Won block #{height} lost the race — height filled at tip {tip}. Hex kept for the record.")
             _mark_won_resolved(path, "superseded")
             return
         delay = RESUBMIT_DELAYS[min(attempt, len(RESUBMIT_DELAYS) - 1)]
         attempt += 1
-        log_daemon(f"⚠ Resubmit of won block #{height} failed ('{result}') — retry #{attempt} in {delay}s.")
+        log_daemon(f"⚠ Resubmit #{attempt} of won block #{height} via RPC failed ('{result}') — retry in {delay}s.")
         time.sleep(delay)
-    log_daemon(f"⚠ Won block #{height}: gave up auto-resubmit after {RESUBMIT_DEADLINE_SEC // 60} min (node unreachable?). Hex kept: {path}")
+    log_daemon(f"⚠ Won block #{height}: gave up after {RESUBMIT_DEADLINE_SEC // 60} min (network/node unreachable?). Hex kept: {path}")
     _mark_won_resolved(path, "expired")
 
 
-def spawn_resubmit(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path) -> None:
+def spawn_resubmit(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, height: int, path: Path, p2p_enabled: bool = True) -> None:
     """Start a background resubmit worker for a won block (daemon thread — the .hex on disk is the durable state,
     so if the process exits mid-retry, rescue_pending_won_blocks() picks it back up on the next launch)."""
     threading.Thread(
         target=_resubmit_worker,
-        args=(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path),
+        args=(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path, p2p_enabled),
         daemon=True,
     ).start()
 
 
-def rescue_pending_won_blocks(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str) -> None:
-    """On startup, resume auto-resubmit for any won block left unconfirmed by a crash/quit mid-retry."""
+def rescue_pending_won_blocks(rpc_url: str, rpc_user: str, rpc_pass: str, rpc_cookie: str, p2p_enabled: bool = True) -> None:
+    """On startup, resume auto-resubmit (node RPC + direct P2P) for any won block left unconfirmed by a crash/quit."""
     for height, path in pending_won_files():
-        log_daemon(f"Found unsubmitted won block #{height} on disk — resuming auto-resubmit.")
-        spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path)
+        log_daemon(f"Found unsubmitted won block #{height} on disk — resuming auto-resubmit (RPC + P2P).")
+        spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, path, p2p_enabled)
 
 
 def log_daemon(message: str) -> None:
@@ -944,6 +1000,10 @@ def live_attempt(
     if won:
         block_hex = _assemble_block_hex(template, coinbase_tx, nonce)
         saved = save_winning_block(height, block_hex)  # persist FIRST — a found block must survive any submit error
+        p2p_enabled = load_config().get("p2p_fallback", True)
+        # do whatever it takes: push straight to the P2P network the FIRST time too, in parallel with the node RPC
+        if p2p_enabled:
+            threading.Thread(target=p2p_broadcast.broadcast_block, args=(block_hex, log_daemon), daemon=True).start()
         try:
             result = rpc_call(rpc_url, rpc_user, rpc_pass, "submitblock", [block_hex], cookie=rpc_cookie)
         except Exception as exc:  # noqa: BLE001 — never let a winning block vanish into a stack trace
@@ -951,15 +1011,15 @@ def live_attempt(
         submitted = not result  # submitblock returns null on accept, a reason string otherwise (e.g. "duplicate")
         if submitted:
             _mark_won_resolved(saved, "accepted")
-            print(f"🎉 WON and submitted block #{height}!", file=sys.stderr)
+            print(f"🎉 WON and submitted block #{height}! (also pushed to the P2P network)", file=sys.stderr)
         elif result == "duplicate":
             submitted = True  # already in the chain — count it as in
             _mark_won_resolved(saved, "duplicate")
             print(f"🎉 WON block #{height} — already in the chain (duplicate).", file=sys.stderr)
         else:
-            # transient failure → a background worker retries until it lands or the height is taken (no manual step)
-            spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, saved)
-            print(f"⚠ WON block #{height} but submitblock returned '{result}' — AUTO-RETRYING every few seconds until it lands or the block is taken (saved {saved}).", file=sys.stderr)
+            # node didn't take it → a worker keeps hammering BOTH the node RPC and the P2P network until it lands
+            spawn_resubmit(rpc_url, rpc_user, rpc_pass, rpc_cookie, height, saved, p2p_enabled)
+            print(f"⚠ WON block #{height} but submitblock returned '{result}' — AUTO-RETRYING via node RPC + direct P2P until it lands or the block is taken (saved {saved}).", file=sys.stderr)
 
     mempool_txs = template.get("transactions", [])
     return BlockAttempt(
@@ -1227,7 +1287,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
         print("Waiting for new blocks (~10 min each)...\n")
 
     if mode == "live":  # resume auto-resubmit for any won block left unconfirmed by a previous crash/quit
-        rescue_pending_won_blocks(settings.get("rpc_url", ""), settings.get("rpc_user", ""), settings.get("rpc_pass", ""), settings.get("rpc_cookie", ""))
+        rescue_pending_won_blocks(settings.get("rpc_url", ""), settings.get("rpc_user", ""), settings.get("rpc_pass", ""), settings.get("rpc_cookie", ""), config.get("p2p_fallback", True))
 
     while True:
         try:
