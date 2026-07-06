@@ -866,7 +866,7 @@ function drawFold(r) {
   const kfi = Math.floor(foldT / FOLD_UNIT), fLocal = foldT - kfi * FOLD_UNIT;
   const g = (fLocal < FOLD_HOLD || kfi === FOLD_KFS.length - 1) ? FOLD_KFS[kfi] : FOLD_KFS[kfi] + (FOLD_KFS[kfi + 1] - FOLD_KFS[kfi]) * clamp01((fLocal - FOLD_HOLD) / FOLD_TRANS);
   let si = Math.min(N - 1, Math.floor(g)), f = g - si; if (g >= N) { si = N - 1; f = 1; }
-  const done = g >= N - 0.02, dropP = clamp01(f / 0.2), churn = f > 0.55 && f < 0.74, slideP = f > 0.82 && si < N - 1 ? clamp01((f - 0.82) / 0.18) : 0;
+  const done = g >= N - 0.02, dropP = clamp01(f / 0.2), churn = f > 0.55 && f < 0.74, slideP = f > 0.78 && si < N - 1 ? clamp01((f - 0.78) / 0.14) : 0;
 
   // transport buttons — back · play/pause · step-forward (matches THE CHURN); stepping pauses
   { const bh = 19, bwd = 27, gp = 5, byy = r.y + 3, s = 5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2, GI = "rgba(255,228,140,0.98)";
@@ -919,8 +919,10 @@ function drawFold(r) {
   // OUTPUT = the hashed bottom row, now a hash. It rests as a chip while the box slides right off it, then
   // slides into the NEXT box as that box's bottom row.
   if (f > 0.72) { const hx = segX(si) + segW * 0.5, isHash = done || si === N - 1;
-    chip(hx, chipY, isHash ? "= HASH" : "hash", GRN, clamp01((f - 0.72) / 0.1));
-    if (!isHash && slideP > 0.15) text("box slid on — the hash stays, slides in next as the bottom row", hx, chipY + 14, { size: 8, weight: 600, color: `rgba(${GRN},0.8)`, align: "center", baseline: "middle" }); }
+    // reveal the hash only as the box slides clear of it — never draw the chip text on top of the box
+    const a = isHash ? clamp01((f - 0.72) / 0.1) : clamp01((boxX - (hx + 24)) / 26);
+    if (a > 0.02) { chip(hx, chipY, isHash ? "= HASH" : "hash", GRN, a);
+      if (!isHash && a > 0.5) text("the box slid on — this hash slides into the next box as its bottom row", hx, chipY + 14, { size: 8, weight: 600, color: `rgba(${GRN},0.8)`, align: "center", baseline: "middle" }); } }
 
   let cap;
   if (done || (si === N - 1 && f > 0.82)) cap = "After the last segment, the state IS the 256-bit hash.";
