@@ -6,7 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.27
 
-_Nothing yet._
+**Dashboard**
+- **THE FOLD** — a new animated panel (under INSIDE THE HASH, after THE CHURN) showing how SHA-256 digests a
+  message longer than its 256-bit output. A "64-round machine" slides along the message, eating one 512-bit
+  segment at a time; the box has two rows (top = the incoming segment, bottom = the state), the segment drops
+  into the state and churns, then the box slides right **leaving the hash** — which slides into the next box as
+  its new bottom row, so the previous hash literally becomes the new constants. Includes **play / pause /
+  step** transport (like THE CHURN) with non-linear pacing that holds on each readable step.
 
 ## 0.1.26
 

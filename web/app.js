@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "hashInside", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -474,7 +474,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, hashInside: 464, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -490,7 +490,7 @@ const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
 if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
 // hides them all at once — the whole SHA-256 explainer folds into one section.
-const HASH_CHILDREN = new Set(["oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
+const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
@@ -650,6 +650,7 @@ function summary(s) {
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
+  if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
   if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
   if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
   if (s === "oneRound") { return "scramble · choose · majority → new a, e"; }
@@ -847,6 +848,89 @@ function drawHashInside(r) {
   for (let i = 0; i < 64; i++) { const z = i < lead; text(d.digest[i], x0 + dcw * (i + 0.5), y, { size: 11, weight: z ? 700 : 600, color: z ? "rgba(255,215,90,1)" : "rgba(90,235,150,0.92)", align: "center", baseline: "middle", mono: true }); }
 }
 
+// THE FOLD — the conveyor view of Merkle–Damgård, choreographed so "the previous hash IS the new constants"
+// is literal: a state chip slides into the box's LEFT slot (√ IV first, the previous hash after), the segment
+// drops in from above, it churns, and the hash that pops out is the SAME chip that slides in next time.
+function drawFold(r) {
+  const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0, now = Date.now();
+  const BLUE = "120,200,255", GRN = "90,225,140", GLD = "255,205,110", DIM = "rgba(255,255,255,0.05)";
+  const clamp01 = (v) => Math.max(0, Math.min(1, v));
+  text("THE FOLD — the 64-round machine eats your message one 512-bit segment at a time", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("The state slides into the box from the left, the segment drops in from above, it churns. The hash that pops out is what slides in next — the previous hash literally becomes the new constants.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+
+  const N = 3;
+  // non-linear pacing: advance the fold clock (unless paused), hold on keyframes, quick transitions between
+  if (reduceMotion) foldT = 0; // static → first keyframe (segment 1, two rows)
+  else if (!foldPaused) { const dt = foldLast ? Math.min(140, now - foldLast) : 0; foldT = (foldT + dt) % FOLD_TOTAL; }
+  foldLast = now;
+  const kfi = Math.floor(foldT / FOLD_UNIT), fLocal = foldT - kfi * FOLD_UNIT;
+  const g = (fLocal < FOLD_HOLD || kfi === FOLD_KFS.length - 1) ? FOLD_KFS[kfi] : FOLD_KFS[kfi] + (FOLD_KFS[kfi + 1] - FOLD_KFS[kfi]) * clamp01((fLocal - FOLD_HOLD) / FOLD_TRANS);
+  let si = Math.min(N - 1, Math.floor(g)), f = g - si; if (g >= N) { si = N - 1; f = 1; }
+  const done = g >= N - 0.02, dropP = clamp01(f / 0.2), churn = f > 0.55 && f < 0.74, slideP = f > 0.82 && si < N - 1 ? clamp01((f - 0.82) / 0.18) : 0;
+
+  // transport buttons — back · play/pause · step-forward (matches THE CHURN); stepping pauses
+  { const bh = 19, bwd = 27, gp = 5, byy = r.y + 3, s = 5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2, GI = "rgba(255,228,140,0.98)";
+    const box = (bx, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.3)" : "rgba(255,255,255,0.1)"; roundRect(bx, byy, bwd, bh, 5); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.6)"; ctx.lineWidth = 1; roundRect(bx, byy, bwd, bh, 5); ctx.stroke(); };
+    box(b1, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s, cyy - s); ctx.lineTo(c + s, cyy + s); ctx.lineTo(c - 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
+    box(b2, foldPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (foldPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3.5, cyy - s, 2.2, 2 * s); ctx.fillRect(c + 1.3, cyy - s, 2.2, 2 * s); } }
+    box(b3, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s, cyy - s); ctx.lineTo(c - s, cyy + s); ctx.lineTo(c + 1, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
+    foldBackHit = { x: b1, y: byy, w: bwd, h: bh }; foldPlayHit = { x: b2, y: byy, w: bwd, h: bh }; foldFwdHit = { x: b3, y: byy, w: bwd, h: bh };
+    if (foldPaused) text(`⏸ step ${kfi + 1}/${FOLD_KFS.length}`, b1 - 8, cyy, { size: 8, weight: 700, color: "rgba(255,215,90,0.85)", align: "right", baseline: "middle" }); }
+
+  const lm = 66, rm = 58, segGap = 16, segW = (w - lm - rm - segGap * (N - 1)) / N, segX = (k) => x0 + lm + k * (segW + segGap);
+  const stripY = r.y + 64, stripH = 22, machY = r.y + 126, machH = 46;
+  const boxX = segX(si) + slideP * (segX(Math.min(N - 1, si + 1)) - segX(si));
+  const chip = (cx, cy, label, rgb, a) => { const cw = Math.max(48, label.length * 6.4 + 16), ch = 17; ctx.globalAlpha = a == null ? 1 : a; ctx.fillStyle = `rgba(${rgb},0.16)`; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.fill(); ctx.strokeStyle = `rgba(${rgb},0.95)`; ctx.lineWidth = 1.2; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.stroke(); text(label, cx, cy, { size: 9, weight: 700, color: `rgba(${rgb},1)`, align: "center", baseline: "middle" }); ctx.globalAlpha = 1; };
+
+  // message strip — segments dim once consumed
+  text("your message  →  512-bit segments", x0 + lm, r.y + 54, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  for (let k = 0; k < N; k++) { const sx = segX(k), on = k === si, gone = k < si || (k === si && f > 0.2), nb = Math.floor(segW / 6);
+    for (let b = 0; b < nb; b++) { ctx.fillStyle = hrand(k * 71 + b * 1.7) > 0.5 ? `rgba(${BLUE},${gone ? 0.12 : on ? 0.85 : 0.4})` : DIM; ctx.fillRect(sx + b * 6 + 1, stripY, 4, stripH); }
+    ctx.strokeStyle = on && !gone ? `rgba(${BLUE},0.9)` : "rgba(255,255,255,0.16)"; ctx.lineWidth = on && !gone ? 1.5 : 1; roundRect(sx, stripY, segW, stripH, 3); ctx.stroke();
+    text(`segment ${k + 1}`, sx + segW / 2, stripY - 8, { size: 9, weight: on ? 700 : 500, color: `rgba(${BLUE},${on ? 1 : 0.5})`, align: "center", baseline: "middle" });
+  }
+
+  // the 64-round box with TWO rows: TOP = the segment (message) · BOTTOM = the state (√ IV, then the prev hash)
+  const topRowY = machY + 9, botRowY = machY + 27, rowH = 12, chipY = botRowY + rowH / 2;
+  ctx.fillStyle = "rgba(255,255,255,0.04)"; roundRect(boxX, machY, segW, machH, 5); ctx.fill();
+  ctx.strokeStyle = churn ? `rgba(${GLD},0.9)` : "rgba(255,255,255,0.3)"; ctx.lineWidth = churn ? 1.7 : 1.2; roundRect(boxX, machY, segW, machH, 5); ctx.stroke();
+  text("64 ROUNDS", boxX + segW / 2, machY - 7, { size: 9, weight: 700, color: churn ? `rgba(${GLD},1)` : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
+  const nb = Math.min(96, Math.floor((segW - 14) / 5)), cw2 = (segW - 14) / nb, bx = boxX + 7;
+  const bitRow = (yy, seed, rgb, scramble, a) => { ctx.globalAlpha = a == null ? 1 : a; for (let b = 0; b < nb; b++) { let on = hrand(seed + b * 1.7) > 0.5; if (scramble && hrand(seed + b * 1.1 + Math.floor(now / 50)) < 0.45) on = !on; ctx.fillStyle = on ? `rgba(${rgb},0.88)` : "rgba(255,255,255,0.06)"; ctx.fillRect(bx + b * cw2, yy, Math.max(1.4, cw2 - 1), rowH); } ctx.globalAlpha = 1; };
+  const stateGreen = si > 0;
+
+  // BOTTOM ROW = the state: √ IV / previous hash. Arrives as a chip sliding in from the left, docks (~f0.3),
+  // and fills the bottom row — this is the row that gets hashed.
+  if (f < 0.3) { const inS = clamp01((f - 0.08) / 0.2), home = si === 0 ? x0 + 44 : segX(si - 1) + segW * 0.5, cx = home + inS * (boxX + segW / 2 - home);
+    chip(cx, chipY, stateGreen ? "hash" : "√ IV", stateGreen ? GRN : GLD, 1);
+    if (stateGreen && inS > 0.12 && inS < 1) text("previous hash → the bottom row (the new constants)", cx, chipY + 14, { size: 8, weight: 600, color: `rgba(${GRN},0.9)`, align: "center", baseline: "middle" }); }
+  else if (f < 0.72) bitRow(botRowY, si * 53 + 7, churn ? "255,215,120" : (stateGreen ? GRN : GLD), churn, 1);
+
+  // TOP ROW = the segment: drops from the strip into the top row (~f0.2), holds distinct, then DROPS INTO the
+  // bottom row as it hashes (f>0.58).
+  if (f > 0.05 && f < 0.72) { let tY = topRowY, a = 1;
+    if (f < 0.2) tY = stripY + dropP * (topRowY - stripY);
+    else if (f > 0.58) { const d = clamp01((f - 0.58) / 0.15); tY = topRowY + d * (botRowY - topRowY); a = 1 - 0.6 * d; }
+    bitRow(tY, si * 71, churn ? "255,215,120" : BLUE, churn, a); }
+
+  // row labels while both rows are distinct
+  if (f > 0.32 && f < 0.62) { text("segment", boxX - 5, topRowY + rowH / 2, { size: 7.5, color: `rgba(${BLUE},0.75)`, align: "right", baseline: "middle" }); text("state", boxX - 5, botRowY + rowH / 2, { size: 7.5, color: `rgba(${stateGreen ? GRN : GLD},0.8)`, align: "right", baseline: "middle" }); }
+
+  // OUTPUT = the hashed bottom row, now a hash. It rests as a chip while the box slides right off it, then
+  // slides into the NEXT box as that box's bottom row.
+  if (f > 0.72) { const hx = segX(si) + segW * 0.5, isHash = done || si === N - 1;
+    chip(hx, chipY, isHash ? "= HASH" : "hash", GRN, clamp01((f - 0.72) / 0.1));
+    if (!isHash && slideP > 0.15) text("box slid on — the hash stays, slides in next as the bottom row", hx, chipY + 14, { size: 8, weight: 600, color: `rgba(${GRN},0.8)`, align: "center", baseline: "middle" }); }
+
+  let cap;
+  if (done || (si === N - 1 && f > 0.82)) cap = "After the last segment, the state IS the 256-bit hash.";
+  else if (f < 0.46) cap = si === 0 ? "Segment 1: the √-prime constants (bottom row) + the message (top row) load into the box." : `Segment ${si + 1}: the PREVIOUS hash loads into the bottom row — it IS the new constants — with the message on top.`;
+  else if (f < 0.8) cap = "The top row (segment) drops into the bottom row (state) and churns — 64 rounds → a new hash.";
+  else cap = `The box slides right, leaving the hash behind — it slides into segment ${Math.min(N, si + 2)}'s box as the bottom row.`;
+  text(cap, x0, r.y + r.h - 30, { size: 11.5, weight: 700, color: `rgba(${GLD},0.95)`, baseline: "middle" });
+  text("The box never holds the whole message — it slides right, folding in 512 bits at a time. 1 GB → ~16 million passes, still 256 bits out.", x0, r.y + r.h - 13, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+}
+
 // ONE ROUND, UNPACKED — the exact fixed recipe each of the 64 rounds runs (Σ0/Σ1, Ch, Maj, +K +W → two new
 // registers), with live 32-bit bars. Shows HOW the four ops are arranged into a round — the same every round.
 function drawOneRound(r) {
@@ -909,6 +993,10 @@ function drawOneRound(r) {
 // current row) → new a & e flash gold → the row shifts down; newest round on top, older ones pushed down.
 // pause/step state for THE CHURN — freeze it and step round-by-round to study a mix
 let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRotStart = 0, churnLastStep = -99, churnPlayHit = null, churnBackHit = null, churnFwdHit = null, churnSpeedHit = null;
+// THE FOLD transport + non-linear pacing: the loop holds on each readable keyframe (FOLD_HOLD ms), then makes
+// a quick transition to the next (FOLD_TRANS ms). Keyframes are global progress g = segment + phase-fraction.
+let foldT = 0, foldLast = 0, foldPaused = false, foldPlayHit = null, foldBackHit = null, foldFwdHit = null;
+const FOLD_KFS = [0.42, 0.66, 0.92, 1.42, 1.66, 1.92, 2.42, 2.66, 2.99], FOLD_HOLD = 3000, FOLD_TRANS = 950, FOLD_UNIT = FOLD_HOLD + FOLD_TRANS, FOLD_TOTAL = FOLD_KFS.length * FOLD_UNIT;
 const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200;
 const CHURN_STEP_DURS = [4500, 2000, 2000, 3200, 8200, 8200, 3200, 5700, 4500, 2000, 2000, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable; rotation steps carry no trailing pause; Ch XORs its two stored halves so it's short like the other XORs
 const CHURN_STEP_CUM = CHURN_STEP_DURS.reduce((a, d) => (a.push(a[a.length - 1] + d), a), [0]);
@@ -1376,6 +1464,7 @@ function drawContent(s, r) {
   if (s === "closeness") return drawCloseness(r);
   if (s === "tickets") return drawTickets(r);
   if (s === "merkle") return drawMerkle(r);
+  if (s === "fold") return drawFold(r);
   if (s === "hashBuild") return drawHashBuild(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
@@ -3229,6 +3318,12 @@ canvas.addEventListener("click", (e) => {
     if (inHit(churnBackHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } const rb = Math.floor(churnNow / effC), cs = stepAt(churnNow); churnNow = cs > 0 ? boundNow(rb, cs - 1) : (rb > 0 ? boundNow(rb - 1, 15) : boundNow(rb, 0)); requestRender(); return; }
     if (inHit(churnFwdHit, e.offsetX, cyc)) { if (!churnPaused) { churnPaused = true; enter(); } const rb = Math.floor(churnNow / effC), cs = stepAt(churnNow); churnNow = cs < 0 ? boundNow(rb, 0) : (cs < 15 ? boundNow(rb, cs + 1) : boundNow(rb + 1, 0)); requestRender(); return; }
   }
+  if (expanded.has("fold")) { // THE FOLD transport: play/pause · step keyframe by keyframe (stepping pauses)
+    const cyc = e.offsetY + scrollY, stepFold = (dir) => { const i = Math.floor(foldT / FOLD_UNIT), ni = ((i + dir) % FOLD_KFS.length + FOLD_KFS.length) % FOLD_KFS.length; foldT = ni * FOLD_UNIT; };
+    if (inHit(foldPlayHit, e.offsetX, cyc)) { foldPaused = !foldPaused; if (foldPaused) foldT = Math.floor(foldT / FOLD_UNIT) * FOLD_UNIT; requestRender(); return; }
+    if (inHit(foldBackHit, e.offsetX, cyc)) { foldPaused = true; stepFold(-1); requestRender(); return; }
+    if (inHit(foldFwdHit, e.offsetX, cyc)) { foldPaused = true; stepFold(1); requestRender(); return; }
+  }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
@@ -3236,8 +3331,8 @@ canvas.addEventListener("click", (e) => {
 canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
