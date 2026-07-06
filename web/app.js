@@ -3292,6 +3292,23 @@ function drawCelebration() {
   text(`${celebration.reward.toFixed(3)} BTC`, cx, cy + 40, { size: 30, weight: 800, color: `rgba(90,230,150,${a})`, align: "center", baseline: "middle" });
   text(you ? "it was never zero — and it just landed on you" : "it was never zero — and it just landed on one of us", cx, cy + 74, { size: 14, weight: 600, color: `rgba(255,210,90,${a})`, align: "center", baseline: "middle" });
   text(you ? "any computer, no data center, no fee — this is what a non-zero chance looks like" : (celebration.verified ? "a solo miner on a regular computer just beat the data centers — verified on your node" : "a block carries the /BitcoinLottery/ tag (seen on a public explorer — not verified by your node)"), cx, cy + 98, { size: 12, color: `rgba(255,255,255,${0.55 * a})`, align: "center", baseline: "middle" });
+  // your block's journey — animated so the preview shows the whole thing (a real win recaps it, ending confirmed)
+  if (you) {
+    const sT = reduceMotion ? 7 : t;
+    let si2 = 0, confN = 0;
+    if (sT < 1.3) si2 = 0; else if (sT < 2.7) si2 = 1; else if (sT < 5.7) { si2 = 2; confN = Math.min(6, Math.floor((sT - 2.7) / 0.5) + 1); } else si2 = 3;
+    const labels = ["FOUND", "SUBMITTING", confN ? `CONFIRMING ${confN}/6` : "CONFIRMING", "CONFIRMED"], NS = 4, gap = 156, sy = cy + 136, sx0 = cx - (NS - 1) * gap / 2;
+    for (let i = 0; i < NS; i++) {
+      const sx = sx0 + i * gap, done = i < si2, cur = i === si2, on = done || cur;
+      if (i > 0) { ctx.strokeStyle = `rgba(90,230,150,${(i <= si2 ? 0.75 : 0.16) * a})`; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(sx0 + (i - 1) * gap + 13, sy); ctx.lineTo(sx - 13, sy); ctx.stroke(); }
+      ctx.fillStyle = on ? `rgba(90,230,150,${a})` : `rgba(255,255,255,${0.22 * a})`;
+      ctx.beginPath(); ctx.arc(sx, sy, cur && !reduceMotion ? 8 + Math.sin(t * 6) * 1.2 : 6.5, 0, 7); ctx.fill();
+      if (done) text("✓", sx, sy, { size: 9, weight: 800, color: `rgba(10,7,2,${a})`, align: "center", baseline: "middle" });
+      text(labels[i], sx, sy + 18, { size: 9.5, weight: cur ? 800 : 600, color: on ? `rgba(90,230,150,${a})` : `rgba(255,255,255,${0.42 * a})`, align: "center", baseline: "middle" });
+    }
+    text(si2 < 3 ? "your block goes out via your node + direct P2P, then the network confirms it" : "settled — the reward is yours and can't be undone", cx, cy + 170, { size: 10, color: `rgba(255,255,255,${0.42 * a})`, align: "center", baseline: "middle" });
+  }
+  text("✕  close", W - 48, 28, { size: 13, weight: 700, color: `rgba(255,255,255,${0.6 * a})`, align: "center", baseline: "middle" });
   text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
 }
 

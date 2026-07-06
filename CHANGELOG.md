@@ -40,6 +40,9 @@ version number and bump `desktop/package.json`.
 - **Best-match odds.** YOUR CLOSENESS now shows the true 1-in-2ⁿ rarity of your best hash (e.g. "7 bits ·
   1 in 128") on the best row and in the ◆ best / ● you hover tooltips, framed against the target ("a win is
   1 in ~10^N").
+- **Win celebration — stages + clearer dismiss.** The full-screen win now shows your block's journey as an
+  animated stepper (FOUND → SUBMITTING → CONFIRMING n/6 → CONFIRMED), and "preview a win" walks through it
+  so you can see the whole flow. Added a visible "✕ close" (it already dismissed on any click).
 - Fixed THE FOLD hash chip overlapping the box during the mid-slide keyframe.
 
 ## 0.1.27
