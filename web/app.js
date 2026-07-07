@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 250 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 262 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -568,16 +568,17 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updatePillHit = null;
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null;
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; requestRender(); }
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
   }).catch(() => {});
 }
 pollConfig();
 try { setInterval(pollConfig, 90000); } catch (_) {} // re-poll so a newly-available update shows without a restart
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
 try { const fv = new URLSearchParams(location.search).get("fakeverify"); if (fv) { const [lvl, ver, h] = fv.split(":"); isDesktop = true; updateVerification = { level: lvl, version: ver || updatePendingVer || "0.1.30", height: h ? +h : undefined }; } } catch (_) {} // VERIFIED UPDATES status preview
+try { if (new URLSearchParams(location.search).get("fakehistory")) { isDesktop = true; updateHistory = [ { version: "0.1.30", level: "pending", current: true }, { version: "0.1.29", level: "onchain", height: 957017, current: false }, { version: "0.1.28", level: "onchain", height: 955210, current: false }, { version: "0.1.27", level: "none", current: false } ]; } } catch (_) {} // VERIFIED UPDATES history preview
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -3041,7 +3042,7 @@ function drawUpdates(r) {
   const t = danger ? 1 : (now % PERIOD) / PERIOD, travel = Math.min(1, t / 0.8), pos = travel * 3, verified = t >= 0.8; // reach the node by 80%, then hold
   const height = model.node && model.node.blocks ? model.node.blocks : null, RAIL = danger ? RED : GREEN;
 
-  const cy = r.y + 74;
+  const cy = r.y + 60;
   const stages = [
     { cx: x0 + w * 0.11, glyph: "↓", label: "new version", sub: "downloaded" },
     { cx: x0 + w * 0.37, glyph: "#", label: "SHA-256", sub: "its fingerprint" },
@@ -3064,7 +3065,7 @@ function drawUpdates(r) {
   });
   if (!verified && !danger) { ctx.fillStyle = "rgba(180,255,210,0.95)"; ctx.beginPath(); ctx.arc(px, cy, 3.6, 0, 7); ctx.fill(); } // the traveling pulse
 
-  // real-status strip — reflects the actual verdict from the desktop app (via /config)
+  // real-status strip — the current/incoming verdict, as a headline above the release history
   if (sv) {
     const who = sv.incoming ? "v" + sv.version + " ready" : "you're on v" + sv.version, whoP = sv.incoming ? "v" + sv.version : "you're on v" + sv.version;
     const M = {
@@ -3076,18 +3077,38 @@ function drawUpdates(r) {
       unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
     }[sv.level];
     if (M) {
-      const by = r.y + 128, bh = 22;
+      const by = r.y + 104, bh = 22;
       ctx.fillStyle = `rgba(${M.c},0.1)`; roundRect(x0, by, w, bh, 6); ctx.fill();
       ctx.strokeStyle = `rgba(${M.c},0.5)`; ctx.lineWidth = 1; roundRect(x0, by, w, bh, 6); ctx.stroke();
       text(M.ic + "   " + M.t, x0 + 12, by + bh / 2 + 0.5, { size: 11, weight: 700, color: `rgba(${M.c},1)`, baseline: "middle" });
     }
   }
 
-  const ty = r.y + 166;
-  ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, ty - 6); ctx.lineTo(x1, ty - 6); ctx.stroke();
-  text("The fingerprint is committed to a Bitcoin block, and your node independently validated that block — so an update can be", x0, ty + 8, { size: 10.5, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("trusted without trusting our servers. Only block headers are needed, so the pruned node you already run is enough.", x0, ty + 24, { size: 10.5, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("It doesn't wait for the chain — an update installs on a checksum match; the on-chain confirmation lands within hours.", x0, ty + 42, { size: 10.5, weight: 600, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+  // VERIFIED RELEASES — the history, each re-confirmed against your node (newest first)
+  const hy = r.y + (sv ? 142 : 112);
+  text("VERIFIED RELEASES", x0, hy, { size: 9, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+  text("· each re-confirmed against your own node", x0 + 118, hy, { size: 9, color: "rgba(255,255,255,0.3)", baseline: "middle" });
+  const LM = {
+    onchain:  { c: "90,220,140", ic: "✓", t: (h) => "verified on-chain · block " + (h.height ? h.height.toLocaleString() : "?") },
+    anchored: { c: "90,220,140", ic: "✓", t: (h) => "anchored on-chain · block " + (h.height ? h.height.toLocaleString() : "?") },
+    pending:  { c: "247,190,60", ic: "◷", t: () => "on-chain confirmation pending" },
+    mismatch: { c: "255,95,95", ic: "⚠", t: () => "verification failed" },
+    none:     { c: "255,255,255", ic: "·", t: () => "released before on-chain anchoring" },
+    unchecked:{ c: "255,255,255", ic: "·", t: () => "not checked — node offline?" },
+  };
+  let ry = hy + 18;
+  if (updateHistory && updateHistory.length) {
+    updateHistory.slice(0, 5).forEach((h) => {
+      const m = LM[h.level] || LM.unchecked, faint = h.level === "none" || h.level === "unchecked";
+      text("v" + h.version, x0 + 4, ry, { size: 10.5, weight: 700, color: h.current ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.66)", baseline: "middle", mono: true });
+      text(m.ic + "  " + m.t(h), x0 + 78, ry, { size: 10, weight: 600, color: `rgba(${m.c},${faint ? 0.5 : 0.95})`, baseline: "middle" });
+      if (h.current) text("◀ running now", x1 - 4, ry, { size: 9, weight: 700, color: "rgba(247,147,26,0.95)", align: "right", baseline: "middle" });
+      ry += 15;
+    });
+  } else {
+    text("In the app, every release you run is listed here — each re-confirmed against your own node.", x0 + 4, ry, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  }
+  text("Only block headers are needed, so your pruned node re-checks every release — the one moment of risk is your first download.", x0, r.y + 250, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
 }
 
 function drawBroadcast(r) {

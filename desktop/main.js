@@ -19,7 +19,7 @@ const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning 
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const crypto = require("node:crypto");
-const { verifyAgainstNode } = require("./ots-verify.js"); // on-chain (OpenTimestamps) update verification against the local node
+const { verifyAgainstNode, parseProof } = require("./ots-verify.js"); // on-chain (OpenTimestamps) update verification against the local node
 
 const REQUIRED_FREE_BYTES = 25 * 1024 ** 3; // ~25 GB headroom for snapshot + pruned chain + load-time peak
 // Free bytes on the volume holding `dir` (null if it can't be determined → don't block).
@@ -115,7 +115,7 @@ function updatingOverlayJs(version) {
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
 function verifyUpdatesOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).verify_updates !== false; } catch (_) { return true; } } // default ON — only ever BLOCKS on a definitive mismatch
 let updateAvailableVer = null, updateManual = false, notifiedVer = null, pendingUpdateVer = null;
-let lastUpdateVerification = null, currentVersionAnchor = null; // surfaced on the dashboard's VERIFIED UPDATES section
+let lastUpdateVerification = null, currentVersionAnchor = null, updateHistory = null; // surfaced on the dashboard's VERIFIED UPDATES section
 
 // Build a JSON-RPC caller bound to the saved node credentials (null if we can't). Used to verify update proofs.
 function nodeRpcFromConfig() {
@@ -177,6 +177,27 @@ async function refreshCurrentVersionAnchor() {
     const level = v.status === "verified" ? "onchain" : v.status === "pending" ? "pending" : v.status === "mismatch" ? "mismatch" : "unchecked";
     currentVersionAnchor = { version, level, height: v.height, blockTime: v.blockTime };
   } catch (_) { currentVersionAnchor = { version, level: "unchecked" }; }
+}
+
+// Build the "verified releases" history for the dashboard: take the recent versions from the changelog, and for
+// each that has a published proof, confirm it against your node (newest first). Refreshed alongside the anchor.
+async function refreshUpdateHistory() {
+  try {
+    const md = await fetchDl("CHANGELOG.md");
+    if (!md) return;
+    const seen = new Set(), versions = [];
+    for (const m of md.matchAll(/^##\s+v?(\d+\.\d+\.\d+)\b/gm)) { if (!seen.has(m[1])) { seen.add(m[1]); versions.push(m[1]); } if (versions.length >= 6) break; }
+    const rpc = nodeRpcFromConfig(), cur = app.getVersion(), hist = [];
+    for (const v of versions) {
+      const ots = await fetchDl("SHA256SUMS-" + v + ".ots", true);
+      if (!ots) { hist.push({ version: v, level: "none", current: v === cur }); continue; } // released before on-chain anchoring
+      let level = "unchecked", height, blockTime;
+      if (rpc) { const r = await verifyAgainstNode(ots, null, rpc); level = r.status === "verified" ? "onchain" : r.status === "pending" ? "pending" : r.status === "mismatch" ? "mismatch" : "unchecked"; height = r.height; blockTime = r.blockTime; }
+      else { try { const p = parseProof(ots); if (p.bitcoin.length) { level = "anchored"; height = p.bitcoin[0].height; } else level = "pending"; } catch (_) {} } // no node → show the proof's own block, not node-confirmed
+      hist.push({ version: v, level, height, blockTime, current: v === cur });
+    }
+    updateHistory = hist;
+  } catch (_) {}
 }
 const SITE_CHANGELOG_URL = "https://getnotzero.com/changelog";
 const CHANGELOG_URLS = ["https://dl.getnotzero.com/CHANGELOG.md", "https://raw.githubusercontent.com/spiralocean/notzero/main/CHANGELOG.md"];
@@ -744,6 +765,7 @@ function startServer() {
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.update_verification = lastUpdateVerification; // a downloaded update's verdict (or null) — VERIFIED UPDATES section
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
+        out.update_history = updateHistory; // recent releases + their on-chain verification (newest first) — VERIFIED UPDATES list
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
@@ -850,6 +872,7 @@ if (!app.requestSingleInstanceLock()) {
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
     refreshCurrentVersionAnchor(); setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
+    refreshUpdateHistory(); setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
     startNotifier(); // OS notifications for block won / new best / node sync changes
   });
 }
