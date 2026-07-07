@@ -14,6 +14,10 @@ version number and bump `desktop/package.json`.
   chooser). Non-custodial throughout: we only ever want your public receive address.
 
 **Dashboard**
+- **VERIFIED UPDATES panel.** A new section animates how the app trusts an update: a new version → its SHA-256
+  fingerprint → committed in a Bitcoin block → confirmed by your own node. Only block headers are needed, so the
+  pruned node you already run is enough — the risk is only your first download; after that, updates verify
+  themselves against your node.
 - **THE CHURN: each mix step's output stands out.** The result ("= …") row of every mix step now gets a
   neutral white outline + soft glow, so the output pops without changing the lane colours (teal = from e,
   violet = from a, gold = the sums, green = the new registers).
