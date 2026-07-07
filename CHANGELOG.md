@@ -4,7 +4,17 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.29
+## Unreleased — next: 0.1.30
+
+## 0.1.29
+
+**Verification**
+- **Verify your download against Bitcoin.** Every release now publishes a `SHA256SUMS` and timestamps it onto the
+  Bitcoin blockchain (OpenTimestamps, from the release pipeline — no wallet or fee on our side). A new
+  [getnotzero.com/verify](https://getnotzero.com/verify) page walks through checking a download's hash and
+  confirming it against that immutable on-chain record — ideally against your own node, which needs only block
+  headers, so the pruned node notzero already runs is enough. The one moment of risk is your first download;
+  verify it once.
 
 **Onboarding**
 - **"New to Bitcoin? No wallet yet?" help.** The setup wizard now has an expandable helper under the payout
@@ -16,8 +26,8 @@ version number and bump `desktop/package.json`.
 **Dashboard**
 - **VERIFIED UPDATES panel.** A new section animates how the app trusts an update: a new version → its SHA-256
   fingerprint → committed in a Bitcoin block → confirmed by your own node. Only block headers are needed, so the
-  pruned node you already run is enough — the risk is only your first download; after that, updates verify
-  themselves against your node.
+  pruned node you already run is enough. The visual companion to the new
+  [getnotzero.com/verify](https://getnotzero.com/verify) page.
 - **THE CHURN: each mix step's output stands out.** The result ("= …") row of every mix step now gets a
   neutral white outline + soft glow, so the output pops without changing the lane colours (teal = from e,
   violet = from a, gold = the sums, green = the new registers).
