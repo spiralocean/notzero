@@ -1083,7 +1083,7 @@ let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRo
 // a quick transition to the next (FOLD_TRANS ms). Keyframes are global progress g = segment + phase-fraction.
 let foldT = 0, foldLast = 0, foldPaused = false, foldPlayHit = null, foldBackHit = null, foldFwdHit = null;
 const FOLD_KFS = [0.42, 0.66, 0.92, 1.42, 1.66, 1.92, 2.42, 2.66, 2.99], FOLD_HOLD = 3000, FOLD_TRANS = 950, FOLD_UNIT = FOLD_HOLD + FOLD_TRANS, FOLD_TOTAL = FOLD_KFS.length * FOLD_UNIT;
-const CHURN_STEPS = 16, CHURN_DUP_MS = 650, CHURN_SHIFT_MS = 1200;
+const CHURN_STEPS = 16, CHURN_DUP_MS = 2000, CHURN_SHIFT_MS = 1000; // DUP = blank row scrolls in → blink source → duplicate; SHIFT = rotate registers right
 const CHURN_STEP_DURS = [4500, 2000, 2000, 3200, 8200, 8200, 3200, 5700, 4500, 2000, 2000, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable; rotation steps carry no trailing pause; Ch XORs its two stored halves so it's short like the other XORs
 const CHURN_STEP_CUM = CHURN_STEP_DURS.reduce((a, d) => (a.push(a[a.length - 1] + d), a), [0]);
 const CHURN_MIX_MS = CHURN_STEP_CUM[16]; // = 84000
@@ -1097,7 +1097,9 @@ function drawChurn(r) {
   const now = churnPaused ? churnNow : churnLiveNow;
   const t = (Math.floor(now / CYCLE) % 63) - 1, ph = (now % CYCLE) / CYCLE, R = t + 1; // building round R (0..62) from row t
   const dupP = Math.min(1, ph / dupEnd), shiftP = ph < dupEnd ? 0 : Math.min(1, (ph - dupEnd) / (shiftEnd - dupEnd)), mixing = ph >= shiftEnd;
-  const stage = mixing ? "③ mix W into a & e" : shiftP > 0 ? "② shift everything right ↦" : "① duplicate the row above";
+  // the DUP phase now has three beats: a blank row scrolls in (scrollP) → the source row blinks (blinkActive) → it's copied in (fillP). Then SHIFT rotates the registers right.
+  const rowScrollP = Math.min(1, dupP / 0.35), fillP = Math.max(0, Math.min(1, (dupP - 0.66) / 0.34)), blinkActive = !mixing && shiftP === 0 && dupP >= 0.35 && dupP < 0.66;
+  const stage = mixing ? "④ mix W into a & e" : shiftP > 0 ? "③ rotate the registers right ↦" : fillP > 0 ? "② duplicate the row into the blank" : blinkActive ? "② the row to copy ✦ blinks" : "① a blank row scrolls in";
   text(`${churnPaused ? "⏸ PAUSED · " : ""}building round ${R} · word W #${R} ${R < 16 ? "(your message)" : "(expanded)"} · ${stage}`, x0, r.y + 33, { size: 10, color: churnPaused ? "rgba(255,215,90,0.85)" : "rgba(255,255,255,0.5)", baseline: "middle" });
   { // transport, top-right: [speed] · ⏮ step-back · ▶/❚❚ · ⏭ step-fwd  (shapes render everywhere)
     const bh = 19, bwd = 27, gp = 5, byy = r.y + 4, s = 5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2;
@@ -1151,7 +1153,7 @@ function drawChurn(r) {
   for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4), read = rdSet.indexOf(c) >= 0; text(names[c], gx + c * cwid + bw / 2, headerY, { size: 10, weight: 700, color: read ? curCol : (hot ? GOLD : "rgba(255,255,255,0.55)"), align: "center", baseline: "middle", mono: true }); if (read) { ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid, headerY + 8, bw, 2); } }
   const cell = (cx, ry, val, color) => { for (let b = 0; b < 32; b++) { ctx.fillStyle = ((val >>> (31 - b)) & 1) ? color : DIM; ctx.fillRect(cx + b * bcw, ry, Math.max(0.7, bcw - 0.3), 8); } };
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * NHIST + 14); ctx.clip(); // clip stops above the mix header so the active row sliding in at a round boundary can't overlap "THE MIX" text
-  const gOff = mixing ? 0 : (1 - Math.min(1, ph / shiftEnd)) * rowH; // at the round boundary the grid scrolls up one row (draw an extra top row and slide everything up through the dup/shift) instead of popping
+  const gOff = mixing ? 0 : (1 - rowScrollP) * rowH; // the grid scrolls UP so a BLANK row appears at the bottom, then it's blinked-source → duplicated → shifted (rather than the row growing in)
   for (let i = -1; i < NHIST; i++) {
     const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH + gOff, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
@@ -1160,10 +1162,18 @@ function drawChurn(r) {
         if (animEl >= w0) { const bOn = animEl > w1 ? true : Math.floor((animEl - w0) / Math.max(50, stepBlinkMs / 16)) % 2 === 0; ctx.globalAlpha = bOn ? 0.55 : 0.08; ctx.fillStyle = curCol; ctx.fillRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); ctx.globalAlpha = 1; ctx.strokeStyle = curCol; ctx.lineWidth = bOn ? 2 : 0.8; ctx.strokeRect(gx + c * cwid - 1.5, ry - 2, bw + 3, 12); } }
       const hot = (c === 0 || c === 4) && !isStart; cell(gx + c * cwid, ry, regs[c] >>> 0, hot ? GOLD : (isStart ? BLUE : GREEN)); if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.35)"; ctx.lineWidth = 1; ctx.strokeRect(gx + c * cwid - 1.5, ry - 1.5, bw + 3, 11); }
     }
+    if (rIdx === t && blinkActive) { const on = Math.floor(churnLiveNow / 130) % 2 === 0; ctx.strokeStyle = `rgba(255,235,150,${on ? 0.95 : 0.35})`; ctx.lineWidth = on ? 2 : 1; ctx.strokeRect(gx - 3, ry - 2.5, x1 - gx + 5, 13); } // blink the row about to be copied
   }
   const aby = topY + NHIST * rowH;
   text("r" + (t + 1), x0 - 3, aby + 4 + gOff, { size: 7.5, weight: 700, color: "rgba(255,215,90,0.7)", baseline: "middle" });
-  if (!mixing) { ctx.globalAlpha = dupP; for (let c = 0; c < 8; c++) cell(gx + (c + shiftP) * cwid, aby + gOff, src[c] >>> 0, BLUE); ctx.globalAlpha = 1; }
+  if (!mixing) { const ny = aby + gOff, blank = fillP <= 0 && shiftP <= 0;
+    if (blank) { ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; ctx.setLineDash([3, 3]); ctx.strokeRect(gx - 2, ny - 2, x1 - gx + 4, 12); ctx.setLineDash([]); } // the blank slot that scrolled in
+    for (let c = 0; c < 8; c++) {
+      if (shiftP > 0) cell(gx + (c + shiftP) * cwid, ny, src[c] >>> 0, BLUE); // rotate the duplicated row right
+      else if (fillP * 8 - c >= 0.5) cell(gx + c * cwid, ny, src[c] >>> 0, BLUE); // duplicated in, register by register (left → right)
+      else for (let b = 0; b < 32; b++) { ctx.fillStyle = DIM; ctx.fillRect(gx + c * cwid + b * bcw, ny, Math.max(0.7, bcw - 0.3), 8); } // still blank
+    }
+  }
   else { const animDone = animEl >= stepReadMs + churnAnimMs, blinkOn = Math.floor(churnLiveNow / 150) % 2 === 0; // new e/a only land once their read + add finish, then blink
     for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4);
       const isRes = (c === 4 && curStep === 14) || (c === 0 && curStep === 15);
