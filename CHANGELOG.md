@@ -14,6 +14,10 @@ version number and bump `desktop/package.json`.
   chooser). Non-custodial throughout: we only ever want your public receive address.
 
 **Dashboard**
+- **Tidier top level + clearer registers.** MERKLE TREE, THE AVALANCHE, and VERIFY THIS BLOCK now nest under
+  HASH BUILD (collapsed by default) to de-clutter the main page — same parent/child pattern as INSIDE THE HASH.
+  And the a–h registers in INSIDE THE HASH each get a defined boundary box (both the 8-register strip and the
+  64-round matrix), so it's clear where one register ends and the next begins.
 - **THE AVALANCHE.** A new panel showing *why* a hash is unpredictable: flip one bit of the nonce and ~half of
   the 256 output bits change (real double-SHA-256 — before/after, with the flipped bits cascading in gold and a
   live counter). Drives home "there's no aiming — change the nonce and the hash leaps somewhere completely new";

@@ -20,7 +20,7 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "avalanche", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync"];
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "merkle", "avalanche", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync"];
 const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", avalanche: "THE AVALANCHE", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
@@ -556,6 +556,7 @@ if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register br
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
 // hides them all at once — the whole SHA-256 explainer folds into one section.
 const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
+const BUILD_CHILDREN = new Set(["merkle", "avalanche", "verify"]); // MERKLE / AVALANCHE / VERIFY nest under HASH BUILD to de-clutter the top level
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
@@ -665,6 +666,7 @@ function visibleSections() {
   if (initialSync) return ["sync", "network"];
   let list = LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s));
   if (!expanded.has("hashInside")) list = list.filter((s) => !HASH_CHILDREN.has(s)); // fold the dives into the parent
+  if (!expanded.has("hashBuild")) list = list.filter((s) => !BUILD_CHILDREN.has(s)); // MERKLE / AVALANCHE / VERIFY fold under HASH BUILD
   return list;
 }
 // open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
@@ -706,7 +708,7 @@ function drawSyncedBanner() {
 function layoutSections() {
   let y = TOP; const frames = [];
   for (const s of visibleSections()) {
-    const ind = HASH_CHILDREN.has(s) ? 20 : 0; // indent the panels nested under INSIDE THE HASH
+    const ind = (HASH_CHILDREN.has(s) || BUILD_CHILDREN.has(s)) ? 20 : 0; // indent the panels nested under INSIDE THE HASH / HASH BUILD
     const header = { x: PAD + ind, y, w: W - PAD * 2 - ind, h: HEADER_H };
     y += HEADER_H;
     let content = null;
@@ -728,7 +730,7 @@ function summary(s) {
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
-  if (s === "hashBuild") { return model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 24) + "…" : "—"; }
+  if (s === "hashBuild") { return (model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 16) + "…" : "make a hash") + " · +MERKLE · AVALANCHE · VERIFY"; }
   if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
   if (s === "oneRound") { return "scramble · choose · majority → new a, e"; }
   if (s === "shift") { return "rounds side by side · the slide"; }
@@ -862,7 +864,9 @@ function drawHashInside(r) {
     { const rn = "abcdefgh", rgap2 = 10, rbw2 = (w - rgap2 * 7) / 8;
       for (let i = 0; i < 8; i++) {
         const rx = x0 + i * (rbw2 + rgap2), hot = (i === 0 || i === 4), rcw2 = rbw2 / 32;
-        text(rn[i], rx + rbw2 / 2, y + 15, { size: 10, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
+        ctx.fillStyle = hot ? "rgba(255,215,90,0.07)" : "rgba(120,200,255,0.05)"; roundRect(rx - 3, y + 18, rbw2 + 6, 16, 3); ctx.fill(); // register boundary — each of a–h is one 32-bit box
+        ctx.strokeStyle = hot ? "rgba(255,215,90,0.5)" : "rgba(120,200,255,0.34)"; ctx.lineWidth = 1; roundRect(rx - 3, y + 18, rbw2 + 6, 16, 3); ctx.stroke();
+        text(rn[i], rx + rbw2 / 2, y + 14, { size: 10, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.6)", align: "center", baseline: "middle", mono: true });
         for (let b = 0; b < 32; b++) { ctx.fillStyle = ((_SHA_H0[i] >>> (31 - b)) & 1) ? (hot ? "rgba(255,215,90,0.85)" : "rgba(120,200,255,0.8)") : DIM; ctx.fillRect(rx + b * rcw2, y + 22, Math.max(0.8, rcw2 - 0.3), 9); }
       }
     }
@@ -873,6 +877,9 @@ function drawHashInside(r) {
     text("laid out like THE SHIFT · unpacked in ONE ROUND", x1, y, { size: 10, weight: 600, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
     { const names = "abcdefgh", srows = [_SHA_H0, d.rounds[0], d.rounds[1], d.rounds[2], d.rounds[3]], slab = ["start", "r0", "r1", "r2", "r3"];
       const sgx = x0 + 40, cwid3 = (x1 - sgx) / 8, bw3 = cwid3 - 8, bcw3 = bw3 / 32;
+      for (let c = 0; c < 8; c++) { const cx = sgx + c * cwid3, hot = (c === 0 || c === 4); // register column lanes so the 8 registers read as distinct
+        ctx.fillStyle = hot ? "rgba(255,215,90,0.05)" : "rgba(255,255,255,0.028)"; roundRect(cx - 2, y + 24, bw3 + 4, 80, 3); ctx.fill();
+        ctx.strokeStyle = hot ? "rgba(255,215,90,0.24)" : "rgba(255,255,255,0.1)"; ctx.lineWidth = 1; roundRect(cx - 2, y + 24, bw3 + 4, 80, 3); ctx.stroke(); }
       for (let c = 0; c < 8; c++) { const hot = (c === 0 || c === 4); text(names[c], sgx + c * cwid3 + bw3 / 2, y + 15, { size: 9, weight: 700, color: hot ? "rgba(255,215,90,0.9)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); }
       for (let ri = 0; ri < srows.length; ri++) {
         const ry = y + 27 + ri * 17;
