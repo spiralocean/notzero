@@ -14,8 +14,10 @@ version number and bump `desktop/package.json`.
   chooser). Non-custodial throughout: we only ever want your public receive address.
 
 **Dashboard**
-- **Tidier top level + clearer registers.** MERKLE TREE, THE AVALANCHE, and VERIFY THIS BLOCK now nest under
-  HASH BUILD (collapsed by default) to de-clutter the main page — same parent/child pattern as INSIDE THE HASH.
+- **Tidier top level + clearer registers.** MERKLE TREE, THE AVALANCHE, VERIFY THIS BLOCK, and INSIDE THE HASH
+  (with all its deep dives) now nest under **HASH BUILD** — so the entire hashing deep-dive folds into a single
+  top-level row (collapsed by default). Two-level nesting: HASH BUILD's children indent one step, INSIDE THE
+  HASH's dives another.
   And the a–h registers in INSIDE THE HASH each get a defined boundary box (both the 8-register strip and the
   64-round matrix), so it's clear where one register ends and the next begins.
 - **THE AVALANCHE.** A new panel showing *why* a hash is unpredictable: flip one bit of the nonce and ~half of

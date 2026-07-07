@@ -556,7 +556,7 @@ if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register br
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
 // hides them all at once — the whole SHA-256 explainer folds into one section.
 const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
-const BUILD_CHILDREN = new Set(["merkle", "avalanche", "verify"]); // MERKLE / AVALANCHE / VERIFY nest under HASH BUILD to de-clutter the top level
+const BUILD_CHILDREN = new Set(["merkle", "avalanche", "verify", "hashInside"]); // everything hashing nests under HASH BUILD; INSIDE THE HASH is itself a sub-parent (its dives = HASH_CHILDREN, one level deeper)
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
 let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
@@ -665,8 +665,8 @@ function visibleSections() {
   const initialSync = !!(si && si.syncing && (!everSynced || (n && n.initialblockdownload)));
   if (initialSync) return ["sync", "network"];
   let list = LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s));
-  if (!expanded.has("hashInside")) list = list.filter((s) => !HASH_CHILDREN.has(s)); // fold the dives into the parent
-  if (!expanded.has("hashBuild")) list = list.filter((s) => !BUILD_CHILDREN.has(s)); // MERKLE / AVALANCHE / VERIFY fold under HASH BUILD
+  if (!expanded.has("hashBuild")) list = list.filter((s) => !BUILD_CHILDREN.has(s) && !HASH_CHILDREN.has(s)); // HASH BUILD collapsed → hide the whole hashing subtree
+  else if (!expanded.has("hashInside")) list = list.filter((s) => !HASH_CHILDREN.has(s)); // INSIDE THE HASH collapsed → fold just its dives
   return list;
 }
 // open the sync panel by default when syncing begins — but only ONCE, so a click to collapse it sticks
@@ -708,7 +708,7 @@ function drawSyncedBanner() {
 function layoutSections() {
   let y = TOP; const frames = [];
   for (const s of visibleSections()) {
-    const ind = (HASH_CHILDREN.has(s) || BUILD_CHILDREN.has(s)) ? 20 : 0; // indent the panels nested under INSIDE THE HASH / HASH BUILD
+    const ind = HASH_CHILDREN.has(s) ? 40 : (BUILD_CHILDREN.has(s) ? 20 : 0); // nesting depth: HASH BUILD children = 20, INSIDE THE HASH's dives = 40
     const header = { x: PAD + ind, y, w: W - PAD * 2 - ind, h: HEADER_H };
     y += HEADER_H;
     let content = null;
@@ -730,7 +730,7 @@ function summary(s) {
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
-  if (s === "hashBuild") { return (model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 16) + "…" : "make a hash") + " · +MERKLE · AVALANCHE · VERIFY"; }
+  if (s === "hashBuild") { return (model.ticket ? "your ticket 0x" + model.ticket.hashHex.slice(0, 12) + "…" : "make a hash") + " · +MERKLE · AVALANCHE · VERIFY · INSIDE THE HASH"; }
   if (s === "hashInside") { return "SHA-256 · type to hash · +ONE ROUND, BIT OPS…"; }
   if (s === "oneRound") { return "scramble · choose · majority → new a, e"; }
   if (s === "shift") { return "rounds side by side · the slide"; }
