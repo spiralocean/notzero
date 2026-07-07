@@ -179,3 +179,55 @@ jobs:
         run: |
           feed=$([ "${{ matrix.platform }}" = mac ] && echo latest-mac.yml || ([ "${{ matrix.platform }}" = win ] && echo latest.yml || echo latest-linux.yml))
           echo "published feed:"; curl -s "https://dl.getnotzero.com/$feed" | head -3
+
+  # Anchor this release's download hashes in the Bitcoin blockchain (OpenTimestamps). After all three platforms
+  # publish, hash the exact files the website serves, write one SHA256SUMS, and timestamp it — so anyone (and,
+  # later, the app itself via the local node) can prove a download matches a hash committed on-chain.
+  #
+  # The .ots proof is PENDING at first (a calendar attestation); it upgrades to a Bitcoin-block attestation once
+  # the OTS calendars aggregate + confirm (~a few hours). `ots verify` upgrades pending proofs automatically; a
+  # follow-up job (or the verify page / node check) can `ots upgrade` + republish once it's block-anchored.
+  #
+  # Runs only on a REAL release, and only if all three platform builds succeeded (needs: release).
+  anchor:
+    needs: release
+    if: ${{ !(github.event_name == 'workflow_dispatch' && inputs.dry_run) }}
+    runs-on: ubuntu-latest
+    env:
+      R2_BUCKET: "r2:notzero-dl"
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      RCLONE_CONFIG_R2_ACL: private
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install OpenTimestamps client + rclone
+        run: |
+          python -m pip install --upgrade pip opentimestamps-client
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+      - name: Build SHA256SUMS from the published downloads and timestamp it on Bitcoin
+        shell: bash
+        run: |
+          set -euo pipefail
+          VER="$(python -c "import json;print(json.load(open('desktop/package.json'))['version'])")"
+          # the exact stable files the website's download buttons serve (overwritten each release)
+          FILES="notzero-mac.dmg notzero-win.exe notzero-linux.AppImage"
+          mkdir -p anchor && cd anchor
+          # pull straight from R2 (source of truth — no CDN cache lag), then hash
+          for f in $FILES; do echo "-> $f"; rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; done
+          sha256sum $FILES > SHA256SUMS
+          echo "----- SHA256SUMS (notzero $VER) -----"; cat SHA256SUMS
+          # timestamp the checksum file on the Bitcoin blockchain (submits to the public OTS calendars)
+          ots stamp SHA256SUMS
+          ots info SHA256SUMS.ots | sed -n '1,4p'
+          # publish: stable pair (current release, no-cache) + immutable versioned pair (permanent per-release record)
+          rclone copyto SHA256SUMS     "$R2_BUCKET/SHA256SUMS"           --s3-no-check-bucket --header-upload "Cache-Control: no-cache"
+          rclone copyto SHA256SUMS.ots "$R2_BUCKET/SHA256SUMS.ots"       --s3-no-check-bucket --header-upload "Cache-Control: no-cache"
+          rclone copyto SHA256SUMS     "$R2_BUCKET/SHA256SUMS-$VER"      --s3-no-check-bucket
+          rclone copyto SHA256SUMS.ots "$R2_BUCKET/SHA256SUMS-$VER.ots"  --s3-no-check-bucket
+          echo "anchored notzero $VER on Bitcoin (proof pending calendar → block attestation)"
