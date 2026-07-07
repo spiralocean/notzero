@@ -1,0 +1,76 @@
+# Upgrade the OpenTimestamps proofs published by the release `anchor` job.
+#
+# `anchor` publishes each release's SHA256SUMS.ots as a PENDING proof (a commitment held by the OTS calendars).
+# A few hours later the calendars batch it into a Bitcoin transaction and it confirms in a block. This job runs
+# on a schedule, finds any pending proof, `ots upgrade`s it to a full Bitcoin-block attestation, and republishes
+# the ones that reached a block — so the on-chain proof becomes self-contained (verifiable against a node with
+# no calendar round-trip). Once every proof is anchored, this is a cheap no-op.
+#
+# Needs the same R2 secrets as the Release workflow (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ENDPOINT).
+
+name: Upgrade timestamps
+
+on:
+  schedule:
+    - cron: "17 */6 * * *" # every 6 hours (offset off the hour so it isn't in the scheduler's rush)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: upgrade-timestamps
+  cancel-in-progress: false
+
+jobs:
+  upgrade:
+    runs-on: ubuntu-latest
+    env:
+      R2_BUCKET: "r2:notzero-dl"
+      RCLONE_CONFIG_R2_TYPE: s3
+      RCLONE_CONFIG_R2_PROVIDER: Cloudflare
+      RCLONE_CONFIG_R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      RCLONE_CONFIG_R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      RCLONE_CONFIG_R2_ACL: private
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Install OpenTimestamps client + rclone
+        run: |
+          python -m pip install --upgrade pip opentimestamps-client
+          curl -fsSL https://rclone.org/install.sh | sudo bash
+      - name: Upgrade pending proofs; republish the ones that reached a Bitcoin block
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p up && cd up
+          # every proof the anchor job has published: the stable one + one per release
+          rclone lsf "$R2_BUCKET" --include "SHA256SUMS*.ots" > list.txt
+          if [ ! -s list.txt ]; then echo "no proofs published yet — nothing to do"; exit 0; fi
+          mapfile -t PROOFS < list.txt
+          upgraded=0; pending=0; done_already=0
+          for p in "${PROOFS[@]}"; do
+            [ -n "$p" ] || continue
+            rclone copyto "$R2_BUCKET/$p" "$p" --s3-no-check-bucket
+            if ots info "$p" | grep -q "BitcoinBlockHeaderAttestation"; then
+              echo "· $p — already anchored on-chain"; done_already=$((done_already+1)); rm -f "$p"; continue
+            fi
+            before="$(sha256sum "$p" | awk '{print $1}')"
+            ots upgrade "$p" || true   # exits 1 while still pending — normal, not an error
+            after="$(sha256sum "$p" | awk '{print $1}')"
+            if [ "$before" != "$after" ]; then
+              # got the Bitcoin-block attestation → republish (stable stays no-cache; versioned copies cacheable)
+              if [ "$p" = "SHA256SUMS.ots" ]; then
+                rclone copyto "$p" "$R2_BUCKET/$p" --s3-no-check-bucket --header-upload "Cache-Control: no-cache"
+              else
+                rclone copyto "$p" "$R2_BUCKET/$p" --s3-no-check-bucket
+              fi
+              echo "✓ $p — upgraded to a Bitcoin-block attestation and republished"; upgraded=$((upgraded+1))
+            else
+              echo "· $p — still pending calendar → block confirmation"; pending=$((pending+1))
+            fi
+            rm -f "$p" "$p.bak"
+          done
+          echo "done — anchored this run: $upgraded · still pending: $pending · already anchored: $done_already"
