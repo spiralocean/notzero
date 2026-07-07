@@ -18,6 +18,8 @@ const os = require("node:os");
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
+const crypto = require("node:crypto");
+const { verifyAgainstNode } = require("./ots-verify.js"); // on-chain (OpenTimestamps) update verification against the local node
 
 const REQUIRED_FREE_BYTES = 25 * 1024 ** 3; // ~25 GB headroom for snapshot + pruned chain + load-time peak
 // Free bytes on the volume holding `dir` (null if it can't be determined → don't block).
@@ -111,7 +113,71 @@ function updatingOverlayJs(version) {
 // version is available but never download or install on our own — they trigger it from Menu → Check for
 // Updates. This gives the security-conscious the wheel without punishing everyone else. No-op in dev. ----
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
+function verifyUpdatesOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).verify_updates !== false; } catch (_) { return true; } } // default ON — only ever BLOCKS on a definitive mismatch
 let updateAvailableVer = null, updateManual = false, notifiedVer = null, pendingUpdateVer = null;
+let lastUpdateVerification = null, currentVersionAnchor = null; // surfaced on the dashboard's VERIFIED UPDATES section
+
+// Build a JSON-RPC caller bound to the saved node credentials (null if we can't). Used to verify update proofs.
+function nodeRpcFromConfig() {
+  let cfg; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) { return null; }
+  const rpcUrl = (cfg.rpc_url || "http://127.0.0.1:8332").trim();
+  const cookiePath = cfg.rpc_cookie ? resolveCookiePath(cfg.rpc_datadir || "") : "";
+  const authHeader = rpcAuthHeader({ user: cfg.rpc_user || "", pass: cfg.rpc_pass || "", cookiePath });
+  if (!authHeader) return null;
+  return (m, p) => rpcCall(rpcUrl, authHeader, m, p);
+}
+
+// Fetch a small file from the download CDN — utf8 string, or a Buffer when binary. null on any failure.
+function fetchDl(name, binary) {
+  return new Promise((resolve) => {
+    const req = https.get("https://dl.getnotzero.com/" + name, (res) => {
+      if (res.statusCode !== 200) { res.resume(); return resolve(null); }
+      const chunks = []; res.on("data", (c) => chunks.push(c)); res.on("end", () => resolve(binary ? Buffer.concat(chunks) : Buffer.concat(chunks).toString("utf8")));
+    });
+    req.on("error", () => resolve(null)); req.setTimeout(9000, () => { req.destroy(); resolve(null); });
+  });
+}
+
+// Verify a downloaded update against the anchored SHA256SUMS + the local node. Never throws. Returns { level, ... }:
+//   onchain    hash matches AND the checksum file is confirmed in a block the node validated  → { height, blockTime }
+//   pending    hash matches; the on-chain proof isn't block-confirmed yet (recent release)
+//   checksums  hash matches; couldn't confirm on-chain (no node / node behind)
+//   unverified couldn't check (checksums not published, or artifact not in the anchored set — e.g. the mac .zip)
+//   mismatch   DANGER — the download's hash isn't the published one, or the proof commits to the wrong block
+async function verifyUpdateArtifact(version, filePath) {
+  try {
+    const sums = (await fetchDl("SHA256SUMS-" + version)) || (await fetchDl("SHA256SUMS"));
+    const ots = (await fetchDl("SHA256SUMS-" + version + ".ots", true)) || (await fetchDl("SHA256SUMS.ots", true));
+    if (!sums || !ots) return { level: "unverified", version, detail: "checksums not published" };
+    const artHash = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
+    const base = path.basename(filePath);
+    const line = sums.split("\n").map((l) => l.trim()).find((l) => l && l.split(/\s+/).pop() === base);
+    if (!line) return { level: "unverified", version, detail: base + " isn't in the anchored set" }; // don't block — e.g. mac .zip before it's covered
+    if (line.split(/\s+/)[0] !== artHash) return { level: "mismatch", version, detail: "download hash does not match the published checksum" };
+    const rpc = nodeRpcFromConfig();
+    if (!rpc) return { level: "checksums", version, detail: "hash verified; no node to confirm on-chain" };
+    const v = await verifyAgainstNode(ots, crypto.createHash("sha256").update(sums).digest("hex"), rpc);
+    if (v.status === "verified") return { level: "onchain", version, height: v.height, blockTime: v.blockTime, detail: "confirmed in Bitcoin block " + v.height };
+    if (v.status === "mismatch") return { level: "mismatch", version, detail: v.reason };
+    if (v.status === "pending") return { level: "pending", version, detail: "hash verified; on-chain confirmation pending" };
+    return { level: "checksums", version, detail: "hash verified; on-chain check inconclusive" };
+  } catch (_) { return { level: "unverified", version, detail: "verification error" }; }
+}
+
+// Badge for the RUNNING version: is its published checksum file confirmed on-chain yet? (verifies the proof
+// against the node; doesn't re-hash the installed binary). Refreshed on startup + periodically.
+async function refreshCurrentVersionAnchor() {
+  const version = app.getVersion();
+  try {
+    const sums = await fetchDl("SHA256SUMS-" + version), ots = await fetchDl("SHA256SUMS-" + version + ".ots", true);
+    if (!sums || !ots) { currentVersionAnchor = { version, level: "unverified" }; return; }
+    const rpc = nodeRpcFromConfig();
+    if (!rpc) { currentVersionAnchor = { version, level: "unchecked" }; return; }
+    const v = await verifyAgainstNode(ots, crypto.createHash("sha256").update(sums).digest("hex"), rpc);
+    const level = v.status === "verified" ? "onchain" : v.status === "pending" ? "pending" : v.status === "mismatch" ? "mismatch" : "unchecked";
+    currentVersionAnchor = { version, level, height: v.height, blockTime: v.blockTime };
+  } catch (_) { currentVersionAnchor = { version, level: "unchecked" }; }
+}
 const SITE_CHANGELOG_URL = "https://getnotzero.com/changelog";
 const CHANGELOG_URLS = ["https://dl.getnotzero.com/CHANGELOG.md", "https://raw.githubusercontent.com/spiralocean/notzero/main/CHANGELOG.md"];
 
@@ -183,8 +249,19 @@ function initAutoUpdate() {
     try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → the “Update available” banner (or Help → Check for Updates).` }).show(); } catch (_) {} // closed → one notification
   });
   autoUpdater.on("update-not-available", () => { pendingUpdateVer = null; if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
-  autoUpdater.on("update-downloaded", (info) => {
+  autoUpdater.on("update-downloaded", async (info) => {
     const ver = info && info.version ? info.version : "";
+    // Verify the download against the anchored SHA256SUMS + your node before installing. This does NOT wait for the
+    // on-chain proof to confirm (that can take hours) — it installs on a checksum match and shows on-chain status
+    // when available; it only BLOCKS on a definitive mismatch. electron-updater's signed feed is the baseline gate.
+    let verdict = null;
+    if (info && info.downloadedFile) { try { verdict = await verifyUpdateArtifact(ver, info.downloadedFile); } catch (_) {} }
+    lastUpdateVerification = verdict || { level: "unverified", version: ver };
+    if (verdict && verdict.level === "mismatch" && verifyUpdatesOn()) {
+      try { if (Notification.isSupported()) new Notification({ title: "notzero — update blocked", body: `The downloaded ${ver ? "v" + ver : "update"} failed verification and was NOT installed.` }).show(); } catch (_) {}
+      try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download's fingerprint didn't match the checksum published for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
+      return; // do not install a download we can't vouch for
+    }
     try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
     try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
     setTimeout(() => { try { autoUpdater.quitAndInstall(); } catch (_) {} }, 6000); // a beat longer so the message is readable before the relaunch
@@ -657,6 +734,8 @@ function startServer() {
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
         const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, update_available: pendingUpdateVer || "" } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
+        out.update_verification = lastUpdateVerification; // a downloaded update's verdict (or null) — VERIFIED UPDATES section
+        out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
@@ -762,6 +841,7 @@ if (!app.requestSingleInstanceLock()) {
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
+    refreshCurrentVersionAnchor(); setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
     startNotifier(); // OS notifications for block won / new best / node sync changes
   });
 }

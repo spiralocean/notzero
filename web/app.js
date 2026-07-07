@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 210 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 250 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -568,15 +568,16 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updatePillHit = null;
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updatePillHit = null;
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; requestRender(); }
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; requestRender(); }
   }).catch(() => {});
 }
 pollConfig();
 try { setInterval(pollConfig, 90000); } catch (_) {} // re-poll so a newly-available update shows without a restart
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
+try { const fv = new URLSearchParams(location.search).get("fakeverify"); if (fv) { const [lvl, ver, h] = fv.split(":"); isDesktop = true; updateVerification = { level: lvl, version: ver || updatePendingVer || "0.1.30", height: h ? +h : undefined }; } } catch (_) {} // VERIFIED UPDATES status preview
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -3028,41 +3029,65 @@ function networkExplainer(da) {
 // node validates that block. A pulse travels the rail, lighting each stage; the node's ✓ lands at the end.
 function drawUpdates(r) {
   const pad = 16, x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
-  const ORANGE = "rgba(247,147,26,1)", GREEN = "rgba(90,220,140,1)", DIM = "rgba(255,255,255,0.22)", INK = "rgba(255,255,255,0.82)";
+  const ORANGE = "rgba(247,147,26,1)", GREEN = "rgba(90,220,140,1)", RED = "rgba(255,95,95,1)", DIM = "rgba(255,255,255,0.22)", INK = "rgba(255,255,255,0.82)";
   text("VERIFIED UPDATES — the app checks each update against a hash stamped in the Bitcoin blockchain, confirmed by your own node", x0, r.y + 16, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.6)", baseline: "middle" });
 
-  const PERIOD = 7200, now = reduceMotion ? PERIOD - 300 : Date.now();
-  const t = (now % PERIOD) / PERIOD, travel = Math.min(1, t / 0.8), pos = travel * 3, verified = t >= 0.8; // reach the node by 80%, then hold "verified"
-  const height = model.node && model.node.blocks ? model.node.blocks : null;
+  // real status: a downloaded update's verdict (incoming) wins; otherwise the running version's on-chain badge
+  const uv = updateVerification, va = versionAnchor;
+  const sv = uv && uv.level ? { level: uv.level, version: uv.version, height: uv.height, incoming: true } : (va && va.level ? { level: va.level, version: va.version, height: va.height, incoming: false } : null);
+  const danger = !!(sv && sv.level === "mismatch");
 
-  const cy = r.y + 80;
+  const PERIOD = 7200, now = reduceMotion || danger ? PERIOD - 300 : Date.now();
+  const t = danger ? 1 : (now % PERIOD) / PERIOD, travel = Math.min(1, t / 0.8), pos = travel * 3, verified = t >= 0.8; // reach the node by 80%, then hold
+  const height = model.node && model.node.blocks ? model.node.blocks : null, RAIL = danger ? RED : GREEN;
+
+  const cy = r.y + 74;
   const stages = [
     { cx: x0 + w * 0.11, glyph: "↓", label: "new version", sub: "downloaded" },
     { cx: x0 + w * 0.37, glyph: "#", label: "SHA-256", sub: "its fingerprint" },
     { cx: x0 + w * 0.63, glyph: "₿", label: height ? "block #" + height.toLocaleString() : "Bitcoin block", sub: "stamped on-chain" },
-    { cx: x0 + w * 0.89, glyph: verified ? "✓" : "◇", label: "your node", sub: verified ? "confirmed it" : "validates it" },
+    { cx: x0 + w * 0.89, glyph: danger ? "✗" : verified ? "✓" : "◇", label: "your node", sub: danger ? "rejected it" : verified ? "confirmed it" : "validates it" },
   ];
 
   ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(stages[0].cx, cy); ctx.lineTo(stages[3].cx, cy); ctx.stroke(); // rail
   const seg = Math.max(0, Math.min(2, Math.floor(pos))), frac = pos - seg, px = stages[seg].cx + (stages[seg + 1].cx - stages[seg].cx) * frac;
-  ctx.strokeStyle = GREEN; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(stages[0].cx, cy); ctx.lineTo(px, cy); ctx.stroke(); // green progress fill
+  ctx.strokeStyle = RAIL; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(stages[0].cx, cy); ctx.lineTo(px, cy); ctx.stroke(); // progress fill
 
   stages.forEach((st, i) => {
     const active = pos >= i - 0.05, isBlock = i === 2, isNode = i === 3, sz = 34;
-    const col = isNode && verified ? GREEN : isBlock && active ? ORANGE : active ? GREEN : DIM;
+    const col = isNode && danger ? RED : isNode && verified ? GREEN : isBlock && active ? ORANGE : active ? RAIL : DIM;
     ctx.fillStyle = active ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.02)"; roundRect(st.cx - sz / 2, cy - sz / 2, sz, sz, isBlock ? 6 : 17); ctx.fill();
     ctx.strokeStyle = active ? col : DIM; ctx.lineWidth = active ? 1.9 : 1.2; roundRect(st.cx - sz / 2, cy - sz / 2, sz, sz, isBlock ? 6 : 17); ctx.stroke();
     text(st.glyph, st.cx, cy + 1, { size: 16, weight: 800, color: active ? col : DIM, align: "center", baseline: "middle" });
     text(st.label, st.cx, cy + sz / 2 + 12, { size: 9.5, weight: 700, color: active ? INK : DIM, align: "center", baseline: "middle" });
     text(st.sub, st.cx, cy + sz / 2 + 24, { size: 8.5, color: active ? "rgba(255,255,255,0.5)" : DIM, align: "center", baseline: "middle" });
   });
-  if (!verified) { ctx.fillStyle = "rgba(180,255,210,0.95)"; ctx.beginPath(); ctx.arc(px, cy, 3.6, 0, 7); ctx.fill(); } // the traveling pulse
+  if (!verified && !danger) { ctx.fillStyle = "rgba(180,255,210,0.95)"; ctx.beginPath(); ctx.arc(px, cy, 3.6, 0, 7); ctx.fill(); } // the traveling pulse
 
-  const ty = cy + 66;
+  // real-status strip — reflects the actual verdict from the desktop app (via /config)
+  if (sv) {
+    const who = sv.incoming ? "v" + sv.version + " ready" : "you're on v" + sv.version, whoP = sv.incoming ? "v" + sv.version : "you're on v" + sv.version;
+    const M = {
+      onchain:    { c: "90,220,140", ic: "✓", t: who + " · verified on-chain" + (sv.height ? " — Bitcoin block " + sv.height.toLocaleString() : "") },
+      pending:    { c: "247,190,60", ic: "◷", t: who + " · checksums verified · on-chain confirmation pending" },
+      checksums:  { c: "120,210,255", ic: "✓", t: who + " · checksums verified" },
+      mismatch:   { c: "255,95,95", ic: "⚠", t: "v" + sv.version + " failed verification — not installed" },
+      unverified: { c: "255,255,255", ic: "·", t: whoP + " · verification not available yet" },
+      unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
+    }[sv.level];
+    if (M) {
+      const by = r.y + 128, bh = 22;
+      ctx.fillStyle = `rgba(${M.c},0.1)`; roundRect(x0, by, w, bh, 6); ctx.fill();
+      ctx.strokeStyle = `rgba(${M.c},0.5)`; ctx.lineWidth = 1; roundRect(x0, by, w, bh, 6); ctx.stroke();
+      text(M.ic + "   " + M.t, x0 + 12, by + bh / 2 + 0.5, { size: 11, weight: 700, color: `rgba(${M.c},1)`, baseline: "middle" });
+    }
+  }
+
+  const ty = r.y + 166;
   ctx.strokeStyle = "rgba(255,255,255,0.08)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, ty - 6); ctx.lineTo(x1, ty - 6); ctx.stroke();
   text("The fingerprint is committed to a Bitcoin block, and your node independently validated that block — so an update can be", x0, ty + 8, { size: 10.5, color: "rgba(255,255,255,0.62)", baseline: "middle" });
   text("trusted without trusting our servers. Only block headers are needed, so the pruned node you already run is enough.", x0, ty + 24, { size: 10.5, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-  text("The only moment of risk is your very first download — after that, every update verifies itself against your node.", x0, ty + 44, { size: 10.5, weight: 600, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+  text("It doesn't wait for the chain — an update installs on a checksum match; the on-chain confirmation lands within hours.", x0, ty + 42, { size: 10.5, weight: 600, color: "rgba(90,220,140,0.92)", baseline: "middle" });
 }
 
 function drawBroadcast(r) {

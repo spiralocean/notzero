@@ -217,6 +217,11 @@ jobs:
           VER="$(python -c "import json;print(json.load(open('desktop/package.json'))['version'])")"
           # the exact stable files the website's download buttons serve (overwritten each release)
           FILES="notzero-mac.dmg notzero-win.exe notzero-linux.AppImage"
+          # also cover the mac AUTO-UPDATE artifact — the updater downloads the .zip (different bytes than the .dmg),
+          # so include it too or in-app node verification can't confirm a mac update. (win/linux updaters reuse the
+          # same file as the website download, already covered.) Its name is in the mac feed's `path:`.
+          MACZIP="$(rclone cat "$R2_BUCKET/latest-mac.yml" 2>/dev/null | sed -n 's/^path: *//p' | tr -d '\r' | head -1)"
+          [ -n "$MACZIP" ] && FILES="$FILES $MACZIP"
           mkdir -p anchor && cd anchor
           # pull straight from R2 (source of truth — no CDN cache lag), then hash
           for f in $FILES; do echo "-> $f"; rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; done
