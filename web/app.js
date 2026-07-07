@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC" };
+const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "merkle", "hashBuild", "avalanche", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync"];
+const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", avalanche: "THE AVALANCHE", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -146,6 +146,23 @@ async function computeVerify(blk) {
   model.verify = { ...v }; requestRender();
 }
 
+// THE AVALANCHE demo — hash the real header at nonce 0, then at each single-bit-flipped nonce; record how many
+// of the 256 output bits differ (~half). Recomputed once per block. All real double-SHA-256.
+async function computeAvalanche(blk) {
+  if (!blk || !blk.merkle_root || blk.version == null || !blk.previousblockhash || blk.bits == null) return;
+  if (model.avalanche && model.avalanche.forHeight === blk.height) return;
+  try {
+    const N0 = 0, base = await dsha256(serializeHeader(blk, N0)), flips = [];
+    for (let i = 0; i < 32; i++) {
+      const bytes = await dsha256(serializeHeader(blk, (N0 ^ (1 << i)) >>> 0));
+      let diff = 0; for (let b = 0; b < 32; b++) { let x = (base[b] ^ bytes[b]) & 0xff; while (x) { diff += x & 1; x >>>= 1; } }
+      flips.push({ bit: i, bytes, diff });
+    }
+    model.avalanche = { forHeight: blk.height, nonce: N0, base, flips };
+    requestRender();
+  } catch (_) {}
+}
+
 function bitsToTarget(bits) {
   const exp = bits >>> 24, mant = BigInt(bits & 0xffffff);
   return exp <= 3 ? mant >> BigInt(8 * (3 - exp)) : mant << BigInt(8 * (exp - 3));
@@ -263,6 +280,7 @@ async function refresh() {
     model.txCount = blk.tx_count;
     model.difficulty = blk.difficulty;
     computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
+    computeAvalanche(blk); // precompute the single-bit-flip hashes for THE AVALANCHE panel
 
     // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
     const seed = machineSeed();
@@ -521,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -704,6 +722,7 @@ function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
   if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
+  if (s === "avalanche") { return "1 bit in → half the hash out · no aiming"; }
   if (s === "verify") { const v = model.verify; return v ? (v.merkleMatch == null ? "recomputing the proof-of-work…" : ((v.hashMatch && v.belowTarget && v.merkleMatch) ? "hash ✓ · below target ✓ · merkle ✓ — valid" : "check failed")) : "recompute a real block's hash yourself"; }
   if (s === "broadcast") { const n = model.node, rdy = n && n.reachable !== false && !(n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)); return rdy ? "node ready · P2P armed" : "P2P armed · node syncing"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
@@ -1526,6 +1545,7 @@ function drawContent(s, r) {
   if (s === "merkle") return drawMerkle(r);
   if (s === "fold") return drawFold(r);
   if (s === "hashBuild") return drawHashBuild(r);
+  if (s === "avalanche") return drawAvalanche(r);
   if (s === "verify") return drawVerify(r);
   if (s === "hashInside") return drawHashInside(r);
   if (s === "oneRound") return drawOneRound(r);
@@ -1872,6 +1892,45 @@ function drawMempool(r) {
   for (let i = 0; i < lgW; i++) { ctx.fillStyle = feeColor(Math.pow(10, (i / lgW) * 2.4 - 0.3), 0.9); ctx.fillRect(lgX + i, lgY - 3, 1, 5); }
   text("low", lgX - 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
   text("high fee", lgX + lgW + 5, lgY, { size: 10, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+}
+
+// THE AVALANCHE — flip one bit of the nonce, and ~half the 256 output bits change, with no predictable pattern.
+// The cascade reveals left→right; a counter tallies the flipped bits. Real double-SHA-256, once per block.
+function drawAvalanche(r) {
+  const x0 = r.x + 16, x1 = r.x + r.w - 16, now = Date.now(), BLUE = "120,200,255", GLD = "255,205,110";
+  text("THE AVALANCHE — flip one input bit, and half the hash changes, unpredictably", x0, r.y + 16, { size: 13, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+  text("The output has no relationship to the input — so there's no aiming: change the nonce, and the hash leaps somewhere completely new and unforeseeable. Guess-and-check is the only way in.", x0, r.y + 34, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  const av = model.avalanche;
+  if (!av || !av.flips || !av.flips.length) { text("computing…", x0, r.y + 66, { size: 12, color: "rgba(255,255,255,0.4)", baseline: "middle" }); return; }
+  const PERIOD = 2800, ph = reduceMotion ? 1 : (now % PERIOD) / PERIOD, idx = reduceMotion ? 9 : Math.floor(now / PERIOD) % av.flips.length;
+  const flip = av.flips[idx], flipped = reduceMotion || ph > 0.2, reveal = reduceMotion ? 1 : Math.max(0, Math.min(1, (ph - 0.24) / 0.4));
+  const bit = (bytes, p) => (bytes[p >> 3] >> (7 - (p & 7))) & 1;
+
+  // nonce (32 bits, all 0) — the one flipping bit lit gold
+  const nbY = r.y + 58, nbx0 = x0 + 210, nbw = Math.min(14, (x1 - nbx0 - 130) / 32);
+  text("nonce — the number a miner changes", x0, nbY + 5, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  for (let i = 0; i < 32; i++) { const isFlip = (31 - i) === flip.bit;
+    ctx.fillStyle = isFlip ? (flipped ? `rgba(${GLD},1)` : `rgba(${GLD},${0.45 + 0.45 * (0.5 + 0.5 * Math.sin(now / 110))})`) : "rgba(255,255,255,0.08)";
+    ctx.fillRect(nbx0 + i * nbw, nbY, Math.max(1.5, nbw - 1.5), 12);
+    if (isFlip) { ctx.strokeStyle = `rgba(${GLD},0.9)`; ctx.lineWidth = 1.2; ctx.strokeRect(nbx0 + i * nbw - 1.5, nbY - 2, Math.max(1.5, nbw - 1.5) + 3, 16); }
+  }
+  text(flipped ? "one bit flipped ✓" : "flip 1 bit…", nbx0 + 32 * nbw + 12, nbY + 5, { size: 9.5, weight: 700, color: `rgba(${GLD},0.95)`, baseline: "middle" });
+
+  // the two hashes, 256 bits each — before, then after (changed bits lit gold, cascading in L→R)
+  const hbx = x0 + 44, hbw = (x1 - hbx) / 256, baseY = r.y + 90, flipY = r.y + 114;
+  text("before", x0, baseY + 5, { size: 8.5, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+  text("after", x0, flipY + 5, { size: 8.5, weight: 700, color: `rgba(${GLD},0.75)`, baseline: "middle" });
+  let shownDiff = 0;
+  for (let p = 0; p < 256; p++) {
+    const b0 = bit(av.base, p), b1 = bit(flip.bytes, p), changed = b0 !== b1, revealed = p / 256 <= reveal;
+    ctx.fillStyle = b0 ? `rgba(${BLUE},0.65)` : "rgba(255,255,255,0.06)"; ctx.fillRect(hbx + p * hbw, baseY, Math.max(0.8, hbw - 0.35), 11);
+    const showCh = changed && revealed; if (showCh) shownDiff++;
+    const shownBit = revealed ? b1 : b0;
+    ctx.fillStyle = showCh ? `rgba(${GLD},1)` : (shownBit ? `rgba(${BLUE},0.5)` : "rgba(255,255,255,0.05)"); ctx.fillRect(hbx + p * hbw, flipY, Math.max(0.8, hbw - 0.35), 11);
+  }
+  const total = reveal >= 1 ? flip.diff : shownDiff;
+  text(`${total} of 256 bits changed — about half, and no way to predict which`, x0, r.y + 138, { size: 11.5, weight: 700, color: `rgba(${GLD},0.95)`, baseline: "middle" });
+  text("Run the same math with one bit different → a totally unrelated result. That's why mining is a lottery, not a puzzle you can outsmart — you can only draw ticket after ticket.", x0, r.y + r.h - 12, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
 // VERIFY THIS BLOCK — the three checks a node runs to validate a real block's hash, recomputed live in-browser.

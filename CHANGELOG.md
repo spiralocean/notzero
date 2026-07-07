@@ -13,6 +13,12 @@ version number and bump `desktop/package.json`.
   page (explains wallet types, the "never share your recovery phrase" rule, and points to a neutral wallet
   chooser). Non-custodial throughout: we only ever want your public receive address.
 
+**Dashboard**
+- **THE AVALANCHE.** A new panel showing *why* a hash is unpredictable: flip one bit of the nonce and ~half of
+  the 256 output bits change (real double-SHA-256 — before/after, with the flipped bits cascading in gold and a
+  live counter). Drives home "there's no aiming — change the nonce and the hash leaps somewhere completely new";
+  guess-and-check is the only way.
+
 **Desktop**
 - **In-app "update available" pill.** When an update is pending, a persistent gold pill shows in the dashboard
   (top-right) — click it to check + get the what's-new / install choice. No longer just a missable OS
