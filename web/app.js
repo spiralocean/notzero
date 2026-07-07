@@ -3038,32 +3038,50 @@ function drawUpdates(r) {
   const sv = uv && uv.level ? { level: uv.level, version: uv.version, height: uv.height, incoming: true } : (va && va.level ? { level: va.level, version: va.version, height: va.height, incoming: false } : null);
   const danger = !!(sv && sv.level === "mismatch");
 
-  const PERIOD = 7200, now = reduceMotion || danger ? PERIOD - 300 : Date.now();
-  const t = danger ? 1 : (now % PERIOD) / PERIOD, travel = Math.min(1, t / 0.8), pos = travel * 3, verified = t >= 0.8; // reach the node by 80%, then hold
-  const height = model.node && model.node.blocks ? model.node.blocks : null, RAIL = danger ? RED : GREEN;
+  // ── the moving parts of how we verify ── a token carries the running hash left→right: your download's SHA-256,
+  // folded through the proof's steps (each combines in a sibling hash), until it IS a Bitcoin block's merkle root —
+  // which your own node already holds and confirms.
+  const PERIOD = 9000, now = reduceMotion || danger ? PERIOD * 0.93 : Date.now(), p = danger ? 1 : (now % PERIOD) / PERIOD;
+  const cy = r.y + 66, C = danger ? RED : GREEN, sx = (f) => x0 + w * f;
+  const xDL = sx(0.05), foldXs = [sx(0.26), sx(0.35), sx(0.44)], xRoot = sx(0.53), xBlock = sx(0.71), xNode = sx(0.9);
+  const tokP = Math.min(1, p / 0.66), tokX = xDL + (xBlock - xDL) * tokP;          // token: download → block by p=0.66
+  const foldsDone = foldXs.filter((fx) => tokX >= fx - 2).length, atRoot = tokX >= xRoot - 4;
+  const atBlock = p >= 0.66, atNode = p >= 0.86;
+  const readX = xBlock + (xNode - 24 - xBlock) * Math.max(0, Math.min(1, (p - 0.66) / 0.2)); // node reaches over to read the block
+  const blockNum = (versionAnchor && versionAnchor.height) || (sv && sv.height) || (model.node && model.node.blocks) || null;
 
-  const cy = r.y + 60;
-  const stages = [
-    { cx: x0 + w * 0.11, glyph: "↓", label: "new version", sub: "downloaded" },
-    { cx: x0 + w * 0.37, glyph: "#", label: "SHA-256", sub: "its fingerprint" },
-    { cx: x0 + w * 0.63, glyph: "₿", label: height ? "block #" + height.toLocaleString() : "Bitcoin block", sub: "stamped on-chain" },
-    { cx: x0 + w * 0.89, glyph: danger ? "✗" : verified ? "✓" : "◇", label: "your node", sub: danger ? "rejected it" : verified ? "confirmed it" : "validates it" },
-  ];
+  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(xDL, cy); ctx.lineTo(xBlock, cy); ctx.stroke(); // the fold rail
+  ctx.strokeStyle = C; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(xDL, cy); ctx.lineTo(Math.min(tokX, xBlock), cy); ctx.stroke();
 
-  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(stages[0].cx, cy); ctx.lineTo(stages[3].cx, cy); ctx.stroke(); // rail
-  const seg = Math.max(0, Math.min(2, Math.floor(pos))), frac = pos - seg, px = stages[seg].cx + (stages[seg + 1].cx - stages[seg].cx) * frac;
-  ctx.strokeStyle = RAIL; ctx.lineWidth = 2.6; ctx.beginPath(); ctx.moveTo(stages[0].cx, cy); ctx.lineTo(px, cy); ctx.stroke(); // progress fill
+  const bits = (cx, cyy, seed, col, hot, wc) => { wc = wc || 42; const n = 9, cw = wc / n; // a little hash chip
+    ctx.fillStyle = hot ? "rgba(255,235,150,0.16)" : "rgba(255,255,255,0.05)"; roundRect(cx - wc / 2 - 2, cyy - 8, wc + 4, 16, 3); ctx.fill();
+    if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.8)"; ctx.lineWidth = 1.1; roundRect(cx - wc / 2 - 2, cyy - 8, wc + 4, 16, 3); ctx.stroke(); }
+    for (let i = 0; i < n; i++) { const on = ((seed * 2654435761 + (i + 1) * 40503) >>> ((i + seed) % 9)) & 1; ctx.fillStyle = on ? col : "rgba(255,255,255,0.13)"; ctx.fillRect(cx - wc / 2 + i * cw + 0.6, cyy - 4.5, cw - 1.2, 9); } };
 
-  stages.forEach((st, i) => {
-    const active = pos >= i - 0.05, isBlock = i === 2, isNode = i === 3, sz = 34;
-    const col = isNode && danger ? RED : isNode && verified ? GREEN : isBlock && active ? ORANGE : active ? RAIL : DIM;
-    ctx.fillStyle = active ? "rgba(255,255,255,0.055)" : "rgba(255,255,255,0.02)"; roundRect(st.cx - sz / 2, cy - sz / 2, sz, sz, isBlock ? 6 : 17); ctx.fill();
-    ctx.strokeStyle = active ? col : DIM; ctx.lineWidth = active ? 1.9 : 1.2; roundRect(st.cx - sz / 2, cy - sz / 2, sz, sz, isBlock ? 6 : 17); ctx.stroke();
-    text(st.glyph, st.cx, cy + 1, { size: 16, weight: 800, color: active ? col : DIM, align: "center", baseline: "middle" });
-    text(st.label, st.cx, cy + sz / 2 + 12, { size: 9.5, weight: 700, color: active ? INK : DIM, align: "center", baseline: "middle" });
-    text(st.sub, st.cx, cy + sz / 2 + 24, { size: 8.5, color: active ? "rgba(255,255,255,0.5)" : DIM, align: "center", baseline: "middle" });
-  });
-  if (!verified && !danger) { ctx.fillStyle = "rgba(180,255,210,0.95)"; ctx.beginPath(); ctx.arc(px, cy, 3.6, 0, 7); ctx.fill(); } // the traveling pulse
+  text("⬇", xDL, cy - 1, { size: 15, weight: 800, color: tokP > 0.02 ? C : DIM, align: "center", baseline: "middle" });
+  text("your download", xDL - 4, cy + 20, { size: 8.5, weight: 700, color: INK, baseline: "middle" });
+
+  text("each proof step folds in a sibling hash", foldXs[0] - 12, cy - 40, { size: 8, color: "rgba(150,175,210,0.75)", baseline: "middle" });
+  foldXs.forEach((fx, k) => { const near = Math.abs(tokX - fx) < 9, done = tokX >= fx - 2;
+    ctx.globalAlpha = done ? 0.4 : 0.85; bits(fx, cy - 26, 900 + k * 11, "rgba(150,175,210,0.95)", false, 30); ctx.globalAlpha = 1;
+    ctx.strokeStyle = near ? "rgba(255,245,170,0.95)" : "rgba(255,255,255,0.16)"; ctx.lineWidth = near ? 1.9 : 1; ctx.beginPath(); ctx.moveTo(fx, cy - 17); ctx.lineTo(fx, cy - 9); ctx.stroke(); });
+
+  if (tokP > 0.03 && !atBlock) bits(tokX, cy, 100 + foldsDone * 17, danger ? RED : atRoot ? "rgba(255,225,120,1)" : "rgba(150,220,255,1)", atRoot, 42); // the running hash
+  if (atRoot && !atBlock) text("= merkle root", tokX, cy + 20, { size: 8.5, weight: 700, color: "rgba(255,225,120,0.95)", align: "center", baseline: "middle" });
+
+  { const bw2 = 94, bh2 = 40, bx = xBlock - bw2 / 2, byb = cy - bh2 / 2; // the Bitcoin block — merkle root sits in its header
+    ctx.fillStyle = atBlock ? "rgba(247,147,26,0.12)" : "rgba(255,255,255,0.03)"; roundRect(bx, byb, bw2, bh2, 5); ctx.fill();
+    ctx.strokeStyle = atBlock ? ORANGE : DIM; ctx.lineWidth = atBlock ? 1.7 : 1.1; roundRect(bx, byb, bw2, bh2, 5); ctx.stroke();
+    text(blockNum ? "₿ block #" + blockNum.toLocaleString() : "₿ Bitcoin block", xBlock, byb + 9, { size: 8, weight: 700, color: atBlock ? ORANGE : DIM, align: "center", baseline: "middle" });
+    ctx.fillStyle = atBlock ? "rgba(255,225,120,0.2)" : "rgba(255,255,255,0.05)"; roundRect(bx + 7, byb + 18, bw2 - 14, 15, 3); ctx.fill();
+    if (atBlock) bits(xBlock, byb + 25.5, 100 + foldsDone * 17, "rgba(255,225,120,1)", false, bw2 - 26); else text("merkle root", xBlock, byb + 25.5, { size: 7.5, weight: 700, color: DIM, align: "center", baseline: "middle" });
+    text("stamped in a block", xBlock, cy + 28, { size: 8.5, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  }
+
+  if (p > 0.66 && !danger) { ctx.strokeStyle = "rgba(90,220,140,0.8)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(xBlock + 40, cy); ctx.lineTo(readX, cy); ctx.stroke(); ctx.setLineDash([]); } // node reaches over to check
+  { for (let i = 0; i < 3; i++) { ctx.strokeStyle = atNode ? "rgba(90,220,140,0.75)" : DIM; roundRect(xNode - 6 + i * 9, cy - 6, 7, 12, 2); if (atNode && i === 1) { ctx.fillStyle = "rgba(90,220,140,0.2)"; ctx.fill(); } ctx.stroke(); } // your node's chain, this block lit
+    text(danger ? "✗" : atNode ? "✓" : "◇", xNode + 30, cy + 1, { size: 15, weight: 800, color: danger ? RED : atNode ? GREEN : DIM, align: "center", baseline: "middle" });
+    text(danger ? "your node rejects" : "your node confirms", xNode + 10, cy + 20, { size: 8.5, weight: 700, color: danger ? "rgba(255,120,120,0.9)" : "rgba(90,220,140,0.9)", align: "center", baseline: "middle" }); }
 
   // real-status strip — the current/incoming verdict, as a headline above the release history
   if (sv) {
