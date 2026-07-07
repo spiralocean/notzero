@@ -14,6 +14,9 @@ version number and bump `desktop/package.json`.
   chooser). Non-custodial throughout: we only ever want your public receive address.
 
 **Dashboard**
+- **THE CHURN: each mix step's output stands out.** The result ("= …") row of every mix step now gets a
+  neutral white outline + soft glow, so the output pops without changing the lane colours (teal = from e,
+  violet = from a, gold = the sums, green = the new registers).
 - **Tidier top level + clearer registers.** MERKLE TREE, THE AVALANCHE, VERIFY THIS BLOCK, and INSIDE THE HASH
   (with all its deep dives) now nest under **HASH BUILD** — so the entire hashing deep-dive folds into a single
   top-level row (collapsed by default). Two-level nesting: HASH BUILD's children indent one step, INSIDE THE

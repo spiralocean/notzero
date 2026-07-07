@@ -1176,6 +1176,8 @@ function drawChurn(r) {
   // THE MIX — walk the sub-steps that build new a & e, revealed one at a time (newest at the bottom)
   const mbarX = x0 + 214, mcw = (x1 - mbarX) / 32;
   const mbar = (yy, val, color) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? color : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, yy, Math.max(1, mcw - 1), 7); } };
+  // frame a completed step's OUTPUT row so it stands out — a neutral white outline + soft glow that never fights the lane colours
+  const frameOut = (yy) => { ctx.save(); ctx.shadowColor = "rgba(255,255,255,0.55)"; ctx.shadowBlur = 4; ctx.strokeStyle = "rgba(255,255,255,0.9)"; ctx.lineWidth = 1.4; roundRect(mbarX - 4, yy - 2.5, x1 - mbarX + 5, 12, 3); ctx.stroke(); ctx.restore(); };
   let my = aby + 20;
   const OP_LABEL = { "Σ1": "Σ1 · scramble e — rotate ×3 & XOR", "Ch": "Ch · choose — e picks f or g per bit", "T1": "T1 · sum  Σ1 + Ch + h + K + W", "Σ0": "Σ0 · scramble a — rotate ×3 & XOR", "Maj": "Maj · majority vote of a, b, c", "T2": "T2 · sum  Σ0 + Maj", "new e": "new e · add  d + T1", "new a": "new a · add  T1 + T2" };
   if (curStep >= 0) text(`THE MIX · step ${curStep + 1}/${NS}   ▸   ${OP_LABEL[steps[curStep].g] || steps[curStep].g}`, x0, my, { size: 9.5, weight: 700, color: steps[curStep].c, baseline: "middle" });
@@ -1228,7 +1230,7 @@ function drawChurn(r) {
       } else rbar(my, vals[k], aColor);
       my += rh; drew++; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     const resBlink = (curStep === 14 || curStep === 15) && animDone && animEl < stepDoneMs + 1800 && Math.floor(churnLiveNow / 150) % 2 === 0; // blink the mix result row in time with the register cell it just filled
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? (resBlink ? "rgba(255,255,235,1)" : aColor) : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (resBlink) { ctx.strokeStyle = "rgba(255,255,240,0.95)"; ctx.lineWidth = 1.4; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
@@ -1247,7 +1249,7 @@ function drawChurn(r) {
     let drew = storedNames.length;
     for (let k = 0; k < n; k++) { if (xo[k][2]) continue; text((drew === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 12; drew++; }
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
@@ -1283,7 +1285,7 @@ function drawChurn(r) {
     const yTop = my - 2;
     readRow("  a", aV, 0); readRow("  b", bV, stepPerReg); readRow("  c", cV, stepPerReg * 2);
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; frameOut(my); text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
@@ -1300,7 +1302,7 @@ function drawChurn(r) {
     const yTop = my - 2;
     readRow("  " + o1[0], o1[1] >>> 0, 0); readRow("∧ " + o2[0], o2[1] >>> 0, stepPerReg);
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; text("= " + st.l, x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; frameOut(my); text("= " + st.l, x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const b1 = (o1[1] >>> bCur) & 1, b2 = (o2[1] >>> bCur) & 1;
