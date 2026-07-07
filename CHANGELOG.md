@@ -6,6 +6,16 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.30
 
+**Desktop**
+- **Updates verified against your own node.** Before installing an auto-update, notzero checks the download's hash
+  against the release's `SHA256SUMS` and confirms that checksum file is anchored in a Bitcoin block your node
+  validated (OpenTimestamps) — it installs on a checksum match, shows on-chain status when available, and only
+  blocks a definitive mismatch. The VERIFIED UPDATES section shows the live status (verified on-chain · ready,
+  on-chain pending · mismatch). electron-updater's signed feed stays the baseline.
+- **Release-notes dialog fits the screen (macOS).** The "what's new" dialog no longer grows past the screen on
+  smaller Macs — where the buttons could fall off the bottom out of reach. Long notes are capped to a screen-safe
+  length (with "See Full Notes" for the rest) and render cleanly without stray markdown.
+
 ## 0.1.29
 
 **Verification**

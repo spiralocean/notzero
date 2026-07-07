@@ -205,7 +205,7 @@ function changelogSince(md, fromVer, toVer) {
     const m = ln.match(/^##\s+v?(\d+\.\d+\.\d+)\b/);
     if (m) { capture = cmpVer(m[1], fromVer) > 0 && cmpVer(m[1], toVer) <= 0; if (capture) out.push(`◆ v${m[1]}`); continue; }
     if (/^##\s+/.test(ln)) { capture = false; continue; } // "Unreleased" / any other header ends a section
-    if (capture) out.push(ln.replace(/\*\*/g, "").replace(/^###\s+/, "").replace(/^-\s+/, "  • ").replace(/^\s\s-\s+/, "     • "));
+    if (capture) out.push(ln.replace(/\*\*/g, "").replace(/`/g, "").replace(/\[([^\]]+)\]\([^)]+\)/g, "$1").replace(/^###\s+/, "").replace(/^-\s+/, "  • ").replace(/^\s\s-\s+/, "     • ")); // also strip backticks + flatten [text](url) → text so notes read cleanly in a native dialog
   }
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 }
@@ -215,7 +215,15 @@ function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
   return new Promise((resolve) => {
     fetchTextAny(CHANGELOG_URLS, (md) => {
       let notes = md ? changelogSince(md, fromVer, toVer) : "";
-      if (notes.length > 1800) notes = notes.slice(0, 1800).replace(/\n[^\n]*$/, "") + "\n  …";
+      // macOS showMessageBox does NOT scroll a long `detail` — it grows the dialog past the screen and the buttons
+      // fall off the bottom (Windows scrolls, so it's fine). Cap by LINE COUNT on mac so the dialog always fits;
+      // "See Full Notes" opens the complete changelog. Others get a looser char cap since they scroll.
+      const mac = process.platform === "darwin", maxLines = mac ? 13 : 44, maxChars = mac ? 1000 : 1800;
+      let lines = notes.split("\n"), clipped = false;
+      if (lines.length > maxLines) { lines = lines.slice(0, maxLines); clipped = true; }
+      notes = lines.join("\n");
+      if (notes.length > maxChars) { notes = notes.slice(0, maxChars).replace(/\n[^\n]*$/, ""); clipped = true; }
+      if (clipped) notes = notes.replace(/\s+$/, "") + "\n  … — tap “See Full Notes” for everything since your version";
       const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
       const opts = { type: "info", noLink: true, title, message: title, detail: (notes ? notes + "\n\n" : "") + (extraDetail || ""), buttons, defaultId: 0, cancelId: buttons.length - 1 };
       try { (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then((r) => resolve(r.response)).catch(() => resolve(-1)); }
