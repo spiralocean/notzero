@@ -6,6 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.29
 
+**Onboarding**
+- **"New to Bitcoin? No wallet yet?" help.** The setup wizard now has an expandable helper under the payout
+  field for total newcomers — what a wallet/receive address is, three steps to get one, and self-custody +
+  seed-phrase safety — linking to a new plain-language [getnotzero.com/wallet](https://getnotzero.com/wallet)
+  page (explains wallet types, the "never share your recovery phrase" rule, and points to a neutral wallet
+  chooser). Non-custodial throughout: we only ever want your public receive address.
+
 **Desktop**
 - **In-app "update available" pill.** When an update is pending, a persistent gold pill shows in the dashboard
   (top-right) — click it to check + get the what's-new / install choice. No longer just a missable OS
