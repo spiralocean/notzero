@@ -111,7 +111,7 @@ function updatingOverlayJs(version) {
 // version is available but never download or install on our own — they trigger it from Menu → Check for
 // Updates. This gives the security-conscious the wheel without punishing everyone else. No-op in dev. ----
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
-let updateAvailableVer = null, updateManual = false, notifiedVer = null;
+let updateAvailableVer = null, updateManual = false, notifiedVer = null, pendingUpdateVer = null;
 const SITE_CHANGELOG_URL = "https://getnotzero.com/changelog";
 const CHANGELOG_URLS = ["https://dl.getnotzero.com/CHANGELOG.md", "https://raw.githubusercontent.com/spiralocean/notzero/main/CHANGELOG.md"];
 
@@ -169,15 +169,20 @@ function initAutoUpdate() {
   autoUpdater.on("error", () => {}); // a failed update check must never bother the user
   autoUpdater.on("update-available", (info) => {
     updateAvailableVer = info && info.version ? info.version : "";
+    pendingUpdateVer = updateAvailableVer;                      // drives the persistent in-app "update available" pill
     const wasManual = updateManual; updateManual = false;
     if (wasManual) { promptUpdateDialog(info); return; }        // explicit "Check for Updates" → what's new + choose
     if (autoUpdateOn()) return;                                 // auto mode background: autoDownload installs on quit
-    if (updateAvailableVer && updateAvailableVer === notifiedVer) return; // notify-only: act once per version (no repeat nags)
+    // notify ONCE per version — across restarts too (persisted). The in-app pill carries ongoing visibility, so
+    // there's no need for the old every-2-hours nag.
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    if (updateAvailableVer && (updateAvailableVer === notifiedVer || cfg.last_notified_version === updateAvailableVer)) return;
     notifiedVer = updateAvailableVer;
+    try { cfg.last_notified_version = updateAvailableVer; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {}
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) { promptUpdateDialog(info); return; } // app open → dialog with the choice
-    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → menu → Check for Updates to see what's new.` }).show(); } catch (_) {} // closed → one notification
+    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → the “Update available” banner (or Help → Check for Updates).` }).show(); } catch (_) {} // closed → one notification
   });
-  autoUpdater.on("update-not-available", () => { if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
+  autoUpdater.on("update-not-available", () => { pendingUpdateVer = null; if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
   autoUpdater.on("update-downloaded", (info) => {
     const ver = info && info.version ? info.version : "";
     try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
@@ -640,6 +645,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
+      if (req.method === "POST" && urlPath === "/update/check") { checkForUpdatesNow(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the in-app "update available" pill → show the what's-new / install choice
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
@@ -649,7 +655,7 @@ function startServer() {
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, update_available: pendingUpdateVer || "" } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;

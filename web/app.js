@@ -549,8 +549,15 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "";
-fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => { if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; } }).catch(() => {});
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updatePillHit = null;
+function pollConfig() {
+  fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; requestRender(); }
+  }).catch(() => {});
+}
+pollConfig();
+try { setInterval(pollConfig, 90000); } catch (_) {} // re-poll so a newly-available update shows without a restart
+try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
 const blockSubsidy = (h) => 50 / Math.pow(2, Math.floor((h || 0) / 210000));
 function fireCelebration({ preview = false, mode = "you", verified = true, height = 0, hash = "", reward } = {}) {
@@ -3114,6 +3121,21 @@ function drawPreviewTrigger() {
   blockPreviewHit = { x: blkRight - blkW, y: 10, w: blkW, h: 22 };
   text(blkLbl, blkRight, 21, { size: 12, weight: 700, color: `rgba(255,255,255,${0.4 + 0.12 * Math.sin(clock * 2 + 1)})`, align: "right", baseline: "middle" });
 }
+// persistent "update available" pill (desktop only) — a pending update is visible IN the app, not just a
+// missable OS notification. Click → ask the app to check and show the what's-new / install choice.
+function drawUpdatePill() {
+  updatePillHit = null;
+  if (!isDesktop || !updatePendingVer) return;
+  const label = `⬆ Update available · v${updatePendingVer}`;
+  ctx.font = "700 12px -apple-system, system-ui, sans-serif";
+  const tw = ctx.measureText(label).width, pw = tw + 26, ph = 24, px = W - PAD - pw, py = 40;
+  const pulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 2.4));
+  ctx.fillStyle = `rgba(255,205,110,${0.14 + 0.06 * pulse})`; roundRect(px, py, pw, ph, 12); ctx.fill();
+  ctx.strokeStyle = `rgba(255,205,110,${0.55 + 0.4 * pulse})`; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 12); ctx.stroke();
+  text(label, px + pw / 2, py + ph / 2, { size: 12, weight: 700, color: "rgba(255,218,130,1)", align: "center", baseline: "middle" });
+  text("click to update", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
+  updatePillHit = { x: px, y: py, w: pw, h: ph };
+}
 // desktop-only settings gear (top-right corner) → opens the settings screen (/setup). Drawn as a small
 // ring of teeth so it stays crisp/monochrome rather than a colour emoji.
 function drawGear() {
@@ -3430,7 +3452,7 @@ function render(ts) {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
   drawHoverTooltip(); // hover details for ticket bars / the "you" marker — on top of everything
@@ -3478,6 +3500,7 @@ canvas.addEventListener("click", (e) => {
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
   if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
+  if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
@@ -3513,7 +3536,7 @@ canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
   const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;

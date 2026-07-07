@@ -6,7 +6,11 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.29
 
-_Nothing yet._
+**Desktop**
+- **In-app "update available" pill.** When an update is pending, a persistent gold pill shows in the dashboard
+  (top-right) — click it to check + get the what's-new / install choice. No longer just a missable OS
+  notification. And the notification now fires **once per version** (persisted across restarts) instead of on
+  every 2-hour check — the pill carries ongoing visibility, so no more repeat nags.
 
 ## 0.1.28
 
