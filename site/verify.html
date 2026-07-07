@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>notzero — verify your download</title>
+  <meta name="description" content="Check that your notzero download is authentic — compare its SHA-256 hash, and verify that hash against a timestamp committed to the Bitcoin blockchain." />
+  <style>
+    :root { --bg:#0a0a0f; --card:#12121a; --fg:#e8e8ee; --dim:#9a9aa8; --orange:#f7931a; --line:#23232e; --green:#5ae19a; --red:#ff6b6b; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--fg); font:16px/1.65 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif; -webkit-font-smoothing:antialiased; }
+    a { color:var(--orange); text-decoration:none; } a:hover { text-decoration:underline; }
+    .wrap { max-width:720px; margin:0 auto; padding:40px 22px 80px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
+    .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:18px; }
+    .btc { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#f7931a,#ffb84d); color:#0a0a0f; display:grid; place-items:center; font-weight:900; }
+    h1 { font-size:28px; margin:20px 0 4px; letter-spacing:.2px; }
+    .sub { color:var(--dim); margin:0 0 30px; font-size:17px; }
+    h2 { font-size:18px; margin:34px 0 8px; }
+    p { margin:10px 0; }
+    ol, ul { padding-left:22px; } li { margin:8px 0; }
+    code { background:#1c1c26; border:1px solid var(--line); border-radius:5px; padding:1px 6px; font-size:.9em; word-break:break-all; }
+    pre { background:#1c1c26; border:1px solid var(--line); border-radius:9px; padding:12px 14px; overflow-x:auto; font-size:13.5px; line-height:1.5; margin:10px 0; }
+    pre code { background:none; border:none; padding:0; word-break:normal; }
+    .os { font-weight:700; color:#fff; margin:16px 0 2px; font-size:14px; }
+    strong { color:#fff; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin:18px 0; }
+    .warn { border-color:rgba(247,147,26,.45); background:rgba(247,147,26,.05); }
+    .warn h2 { margin-top:0; color:var(--orange); }
+    .ok { color:var(--green); }
+    .step { font-weight:800; color:var(--orange); }
+    .files a { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:13.5px; }
+    footer { margin-top:50px; padding-top:20px; border-top:1px solid var(--line); color:var(--dim); font-size:14px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <a class="brand" href="https://getnotzero.com"><span class="btc">₿</span> notzero</a>
+      <a href="https://getnotzero.com">← Home</a>
+    </header>
+
+    <h1>Verify your download</h1>
+    <p class="sub">Confirm the notzero you downloaded is the real one — by checking its fingerprint against a record we committed to the <strong>Bitcoin blockchain itself</strong>.</p>
+
+    <p>Every release, we publish a <code>SHA256SUMS</code> file listing the exact SHA-256 hash (a unique fingerprint) of each download, and we <strong>timestamp that file onto the Bitcoin blockchain</strong> with <a href="https://opentimestamps.org" target="_blank" rel="noopener">OpenTimestamps</a>. That gives you two things you can check yourself:</p>
+    <ul>
+      <li><strong>Integrity</strong> — your file's fingerprint matches the one we published.</li>
+      <li><strong>An immutable, timestamped record</strong> — that fingerprint is written into a Bitcoin block, so it can't be quietly changed or backdated later.</li>
+    </ul>
+
+    <div class="card files">
+      <p style="margin-top:0"><strong>The two files you'll need</strong> (always fetch these from us, over HTTPS):</p>
+      <p>→ <a href="https://dl.getnotzero.com/SHA256SUMS">dl.getnotzero.com/SHA256SUMS</a> — the checksum list<br>
+         → <a href="https://dl.getnotzero.com/SHA256SUMS.ots">dl.getnotzero.com/SHA256SUMS.ots</a> — its Bitcoin timestamp proof</p>
+    </div>
+
+    <h2><span class="step">1.</span> Check the fingerprint (30 seconds, no tools to install)</h2>
+    <p>Compute the SHA-256 of the file you downloaded, then make sure it appears in <code>SHA256SUMS</code>. Run the line for your system in the folder where the download landed:</p>
+
+    <div class="os">macOS</div>
+    <pre><code>shasum -a 256 notzero-mac.dmg</code></pre>
+    <div class="os">Windows (PowerShell)</div>
+    <pre><code>Get-FileHash notzero-win.exe -Algorithm SHA256</code></pre>
+    <div class="os">Linux</div>
+    <pre><code>sha256sum notzero-linux.AppImage</code></pre>
+
+    <p>Open <a href="https://dl.getnotzero.com/SHA256SUMS">SHA256SUMS</a> and confirm the hash you got matches the one next to your filename. If they match, the bytes you have are exactly the bytes we published. On Linux/macOS you can also let the tool do the compare for you (with <code>SHA256SUMS</code> saved next to the download):</p>
+    <pre><code>sha256sum -c SHA256SUMS      # Linux
+shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
+    <p class="ok">✓ A matching hash means your download wasn't corrupted or swapped in transit.</p>
+
+    <h2><span class="step">2.</span> Verify it against the Bitcoin blockchain</h2>
+    <p>Step 1 proves your file matches the <code>SHA256SUMS</code> we serve. This step proves that <code>SHA256SUMS</code> is the one we <em>actually published at release time</em> — because its hash is timestamped in a Bitcoin block that nobody can rewrite. Install the OpenTimestamps client once:</p>
+    <pre><code>pip install opentimestamps-client</code></pre>
+    <p>Then, with <code>SHA256SUMS</code> and <code>SHA256SUMS.ots</code> in the same folder:</p>
+    <pre><code>ots verify SHA256SUMS.ots</code></pre>
+    <p>It reports the <strong>Bitcoin block and date</strong> the checksums were stamped into. That timestamp lives on the blockchain, independent of this website — so even if our servers were compromised, the on-chain record of the real release can't be forged.</p>
+    <p class="dim" style="color:var(--dim); font-size:14.5px">Just released? For the first few hours a fresh proof reads as a <em>pending</em> calendar attestation while it's being batched into a Bitcoin transaction; <code>ots verify</code> resolves it automatically once the block confirms.</p>
+
+    <h2><span class="step">3.</span> Trust no one — verify with your own node</h2>
+    <p>This is the part we're proudest of. If you run a Bitcoin node — including the one <strong>notzero runs for you</strong> — <code>ots verify</code> checks the proof against <em>your node's own copy of the blockchain</em>, which your node independently validated. No block explorer, no third party. Your node becomes the judge.</p>
+    <p>And because the proof only needs block <em>headers</em>, an ordinary <strong>pruned</strong> node (like notzero's) is enough — you don't need a full archival copy of the chain.</p>
+    <p>notzero will soon do this <strong>automatically, in-app</strong>: check each build against your node before trusting it, and gate updates on that check. This page is the manual version of the same idea.</p>
+
+    <div class="card warn">
+      <h2>What this does and doesn't protect</h2>
+      <p>This is <strong>tamper-evidence and independent verification</strong> — it lets you (and your node) confirm a download matches an immutable on-chain record. It's a genuine, honest signal, not a magic guarantee:</p>
+      <ul style="margin-bottom:4px">
+        <li>On <strong>macOS</strong>, Apple already checks our signature automatically before the app runs (notarization) — this is an extra, independent layer on top.</li>
+        <li>No scheme can make an app securely verify <em>itself</em> — so the check that matters most is the one your <em>node</em> or <em>your own command line</em> performs, which is exactly what this page is for.</li>
+        <li>Always download from <strong class="ok">getnotzero.com</strong>. If another site offers notzero, it isn't us.</li>
+      </ul>
+    </div>
+
+    <footer>notzero is free and open source — you can read every line of what it does. Back to <a href="https://getnotzero.com">getnotzero.com</a>.</footer>
+  </div>
+</body>
+</html>
