@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 274 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 300 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -569,6 +569,7 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null;
+let updPaused = false, updStep = 0, updPlayHit = null, updBackHit = null, updFwdHit = null; // VERIFIED UPDATES step-through transport
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
     if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
@@ -3047,31 +3048,83 @@ function drawUpdates(r) {
     { ic: "⬡", lab: "ask your node", ttl: "Ask your node for that block", body: "Your node returns that block's header from its own validated chain — only headers are needed, so a pruned node works." },
     { ic: "✓", lab: "roots match", ttl: "Compare → verified", body: "If the block's merkle root matches what the proof folded to, your download is provably committed on-chain. Trusting no one." },
   ];
-  const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now();
-  const idx = danger ? N - 1 : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
-  const sub = danger || reduceMotion ? 1 : ((tnow % cyc) % SD) / SD;
-  const cy = r.y + 54, gap = w / N, R = 15;
+  const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now(), dph = (tnow % 2400) / 2400;
+  const idx = danger ? N - 1 : updPaused ? Math.max(0, Math.min(N - 1, updStep)) : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
+  const sub = danger || updPaused || reduceMotion ? 1 : ((tnow % cyc) % SD) / SD;
+  const blockNum = (versionAnchor && versionAnchor.height) || (sv && sv.height) || (model.node && model.node.blocks) || null;
 
-  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0 + gap * 0.5, cy); ctx.lineTo(x0 + gap * (N - 0.5), cy); ctx.stroke(); // rail
-  const railTo = x0 + gap * (0.5 + idx + Math.min(1, sub * 1.5));
+  { // transport: ‹ step-back · play/pause · step-fwd › (top-right, like THE CHURN)
+    const bh = 18, bwd = 24, gp = 4, byy = r.y + 3, s = 4.5, b3 = x1 - bwd, b2 = b3 - bwd - gp, b1 = b2 - bwd - gp, cyy = byy + bh / 2, GI = "rgba(255,228,140,0.98)";
+    const box = (bx, on) => { ctx.fillStyle = on ? "rgba(255,215,90,0.28)" : "rgba(255,255,255,0.09)"; roundRect(bx, byy, bwd, bh, 4); ctx.fill(); ctx.strokeStyle = "rgba(255,215,90,0.5)"; ctx.lineWidth = 1; roundRect(bx, byy, bwd, bh, 4); ctx.stroke(); };
+    box(b1, false); ctx.fillStyle = GI; { const c = b1 + bwd / 2; ctx.beginPath(); ctx.moveTo(c + s - 1, cyy - s); ctx.lineTo(c + s - 1, cyy + s); ctx.lineTo(c - 2, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c - s - 1, cyy - s, 2, 2 * s); }
+    box(b2, updPaused); ctx.fillStyle = GI; { const c = b2 + bwd / 2; if (updPaused) { ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + s + 1, cyy); ctx.closePath(); ctx.fill(); } else { ctx.fillRect(c - 3, cyy - s, 2, 2 * s); ctx.fillRect(c + 1.2, cyy - s, 2, 2 * s); } }
+    box(b3, false); ctx.fillStyle = GI; { const c = b3 + bwd / 2; ctx.beginPath(); ctx.moveTo(c - s + 1, cyy - s); ctx.lineTo(c - s + 1, cyy + s); ctx.lineTo(c + 2, cyy); ctx.closePath(); ctx.fill(); ctx.fillRect(c + s - 1, cyy - s, 2, 2 * s); }
+    updBackHit = { x: b1, y: byy, w: bwd, h: bh }; updPlayHit = { x: b2, y: byy, w: bwd, h: bh }; updFwdHit = { x: b3, y: byy, w: bwd, h: bh };
+  }
+
+  const cy = r.y + 44, gap = w / N, R = 14; // step overview
+  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0 + gap * 0.5, cy); ctx.lineTo(x0 + gap * (N - 0.5), cy); ctx.stroke();
+  const railTo = x0 + gap * (0.5 + idx + (updPaused ? 0 : Math.min(1, sub * 1.5)));
   ctx.strokeStyle = danger ? RED : GREEN; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(x0 + gap * 0.5, cy); ctx.lineTo(Math.min(railTo, x0 + gap * (N - 0.5)), cy); ctx.stroke();
-
   STEPS.forEach((s, i) => {
     const cx = x0 + gap * (0.5 + i), done = i < idx, active = i === idx, fail = danger && i === N - 1;
     const col = fail ? RED : done ? GREEN : active ? (i === 3 ? ORANGE : GREEN) : DIM;
-    if (active && !danger && !reduceMotion) { ctx.strokeStyle = `rgba(90,220,140,${0.5 * (1 - sub)})`; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(cx, cy, R + 2 + sub * 6, 0, 7); ctx.stroke(); } // working pulse
+    if (active && !danger) { ctx.strokeStyle = `rgba(90,220,140,${0.25 + 0.35 * Math.abs(Math.sin(tnow / 380))})`; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(cx, cy, R + 4, 0, 7); ctx.stroke(); } // working pulse
     ctx.fillStyle = active ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
     ctx.strokeStyle = (done || active) ? col : DIM; ctx.lineWidth = active ? 2 : 1.2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
-    text(fail ? "✗" : done ? "✓" : s.ic, cx, cy + 0.5, { size: 13, weight: 800, color: (done || active) ? col : DIM, align: "center", baseline: "middle" });
+    text(fail ? "✗" : done ? "✓" : s.ic, cx, cy + 0.5, { size: 12, weight: 800, color: (done || active) ? col : DIM, align: "center", baseline: "middle" });
     text("" + (i + 1), cx - R - 2, cy - R - 1, { size: 8, weight: 700, color: active ? INK : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
-    text(s.lab, cx, cy + R + 12, { size: 8.5, weight: active ? 700 : 600, color: active ? INK : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    text(s.lab, cx, cy + R + 11, { size: 8.5, weight: active ? 700 : 600, color: active ? INK : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
   });
+
+  // ── the moving parts of the CURRENT step ──
+  const fy = r.y + 90, xc = x0 + w * 0.5, BLU = "rgba(150,220,255,1)", GLD = "rgba(255,225,120,1)", SIB = "rgba(150,175,210,0.95)";
+  const bits = (cx, cyy, seed, col, hot, wc, fill) => { wc = wc || 40; const n = 9, cw = wc / n, shown = fill == null ? n : Math.round(fill * n);
+    ctx.fillStyle = hot ? "rgba(255,235,150,0.16)" : "rgba(255,255,255,0.05)"; roundRect(cx - wc / 2 - 2, cyy - 7, wc + 4, 14, 3); ctx.fill();
+    if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.8)"; ctx.lineWidth = 1; roundRect(cx - wc / 2 - 2, cyy - 7, wc + 4, 14, 3); ctx.stroke(); }
+    for (let i = 0; i < n; i++) { const on = i < shown && (((seed * 2654435761 + (i + 1) * 40503) >>> ((i + seed) % 9)) & 1); ctx.fillStyle = i >= shown ? "rgba(255,255,255,0.06)" : on ? col : "rgba(255,255,255,0.13)"; ctx.fillRect(cx - wc / 2 + i * cw + 0.6, cyy - 4, cw - 1.2, 8); } };
+  const cap = (tx, ty, s2, c2) => text(s2, tx, ty, { size: 7.5, color: c2 || "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+  const arr = (ax, g) => text(g || "→", ax, fy, { size: 12, weight: 700, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  if (idx === 0) {
+    ctx.strokeStyle = "rgba(255,255,255,0.4)"; ctx.lineWidth = 1.2; roundRect(xc - 158, fy - 9, 28, 18, 2); ctx.stroke(); cap(xc - 144, fy, ".dmg", "rgba(255,255,255,0.6)");
+    arr(xc - 100); text("SHA-256", xc - 58, fy, { size: 9, weight: 700, color: BLU, align: "center", baseline: "middle" }); arr(xc - 2);
+    bits(xc + 85, fy, 100, BLU, true, 92, dph); cap(xc + 85, fy + 15, "64-char fingerprint");
+  } else if (idx === 1) {
+    bits(xc - 150, fy, 100, BLU, false, 66); cap(xc - 150, fy + 15, "your file's hash");
+    arr(xc - 92, "=?");
+    const px = xc - 44, pw = 150; ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(px, fy - 15, pw, 30, 3); ctx.stroke(); text("SHA256SUMS", px + 5, fy - 21, { size: 7, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
+    for (let k = 0; k < 3; k++) { const hi = k === 1, ly = fy - 8 + k * 8; if (hi) { ctx.fillStyle = "rgba(90,220,140,0.12)"; ctx.fillRect(px + 2, ly - 3.5, pw - 4, 8); } bits(px + 32, ly, 300 + k, hi ? BLU : "rgba(255,255,255,0.35)", false, 50); text(hi ? "your file" : "…", px + pw - 6, ly, { size: 6.5, color: hi ? "rgba(90,220,140,0.9)" : "rgba(255,255,255,0.3)", align: "right", baseline: "middle" }); }
+    if (dph > 0.45) text("✓", xc + 150, fy, { size: 15, weight: 800, color: GREEN, align: "center", baseline: "middle" });
+  } else if (idx === 2) {
+    const fk = Math.floor(dph * 3) % 3;
+    bits(xc - 132, fy, 100 + fk * 17, BLU, false, 52); cap(xc - 132, fy + 15, "running hash");
+    text("⊞", xc - 82, fy, { size: 13, weight: 700, color: "rgba(255,245,170,0.9)", align: "center", baseline: "middle" });
+    bits(xc - 40, fy - 16, 900 + fk, SIB, false, 40); cap(xc - 40, fy - 28, "proof sibling", SIB);
+    arr(xc + 18); cap(xc + 18, fy - 11, "SHA-256");
+    bits(xc + 100, fy, 100 + (fk + 1) * 17, BLU, false, 52); cap(xc + 100, fy + 15, "re-hashed");
+  } else if (idx === 3) {
+    bits(xc - 118, fy, 500, GLD, true, 76); cap(xc - 118, fy + 15, "= merkle root", "rgba(255,225,120,0.9)");
+    arr(xc - 50);
+    const bx = xc + 10, bw2 = 128, byb = fy - 16; ctx.strokeStyle = ORANGE; ctx.lineWidth = 1.4; roundRect(bx, byb, bw2, 32, 4); ctx.stroke(); text(blockNum ? "₿ block #" + blockNum.toLocaleString() : "₿ Bitcoin block", bx + bw2 / 2, byb + 7, { size: 7.5, weight: 700, color: ORANGE, align: "center", baseline: "middle" });
+    ctx.fillStyle = "rgba(255,225,120,0.18)"; roundRect(bx + 6, byb + 16, bw2 - 12, 12, 2); ctx.fill(); bits(bx + bw2 / 2, byb + 22, 500, GLD, false, bw2 - 20, dph);
+  } else if (idx === 4) {
+    text("⬡ your node", xc - 148, fy, { size: 9, weight: 700, color: GREEN, align: "center", baseline: "middle" });
+    arr(xc - 84); cap(xc - 84, fy - 11, "getblockheader");
+    for (let k = 0; k < 3; k++) { const bxk = xc - 34 + k * 20, hi = k === 1; ctx.strokeStyle = hi ? "rgba(90,220,140,0.85)" : "rgba(255,255,255,0.25)"; ctx.lineWidth = hi ? 1.6 : 1; roundRect(bxk, fy - 8, 16, 16, 2); ctx.stroke(); if (hi) { ctx.fillStyle = "rgba(90,220,140,0.16)"; roundRect(bxk, fy - 8, 16, 16, 2); ctx.fill(); } }
+    cap(xc - 4, fy + 16, "your validated chain");
+    arr(xc + 56); bits(xc + 122, fy, 500, GLD, false, 56, dph); cap(xc + 122, fy + 15, "the block's root");
+  } else {
+    bits(xc - 128, fy, 500, GLD, false, 66); cap(xc - 128, fy + 15, "from the proof");
+    text(danger ? "≠" : "=", xc - 40, fy, { size: 16, weight: 800, color: danger ? RED : GREEN, align: "center", baseline: "middle" });
+    bits(xc + 48, fy, danger ? 777 : 500, danger ? "rgba(255,120,120,0.95)" : GLD, false, 66); cap(xc + 48, fy + 15, "from your node's block");
+    text(danger ? "✗" : "✓", xc + 148, fy, { size: 18, weight: 800, color: danger ? RED : GREEN, align: "center", baseline: "middle" });
+  }
 
   // the educational line for the current step
   const st = STEPS[idx], fail6 = danger && idx === N - 1;
-  text("STEP " + (idx + 1) + " / " + N, x0, cy + 42, { size: 9, weight: 700, color: fail6 ? RED : "rgba(90,220,140,0.9)", baseline: "middle" });
-  text(fail6 ? "Rejected" : st.ttl, x0 + 58, cy + 42, { size: 10.5, weight: 700, color: fail6 ? RED : INK, baseline: "middle" });
-  text(fail6 ? "The block's merkle root did NOT match what the proof produced — the download is rejected and never installed." : st.body, x0, cy + 60, { size: 10, color: "rgba(255,255,255,0.64)", baseline: "middle" });
+  text("STEP " + (idx + 1) + " / " + N + (updPaused ? "  · paused" : ""), x0, r.y + 118, { size: 9, weight: 700, color: fail6 ? RED : "rgba(90,220,140,0.9)", baseline: "middle" });
+  text(fail6 ? "Rejected" : st.ttl, x0 + 78, r.y + 118, { size: 10.5, weight: 700, color: fail6 ? RED : INK, baseline: "middle" });
+  text(fail6 ? "The block's merkle root did NOT match what the proof produced — the download is rejected and never installed." : st.body, x0, r.y + 134, { size: 10, color: "rgba(255,255,255,0.64)", baseline: "middle" });
 
   // real-status strip — the current/incoming verdict, as a headline above the release history
   if (sv) {
@@ -3085,7 +3138,7 @@ function drawUpdates(r) {
       unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
     }[sv.level];
     if (M) {
-      const by = r.y + 126, bh = 22;
+      const by = r.y + 150, bh = 22;
       ctx.fillStyle = `rgba(${M.c},0.1)`; roundRect(x0, by, w, bh, 6); ctx.fill();
       ctx.strokeStyle = `rgba(${M.c},0.5)`; ctx.lineWidth = 1; roundRect(x0, by, w, bh, 6); ctx.stroke();
       text(M.ic + "   " + M.t, x0 + 12, by + bh / 2 + 0.5, { size: 11, weight: 700, color: `rgba(${M.c},1)`, baseline: "middle" });
@@ -3093,7 +3146,7 @@ function drawUpdates(r) {
   }
 
   // VERIFIED RELEASES — the history, each re-confirmed against your node (newest first)
-  const hy = r.y + (sv ? 156 : 130);
+  const hy = r.y + (sv ? 180 : 166);
   text("VERIFIED RELEASES", x0, hy, { size: 9, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("· each re-confirmed against your own node", x0 + 118, hy, { size: 9, color: "rgba(255,255,255,0.3)", baseline: "middle" });
   const LM = {
@@ -3116,7 +3169,7 @@ function drawUpdates(r) {
   } else {
     text("In the app, every release you run is listed here — each re-confirmed against your own node.", x0 + 4, ry, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   }
-  text("Only block headers are needed, so your pruned node re-checks every release — the one moment of risk is your first download.", x0, r.y + 250, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
+  text("Only block headers are needed, so your pruned node re-checks every release — the one moment of risk is your first download.", x0, r.y + 274, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
 }
 
 function drawBroadcast(r) {
@@ -3704,6 +3757,12 @@ canvas.addEventListener("click", (e) => {
     if (inHit(foldBackHit, e.offsetX, cyc)) { foldPaused = true; stepFold(-1); requestRender(); return; }
     if (inHit(foldFwdHit, e.offsetX, cyc)) { foldPaused = true; stepFold(1); requestRender(); return; }
   }
+  if (expanded.has("updates")) { // VERIFIED UPDATES transport: play/pause · step through the 6 verification steps
+    const cyc = e.offsetY + scrollY, curStep = () => Math.floor((Date.now() % 18000) / 3000);
+    if (inHit(updPlayHit, e.offsetX, cyc)) { if (!updPaused) updStep = curStep(); updPaused = !updPaused; requestRender(); return; }
+    if (inHit(updBackHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 5) % 6; requestRender(); return; }
+    if (inHit(updFwdHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 1) % 6; requestRender(); return; }
+  }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
@@ -3711,8 +3770,8 @@ canvas.addEventListener("click", (e) => {
 canvas.addEventListener("mousemove", (e) => {
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
-  const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
+  const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc)), updBtn = expanded.has("updates") && (inHit(updPlayHit, e.offsetX, cyc) || inHit(updBackHit, e.offsetX, cyc) || inHit(updFwdHit, e.offsetX, cyc));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (e) => {
   if (maxScroll <= 0) return;
