@@ -570,6 +570,10 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null;
 let updPaused = false, updStep = 0, updPlayHit = null, updBackHit = null, updFwdHit = null, updStreams = {}; // VERIFIED UPDATES step-through transport + water-pipe stream state
+// per-step durations (ms) — step 2 (stamp: stream → hash → orange → store → blink) and step 5 (rebuild) need more room
+const UPD_DUR = [3200, 6200, 3200, 3200, 5200, 3800], UPD_CYC = UPD_DUR.reduce((a, b) => a + b, 0);
+const updAutoStep = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DUR.length; i++) { if (tt < UPD_DUR[i]) return i; tt -= UPD_DUR[i]; } return UPD_DUR.length - 1; };
+const updAutoSub = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DUR.length; i++) { if (tt < UPD_DUR[i]) return tt / UPD_DUR[i]; tt -= UPD_DUR[i]; } return 1; };
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
     if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
@@ -3048,9 +3052,9 @@ function drawUpdates(r) {
     { side: "btc", ttl: "Your node streams the block over", body: "Your own node reads that block straight from Bitcoin and rebuilds it on your side from the stream — nothing from our server. Only headers are needed, so a pruned node works." },
     { side: "match", ttl: "Compare the two → verified", body: "The rebuilt block's fingerprint and your own local hash are the same → provably genuine, trusting no one." },
   ];
-  const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now(), dph = (tnow % 2400) / 2400;
-  const idx = danger ? N - 1 : updPaused ? Math.max(0, Math.min(N - 1, updStep)) : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
-  const sub = danger || updPaused || reduceMotion ? 1 : ((tnow % cyc) % SD) / SD;
+  const N = STEPS.length, cyc = UPD_CYC, tnow = Date.now(), dph = (tnow % 2400) / 2400;
+  const idx = danger ? N - 1 : updPaused ? Math.max(0, Math.min(N - 1, updStep)) : reduceMotion ? N - 1 : updAutoStep(tnow);
+  const sub = danger || updPaused || reduceMotion ? 1 : updAutoSub(tnow);
   const blockNum = (versionAnchor && versionAnchor.height) || (sv && sv.height) || (model.node && model.node.blocks) || null;
 
   { // transport: ‹ step-back · play/pause · step-fwd › (top-right, like THE CHURN)
@@ -3081,42 +3085,47 @@ function drawUpdates(r) {
 
   // ── top row: the mining conveyor. It PAUSES during the stamp (step 2); afterwards it resumes, carrying our now-orange block along ──
   const blink4 = (p) => Math.floor(p * 8) % 2 === 0, aboveY = yHash - 26;
-  text("⛓ BITCOIN BLOCKCHAIN — the mining head builds a block; it completes, the chain steps left" + (idx === 1 ? " · PAUSED — stamping" : (blockNum ? " · #" + blockNum.toLocaleString() : "")), xc, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
-  const cbw = 56, cgp = 14, cstep = cbw + cgp, headX = x1 - cbw - 4, cycT = 2400; // blocks sized to match the copied/stored block
-  const cycleStart = Math.floor(tnow / cyc) * cyc, stampT = cycleStart + SD, convT = idx === 1 ? stampT : (tnow >= stampT ? tnow - SD : tnow); // freeze the train during step 2, resume smoothly after
-  const gen = Math.floor(convT / cycT), cp = (convT % cycT) / cycT, nCenter = Math.round((headX - xc) / cstep), ourGen = Math.floor(stampT / cycT) - nCenter, sbx = headX - nCenter * cstep; // our block = the one at centre when we stamp; sbx = its (fixed) x, so the stored block lines up under it
+  text("⛓ BITCOIN BLOCKCHAIN — mined at the right, slides left" + (idx === 1 ? " · PAUSED — stamping" : ""), x0, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", baseline: "middle" });
+  const cbw = 56, cgp = 14, cstep = cbw + cgp, headX = x1 - cbw - 42, cycT = 2400; // blocks sized to match the copied/stored block; headX leaves room for the miners
+  const cycleStart = Math.floor(tnow / cyc) * cyc, stampT = cycleStart + UPD_DUR[0], s2End = stampT + UPD_DUR[1], convT = idx === 1 ? stampT : (tnow >= s2End ? tnow - UPD_DUR[1] : tnow); // freeze the train during step 2, resume after
+  const gen = Math.floor(convT / cycT), cp = (convT % cycT) / cycT, nCenter = Math.round((headX - xc) / cstep), ourGen = Math.floor(stampT / cycT) - nCenter, trainShift = xc - (headX - nCenter * cstep); // align our block exactly to centre (xc) so the stored block lands right under it
   const slideP = idx === 1 ? 0 : (cp < 0.72 ? 0 : (1 - Math.pow(1 - (cp - 0.72) / 0.28, 3)));
   ctx.save(); ctx.beginPath(); ctx.rect(x0, convY - 13, w, 26); ctx.clip();
-  for (let n = -1; n < 32; n++) { const j = gen - n, bx = headX - (n + slideP) * cstep; if (bx < x0 - cbw) break; if (bx - cgp > x1) continue;
-    // our block first HASHES (matrix scramble→settle to our hash, still neutral) once the stream reaches it, and only THEN turns orange
-    const isTarget = idx === 1 && j === ourGen, isOurs = (idx > 1 && j === ourGen) || (isTarget && sub >= 0.3), nowOrange = isOurs && (idx > 1 || sub >= 0.58);
-    const scr = isTarget ? Math.max(0, 1 - (sub - 0.3) / 0.26) : isOurs ? 0 : (n < 0 ? 1 : n === 0 ? Math.max(0, 1 - cp / 0.72) : 0), mining = !isOurs && scr > 0.05;
+  for (let n = -1; n < 32; n++) { const j = gen - n, bx = headX - (n + slideP) * cstep + trainShift; if (bx < x0 - cbw) break; if (bx - cgp > x1) continue;
+    // our block first HASHES (matrix scramble→settle to our hash, still neutral) after the stream has reached it, and only THEN turns orange
+    const isTarget = idx === 1 && j === ourGen, isOurs = (idx > 1 && j === ourGen) || (isTarget && sub >= 0.4), nowOrange = isOurs && (idx > 1 || sub >= 0.64);
+    const scr = isTarget ? Math.max(0, 1 - (sub - 0.4) / 0.2) : isOurs ? 0 : (n < 0 ? 1 : n === 0 ? Math.max(0, 1 - cp / 0.72) : 0), mining = !isOurs && scr > 0.05;
     ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx - cgp, convY); ctx.lineTo(bx, convY); ctx.stroke();
     ctx.fillStyle = nowOrange ? "rgba(247,147,26,0.18)" : isOurs ? "rgba(235,245,255,0.08)" : mining ? "rgba(120,255,150,0.07)" : "rgba(255,255,255,0.03)"; roundRect(bx, convY - 10, cbw, 20, 3); ctx.fill();
     ctx.strokeStyle = nowOrange ? ORANGE : isOurs ? "rgba(235,245,255,0.8)" : mining ? "rgba(120,255,150,0.5)" : "rgba(255,255,255,0.2)"; ctx.lineWidth = (nowOrange || isOurs) ? 1.5 : 1; roundRect(bx, convY - 10, cbw, 20, 3); ctx.stroke();
     mhash(bx + cbw / 2, convY, isOurs ? 500 : j, scr, nowOrange ? GLD : isOurs ? "rgba(235,245,255,0.95)" : "rgba(180,255,200,0.85)", cbw - 10); }
   ctx.restore();
+  // ── the miners at the far right — where new blocks are mined + originate (mirrors the node sync's mining glyphs) ──
+  { const mx = x1 - 16; ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let g = 0; g < 5; g++) { const a = 0.3 + 0.5 * Math.abs(Math.sin(tnow / 120 + g * 0.7)); ctx.fillStyle = `rgba(120,255,150,${a})`; ctx.fillText(CYBER[(Math.floor(tnow / 70) + g * 5) % CYBER.length], mx, convY - 16 + g * 8); }
+    ctx.fillStyle = "rgba(120,255,150,0.5)"; ctx.font = "700 10px ui-monospace, monospace"; ctx.fillText("◄", mx - 15, convY);
+    text("⛏ miners", mx, convY + 25, { size: 7.5, weight: 700, color: "rgba(120,255,150,0.85)", align: "center", baseline: "middle" }); }
 
   // ── the STORED block (row below, directly under our orange chain block): once the stream reaches the block, the
   //    stored copy is HASHED/BUILT in place here (matrix settling to the same hash), then blinks. It stays as our reference. ──
-  const storedShow = idx >= 2 || (idx === 1 && sub >= 0.58); let storedScr = 0, storedA = 1;
-  if (idx === 1) { storedScr = Math.max(0, 1 - (sub - 0.58) / 0.2); if (updPaused || sub > 0.8) storedA = blink4(dph) ? 1 : 0.26; }
+  const storedShow = idx >= 2 || (idx === 1 && sub >= 0.64); let storedScr = 0, storedA = 1; // only after the chain block has hashed + turned orange
+  if (idx === 1) { storedScr = Math.max(0, 1 - (sub - 0.64) / 0.16); if (updPaused || sub > 0.84) storedA = blink4(dph) ? 1 : 0.26; }
   if (storedShow) { ctx.globalAlpha = storedA;
-    ctx.fillStyle = "rgba(247,147,26,0.14)"; roundRect(sbx - 28, ourY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = ORANGE; ctx.lineWidth = 1.5; roundRect(sbx - 28, ourY - 10, 56, 20, 3); ctx.stroke();
-    mhash(sbx, ourY, 500, storedScr, GLD, 46); ctx.globalAlpha = 1;
-    if (idx >= 2) text("⛓ the stored block", sbx, ourY + 15, { size: 7, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" }); }
-  else if (idx === 0) { ctx.setLineDash([3, 2]); ctx.strokeStyle = "rgba(247,147,26,0.4)"; ctx.lineWidth = 1; roundRect(sbx - 28, ourY - 10, 56, 20, 3); ctx.stroke(); ctx.setLineDash([]); }
+    ctx.fillStyle = "rgba(247,147,26,0.14)"; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = ORANGE; ctx.lineWidth = 1.5; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.stroke();
+    mhash(xc, ourY, 500, storedScr, GLD, 46); ctx.globalAlpha = 1;
+    if (idx >= 2) text("⛓ the stored block", xc, ourY + 15, { size: 7, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" }); }
+  else if (idx === 0) { ctx.setLineDash([3, 2]); ctx.strokeStyle = "rgba(247,147,26,0.4)"; ctx.lineWidth = 1; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.stroke(); ctx.setLineDash([]); }
 
-  // the block REBUILT on your side — it materialises out of the incoming stream at step 5 (created from the stream, not slid over)
-  const built = idx === 4 ? Math.min(1, sub * 1.3) : idx >= 5 ? 1 : 0;
+  // the block REBUILT on your side — after the stream has DELIVERED (sub≥0.45) it materialises out of the data (not slid over)
+  const built = idx === 4 ? Math.max(0, Math.min(1, (sub - 0.45) / 0.35)) : idx >= 5 ? 1 : 0;
   if (built > 0.02) { ctx.globalAlpha = built; const on6 = idx === 5 ? (blink4(dph) ? 1 : 0.26) : 1; ctx.globalAlpha = built * on6;
     ctx.fillStyle = "rgba(247,147,26,0.13)"; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = idx >= 4 ? ORANGE : "rgba(247,147,26,0.7)"; ctx.lineWidth = 1.5; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.stroke();
-    mhash(rx, aboveY, 500, idx === 4 ? Math.max(0, 1 - sub * 1.3) : 0, GLD, 46); ctx.globalAlpha = 1; }
+    mhash(rx, aboveY, 500, idx === 4 ? Math.max(0, 1 - (sub - 0.45) / 0.35) : 0, GLD, 46); ctx.globalAlpha = 1; }
 
   // data streams — step 2: our hash → the Bitcoin block up in the chain (OpenTimestamps) · step 5: the stored block → your side (rebuilds the copy)
-  stream(lx + 8, yHash - 8, sbx - 22, convY + 8, idx === 1, "upd:submit");
-  stream(sbx + 28, ourY, rx - 28, aboveY, idx === 4, "upd:rebuild");
-  if (idx === 1) text("→ streaming into the Bitcoin block via OpenTimestamps", sbx - 34, (yHash + convY) / 2 + 14, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
+  stream(lx + 8, yHash - 8, xc - 22, convY + 8, idx === 1 && sub < 0.3, "upd:submit");
+  stream(xc + 28, ourY, rx - 28, aboveY, idx === 4 && sub < 0.45, "upd:rebuild");
+  if (idx === 1) text("→ streaming into the Bitcoin block via OpenTimestamps", xc - 34, (yHash + convY) / 2 + 14, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
   if (idx === 4) text("your node streams it over — rebuilt from the data →", (xc + rx) / 2 + 4, aboveY - 13, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
 
   // step 6: compare the rebuilt block (above) with your own local hash (below) — blink together, then verdict. Nothing from our side.
@@ -3133,8 +3142,8 @@ function drawUpdates(r) {
   { const on = idx === 2 || idx === 3; ctx.fillStyle = on ? "rgba(150,220,255,0.08)" : "rgba(255,255,255,0.02)"; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.fill(); ctx.strokeStyle = on ? BLU : "rgba(255,255,255,0.2)"; ctx.lineWidth = on ? 1.4 : 1; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.stroke();
     text("☁ getnotzero.com", gx, yDmg - 2, { size: 7.5, weight: 700, color: on ? BLU : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); text(".dmg · SHA256SUMS · proof", gx, yDmg + 7, { size: 6.5, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
     text("WEB SERVER", gx, r.y + 150, { size: 8, weight: 700, color: on ? BLU : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" }); }
-  stream(lx + 32, yDmg, gx - 49, yDmg, idx === 1, "upd:publish");
-  stream(gx + 49, yDmg, rx - 32, yDmg, idx === 2, "upd:download");
+  stream(lx + 32, yDmg, gx - 49, yDmg, idx === 1 && sub < 0.3, "upd:publish");
+  stream(gx + 49, yDmg, rx - 32, yDmg, idx === 2 && sub < 0.62, "upd:download");
   if (idx === 1) text("we also publish it →", (lx + gx) / 2, yDmg - 8, { size: 7, color: "rgba(150,220,255,0.85)", align: "center", baseline: "middle" });
   if (idx === 2) text("you download →", (gx + rx) / 2, yDmg - 8, { size: 7, weight: 600, color: "rgba(150,220,255,0.9)", align: "center", baseline: "middle" });
 
@@ -3782,7 +3791,7 @@ canvas.addEventListener("click", (e) => {
     if (inHit(foldFwdHit, e.offsetX, cyc)) { foldPaused = true; stepFold(1); requestRender(); return; }
   }
   if (expanded.has("updates")) { // VERIFIED UPDATES transport: play/pause · step through the 6 verification steps
-    const cyc = e.offsetY + scrollY, curStep = () => Math.floor((Date.now() % 18000) / 3000);
+    const cyc = e.offsetY + scrollY, curStep = () => updAutoStep(Date.now());
     if (inHit(updPlayHit, e.offsetX, cyc)) { if (!updPaused) updStep = curStep(); updPaused = !updPaused; requestRender(); return; }
     if (inHit(updBackHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 5) % 6; requestRender(); return; }
     if (inHit(updFwdHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 1) % 6; requestRender(); return; }
