@@ -3100,12 +3100,13 @@ function drawUpdates(r) {
     ctx.strokeStyle = nowOrange ? ORANGE : isOurs ? "rgba(235,245,255,0.8)" : mining ? "rgba(120,255,150,0.5)" : "rgba(255,255,255,0.2)"; ctx.lineWidth = (nowOrange || isOurs) ? 1.5 : 1; roundRect(bx, convY - 10, cbw, 20, 3); ctx.stroke();
     mhash(bx + cbw / 2, convY, isOurs ? 500 : j, scr, nowOrange ? GLD : isOurs ? "rgba(235,245,255,0.95)" : "rgba(180,255,200,0.85)", cbw - 10); }
   ctx.restore();
-  // ── the miners: a block being mined (horizontal hashing) at the far right — where new blocks originate ──
-  { const minerX = x1 - 32;
-    ctx.strokeStyle = "rgba(120,255,150,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(minerX - 28, convY); ctx.lineTo(minerX - 28 - cgp, convY); ctx.stroke(); // chain link toward the train
-    ctx.fillStyle = "rgba(120,255,150,0.09)"; roundRect(minerX - 28, convY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = "rgba(120,255,150,0.55)"; ctx.lineWidth = 1.2; roundRect(minerX - 28, convY - 10, 56, 20, 3); ctx.stroke();
-    mhash(minerX, convY, 900, 1, "rgba(140,255,170,0.95)", 46); // scr=1 → fully scrambling = actively mining, horizontally
-    text("⛏ miners", minerX, convY + 25, { size: 7.5, weight: 700, color: "rgba(120,255,150,0.85)", align: "center", baseline: "middle" }); }
+  // ── the miners: a block-sized box where new blocks are mined (horizontal hashing); it FEEDS the train — the
+  //    conveyor's incoming block is born here and slides LEFT out of it into the chain, one per mining cycle ──
+  { const mbx = headX + cstep + trainShift; // one notch right of the head — exactly where the incoming (n=-1) block starts
+    ctx.strokeStyle = "rgba(120,255,150,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbx - cgp, convY); ctx.lineTo(mbx, convY); ctx.stroke(); // link feeding the train
+    ctx.fillStyle = "rgba(120,255,150,0.1)"; roundRect(mbx, convY - 10, cbw, 20, 3); ctx.fill(); ctx.strokeStyle = "rgba(120,255,150,0.6)"; ctx.lineWidth = 1.3; roundRect(mbx, convY - 10, cbw, 20, 3); ctx.stroke();
+    mhash(mbx + cbw / 2, convY, 900, 1, "rgba(140,255,170,0.95)", cbw - 10); // always scrambling = actively mining the next block
+    text("⛏ miners", mbx + cbw / 2, convY + 25, { size: 7.5, weight: 700, color: "rgba(120,255,150,0.85)", align: "center", baseline: "middle" }); }
 
   // ── the STORED block (row below, directly under our orange chain block): once the stream reaches the block, the
   //    stored copy is HASHED/BUILT in place here (matrix settling to the same hash), then blinks. It stays as our reference. ──
