@@ -3042,12 +3042,11 @@ function drawUpdates(r) {
   // ── verification as two sides meeting at Bitcoin — the .dmg's hash is the constant everything rides on ──
   const STEPS = [
     { side: "our", ttl: "We hash the release", body: "We SHA-256 the .dmg into one unique fingerprint — the constant everything else rides on." },
-    { side: "btc", ttl: "We stamp it on Bitcoin", body: "Our fingerprint streams into the chain via OpenTimestamps; the block it lands in is captured and held — immutable, impossible to forge or backdate." },
+    { side: "btc", ttl: "We stamp it on Bitcoin", body: "Our fingerprint streams into a Bitcoin block via OpenTimestamps; the block slides down to be held — immutable, impossible to forge or backdate." },
     { side: "your", ttl: "You download the file", body: "You pull the .dmg from getnotzero.com over HTTPS — but you won't have to trust it." },
     { side: "your", ttl: "You hash it yourself", body: "Your machine SHA-256s the download — producing the exact same fingerprint, if the file is genuine." },
-    { side: "btc", ttl: "Your node reads the block", body: "Your own node — which validated the whole chain itself — reads that block straight from Bitcoin. Only headers are needed, so a pruned node works." },
-    { side: "your", ttl: "The block comes to your side", body: "Your node hands you the block, set right above your own freshly-computed hash — nothing from our server involved." },
-    { side: "match", ttl: "Compare the two → verified", body: "The block's fingerprint and yours are the same → provably genuine, trusting no one." },
+    { side: "btc", ttl: "Your node streams the block over", body: "Your own node reads that block straight from Bitcoin and rebuilds it on your side from the stream — nothing from our server. Only headers are needed, so a pruned node works." },
+    { side: "match", ttl: "Compare the two → verified", body: "The rebuilt block's fingerprint and your own local hash are the same → provably genuine, trusting no one." },
   ];
   const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now(), dph = (tnow % 2400) / 2400;
   const idx = danger ? N - 1 : updPaused ? Math.max(0, Math.min(N - 1, updStep)) : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
@@ -3077,12 +3076,16 @@ function drawUpdates(r) {
   // a flowing hash-DATA STREAM (replaces the arrow lines): hex glyphs march A→B in discrete steps when `on`
   const stream = (ax, ay, bx, by, on, col) => {
     if (!on) { ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); return; }
-    const nG = Math.max(5, Math.round(Math.hypot(bx - ax, by - ay) / 26)), step = Math.floor(tnow / 90);
+    // glyphs sit at FIXED positions; a smooth brightness "comet" sweeps A→B through them (continuous, so no
+    // stroboscopic wagon-wheel reversal). Bright at the head, fading behind toward the source → clear direction.
+    const nG = Math.max(6, Math.round(Math.hypot(bx - ax, by - ay) / 22)), head = (tnow / 640) % 1;
     ctx.save(); ctx.font = "600 8px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let g = 0; g < nG; g++) { const t = ((step / 9 + g / nG) % 1), gx = ax + (bx - ax) * t, gy = ay + (by - ay) * t; ctx.fillStyle = `rgba(${col},${0.16 + 0.82 * t})`; ctx.fillText(HEX[(step + g * 7 + (ax | 0)) & 15], gx, gy); }
+    for (let g = 0; g < nG; g++) { const gt = g / nG, gx = ax + (bx - ax) * gt, gy = ay + (by - ay) * gt;
+      const d1 = (head - gt + 1) % 1, d2 = (head + 0.5 - gt + 1) % 1, bright = Math.max(Math.pow(1 - d1, 5), Math.pow(1 - d2, 5));
+      ctx.fillStyle = `rgba(${col},${0.1 + 0.9 * bright})`; ctx.fillText(HEX[(g * 7 + Math.floor(tnow / 70)) & 15], gx, gy); }
     ctx.restore(); };
   const lx = x0 + w * 0.13, gx = x0 + w * 0.5, rx = x0 + w * 0.87, xc = x0 + w * 0.5, convY = r.y + 40, ourY = r.y + 66, yHash = r.y + 102, yDmg = r.y + 130;
-  const ourLit = idx <= 1, yourLit = idx >= 3, btcLit = idx === 1 || idx === 4 || idx === 5, matchLit = idx === 6, ySeed = danger ? 777 : 500, yourShown = idx >= 3;
+  const ourLit = idx <= 1, yourLit = idx >= 3, btcLit = idx === 1 || idx === 4, matchLit = idx === 5, ySeed = danger ? 777 : 500, yourShown = idx >= 3;
 
   // ── top row: the mining conveyor — the tip (right) is being mined (matrix-scrambling); finished blocks slide left ──
   text("⛓ BITCOIN BLOCKCHAIN — the mining head builds a block; it completes, the chain steps left" + (blockNum ? " · #" + blockNum.toLocaleString() : ""), xc, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
@@ -3097,29 +3100,34 @@ function drawUpdates(r) {
     mhash(bx + cbw / 2, convY, j, scr, "rgba(180,255,200,0.85)", cbw - 8); }
   ctx.restore();
 
-  // ── the STAMPED block: captured out of the chain at step 2 (blinks ×4 while the chain is held, then slides down),
-  //    kept, then carried to your side and set right above your local hash for the final compare ──
-  const capY = convY + 24, aboveY = yHash - 26, blink4 = (p) => Math.floor(p * 8) % 2 === 0; // capture point (below chain) · rest point above your hash · on/off ×4
-  let hbX = xc, hbY = ourY, hbA = 1; const hbShow = idx >= 1;
-  if (idx === 1) { if (dph < 0.6) { hbY = capY; hbA = blink4(dph / 0.6) ? 1 : 0.26; } else { hbY = capY + (ourY - capY) * ((dph - 0.6) / 0.4); } } // blink ×4 (held), then slide down
-  else if (idx <= 4) { hbY = ourY; }
-  else if (idx === 5) { const s = dph; hbX = xc + (rx - xc) * s; hbY = ourY + (aboveY - ourY) * s; } // carried to your side
-  else { hbX = rx; hbY = aboveY; hbA = blink4(dph) ? 1 : 0.26; } // step 7: blink ×4 beside your hash
-  if (hbShow) { ctx.globalAlpha = hbA; const litB = idx === 1 || idx >= 5;
-    ctx.fillStyle = litB ? "rgba(247,147,26,0.16)" : "rgba(247,147,26,0.08)"; roundRect(hbX - 28, hbY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = litB ? ORANGE : "rgba(247,147,26,0.7)"; ctx.lineWidth = 1.5; roundRect(hbX - 28, hbY - 10, 56, 20, 3); ctx.stroke();
-    mhash(hbX, hbY, 500, 0, GLD, 46); ctx.globalAlpha = 1;
-    if (idx >= 2 && idx <= 4) text("⛓ the block, held", hbX, hbY + 15, { size: 7, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" });
-    if (idx === 5) text("⛓ the block, from Bitcoin", hbX, hbY - 14, { size: 7, weight: 700, color: "rgba(247,147,26,0.85)", align: "center", baseline: "middle" }); }
+  // ── the STAMPED block, on Bitcoin (center): at step 2 our hash streams INTO it, then it slides down to a hold row
+  //    and blinks. It stays on Bitcoin. At step 5 it streams itself to your side, where a copy is BUILT from the stream. ──
+  const capY = convY + 22, aboveY = yHash - 26, blink4 = (p) => Math.floor(p * 8) % 2 === 0;
+  const hbShow = idx >= 1; let hbY = ourY, hbA = 1;
+  if (idx === 1) { // step 2: receive the stream (up at the chain), slide down to hold, then blink ×4
+    if (dph < 0.42) { hbY = capY; }
+    else if (dph < 0.66) { hbY = capY + (ourY - capY) * ((dph - 0.42) / 0.24); }
+    else { hbY = ourY; hbA = blink4((dph - 0.66) / 0.34) ? 1 : 0.26; } }
+  if (hbShow) { ctx.globalAlpha = hbA; const litB = idx === 1 || idx === 4;
+    ctx.fillStyle = litB ? "rgba(247,147,26,0.16)" : "rgba(247,147,26,0.08)"; roundRect(xc - 28, hbY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = litB ? ORANGE : "rgba(247,147,26,0.7)"; ctx.lineWidth = 1.5; roundRect(xc - 28, hbY - 10, 56, 20, 3); ctx.stroke();
+    mhash(xc, hbY, 500, 0, GLD, 46); ctx.globalAlpha = 1;
+    if (idx >= 2) text("⛓ the block, on Bitcoin", xc, hbY + 15, { size: 7, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" }); }
   else { ctx.setLineDash([3, 2]); ctx.strokeStyle = "rgba(247,147,26,0.4)"; ctx.lineWidth = 1; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.stroke(); ctx.setLineDash([]); }
 
-  // data streams — step 2: our hash → the chain (OpenTimestamps) · step 5: your node reads the block straight from Bitcoin
-  stream(lx + 8, yHash - 8, xc - 20, capY, idx === 1, "255,215,120");
-  if (idx === 4) stream(xc + 28, ourY, rx - 8, yHash - 8, true, "90,220,140");
-  if (idx === 1) text("→ streaming into the chain via OpenTimestamps", xc - 44, (yHash + capY) / 2 + 12, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
-  if (idx === 4) text("your node reads it from Bitcoin →", (xc + rx) / 2 + 6, ourY - 13, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
+  // the block REBUILT on your side — it materialises out of the incoming stream at step 5 (created from the stream, not slid over)
+  const built = idx === 4 ? Math.min(1, dph * 1.25) : idx >= 5 ? 1 : 0;
+  if (built > 0.02) { ctx.globalAlpha = built; const on6 = idx === 5 ? (blink4(dph) ? 1 : 0.26) : 1; ctx.globalAlpha = built * on6;
+    ctx.fillStyle = "rgba(247,147,26,0.13)"; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = idx >= 4 ? ORANGE : "rgba(247,147,26,0.7)"; ctx.lineWidth = 1.5; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.stroke();
+    mhash(rx, aboveY, 500, idx === 4 ? 1 - dph : 0, GLD, 46); ctx.globalAlpha = 1; }
 
-  // step 7: compare the carried block (above) with your own local hash (below) — blink together, then verdict. NOTHING streams from our side.
-  if (idx === 6) { const on = blink4(dph); ctx.strokeStyle = `rgba(${danger ? "255,95,95" : "90,220,140"},${on ? 0.95 : 0.3})`; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(rx - 12, (aboveY + yHash) / 2); ctx.lineTo(rx + 12, (aboveY + yHash) / 2); ctx.stroke();
+  // data streams — step 2: our hash → the Bitcoin block (OpenTimestamps) · step 5: the block → your side (builds the copy)
+  stream(lx + 8, yHash - 8, xc - 22, dph < 0.42 && idx === 1 ? capY : ourY, idx === 1, "255,215,120");
+  stream(xc + 28, ourY, rx - 28, aboveY, idx === 4, "90,220,140");
+  if (idx === 1) text("→ streaming into the Bitcoin block via OpenTimestamps", xc - 34, (yHash + ourY) / 2 + 12, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
+  if (idx === 4) text("your node streams it over — rebuilt from the data →", (xc + rx) / 2 + 4, aboveY - 13, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
+
+  // step 6: compare the rebuilt block (above) with your own local hash (below) — blink together, then verdict. Nothing from our side.
+  if (idx === 5) { const on = blink4(dph); ctx.strokeStyle = `rgba(${danger ? "255,95,95" : "90,220,140"},${on ? 0.95 : 0.3})`; ctx.lineWidth = 1.6; ctx.beginPath(); ctx.moveTo(rx - 12, (aboveY + yHash) / 2); ctx.lineTo(rx + 12, (aboveY + yHash) / 2); ctx.stroke();
     text("=", rx, (aboveY + yHash) / 2, { size: 11, weight: 800, color: `rgba(${danger ? "255,95,95" : "90,220,140"},${on ? 1 : 0.4})`, align: "center", baseline: "middle" });
     text(danger ? "✗ mismatch — rejected" : (dph > 0.55 ? "✓ match — verified" : "comparing…"), rx, r.y + 60, { size: 8.5, weight: 800, color: danger ? RED : GREEN, align: "center", baseline: "middle" }); }
 
@@ -3138,7 +3146,7 @@ function drawUpdates(r) {
   if (idx === 2) text("you download →", (gx + rx) / 2, yDmg - 8, { size: 7, weight: 600, color: "rgba(150,220,255,0.9)", align: "center", baseline: "middle" });
 
   // YOUR SIDE (right) — download, then hash it yourself (matrix settles)
-  if (yourShown) { if (idx === 6) ctx.globalAlpha = blink4(dph) ? 1 : 0.26; hashCell(rx, yHash, ySeed, idx === 3 ? 1 - dph : 0, yourLit ? (danger ? "rgba(255,110,110,1)" : BLU) : DIMB, yourLit ? (danger ? "rgba(255,95,95,0.7)" : "rgba(150,220,255,0.7)") : "rgba(255,255,255,0.18)"); ctx.globalAlpha = 1; }
+  if (yourShown) { if (idx === 5) ctx.globalAlpha = blink4(dph) ? 1 : 0.26; hashCell(rx, yHash, ySeed, idx === 3 ? 1 - dph : 0, yourLit ? (danger ? "rgba(255,110,110,1)" : BLU) : DIMB, yourLit ? (danger ? "rgba(255,95,95,0.7)" : "rgba(150,220,255,0.7)") : "rgba(255,255,255,0.18)"); ctx.globalAlpha = 1; }
   else { ctx.setLineDash([3, 2]); ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.lineWidth = 1; roundRect(rx - 34, yHash - 8, 68, 16, 3); ctx.stroke(); ctx.setLineDash([]); text("— not yet —", rx, yHash, { size: 7, color: "rgba(255,255,255,0.3)", align: "center", baseline: "middle" }); }
   text("↑ SHA-256", rx, r.y + 116, { size: 7.5, weight: 700, color: yourLit ? BLU : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
   dmgBox(rx, "📦 your .dmg", idx >= 2); text("🖥 YOUR SIDE — download + check", rx, r.y + 150, { size: 8, weight: 700, color: yourLit ? (danger ? RED : GREEN) : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
@@ -3781,10 +3789,10 @@ canvas.addEventListener("click", (e) => {
     if (inHit(foldFwdHit, e.offsetX, cyc)) { foldPaused = true; stepFold(1); requestRender(); return; }
   }
   if (expanded.has("updates")) { // VERIFIED UPDATES transport: play/pause · step through the 6 verification steps
-    const cyc = e.offsetY + scrollY, curStep = () => Math.floor((Date.now() % 21000) / 3000);
+    const cyc = e.offsetY + scrollY, curStep = () => Math.floor((Date.now() % 18000) / 3000);
     if (inHit(updPlayHit, e.offsetX, cyc)) { if (!updPaused) updStep = curStep(); updPaused = !updPaused; requestRender(); return; }
-    if (inHit(updBackHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 6) % 7; requestRender(); return; }
-    if (inHit(updFwdHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 1) % 7; requestRender(); return; }
+    if (inHit(updBackHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 5) % 6; requestRender(); return; }
+    if (inHit(updFwdHit, e.offsetX, cyc)) { if (!updPaused) { updStep = curStep(); updPaused = true; } updStep = (updStep + 1) % 6; requestRender(); return; }
   }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
