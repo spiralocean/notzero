@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 262 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 274 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -3038,50 +3038,40 @@ function drawUpdates(r) {
   const sv = uv && uv.level ? { level: uv.level, version: uv.version, height: uv.height, incoming: true } : (va && va.level ? { level: va.level, version: va.version, height: va.height, incoming: false } : null);
   const danger = !!(sv && sv.level === "mismatch");
 
-  // ── the moving parts of how we verify ── a token carries the running hash left→right: your download's SHA-256,
-  // folded through the proof's steps (each combines in a sibling hash), until it IS a Bitcoin block's merkle root —
-  // which your own node already holds and confirms.
-  const PERIOD = 9000, now = reduceMotion || danger ? PERIOD * 0.93 : Date.now(), p = danger ? 1 : (now % PERIOD) / PERIOD;
-  const cy = r.y + 66, C = danger ? RED : GREEN, sx = (f) => x0 + w * f;
-  const xDL = sx(0.05), foldXs = [sx(0.26), sx(0.35), sx(0.44)], xRoot = sx(0.53), xBlock = sx(0.71), xNode = sx(0.9);
-  const tokP = Math.min(1, p / 0.66), tokX = xDL + (xBlock - xDL) * tokP;          // token: download → block by p=0.66
-  const foldsDone = foldXs.filter((fx) => tokX >= fx - 2).length, atRoot = tokX >= xRoot - 4;
-  const atBlock = p >= 0.66, atNode = p >= 0.86;
-  const readX = xBlock + (xNode - 24 - xBlock) * Math.max(0, Math.min(1, (p - 0.66) / 0.2)); // node reaches over to read the block
-  const blockNum = (versionAnchor && versionAnchor.height) || (sv && sv.height) || (model.node && model.node.blocks) || null;
+  // ── the verification, walked through one step at a time (paced so each is readable, like THE CHURN) ──
+  const STEPS = [
+    { ic: "#", lab: "hash the file", ttl: "Hash your download", body: "SHA-256 turns your installer into a unique 64-character fingerprint — flip one byte and it changes completely." },
+    { ic: "=", lab: "match SHA256SUMS", ttl: "Match the published checksum", body: "That fingerprint must equal the one listed for this file in the release's published SHA256SUMS." },
+    { ic: "⊞", lab: "fold the proof", ttl: "Fold it through the proof", body: "Hash the SHA256SUMS file, then replay its OpenTimestamps proof — each step folds in a sibling hash and re-hashes, climbing a merkle path." },
+    { ic: "₿", lab: "block's root", ttl: "Reach a block's merkle root", body: "After the last fold, that value equals the merkle root recorded inside one specific Bitcoin block." },
+    { ic: "⬡", lab: "ask your node", ttl: "Ask your node for that block", body: "Your node returns that block's header from its own validated chain — only headers are needed, so a pruned node works." },
+    { ic: "✓", lab: "roots match", ttl: "Compare → verified", body: "If the block's merkle root matches what the proof folded to, your download is provably committed on-chain. Trusting no one." },
+  ];
+  const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now();
+  const idx = danger ? N - 1 : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
+  const sub = danger || reduceMotion ? 1 : ((tnow % cyc) % SD) / SD;
+  const cy = r.y + 54, gap = w / N, R = 15;
 
-  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(xDL, cy); ctx.lineTo(xBlock, cy); ctx.stroke(); // the fold rail
-  ctx.strokeStyle = C; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(xDL, cy); ctx.lineTo(Math.min(tokX, xBlock), cy); ctx.stroke();
+  ctx.strokeStyle = DIM; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(x0 + gap * 0.5, cy); ctx.lineTo(x0 + gap * (N - 0.5), cy); ctx.stroke(); // rail
+  const railTo = x0 + gap * (0.5 + idx + Math.min(1, sub * 1.5));
+  ctx.strokeStyle = danger ? RED : GREEN; ctx.lineWidth = 2.4; ctx.beginPath(); ctx.moveTo(x0 + gap * 0.5, cy); ctx.lineTo(Math.min(railTo, x0 + gap * (N - 0.5)), cy); ctx.stroke();
 
-  const bits = (cx, cyy, seed, col, hot, wc) => { wc = wc || 42; const n = 9, cw = wc / n; // a little hash chip
-    ctx.fillStyle = hot ? "rgba(255,235,150,0.16)" : "rgba(255,255,255,0.05)"; roundRect(cx - wc / 2 - 2, cyy - 8, wc + 4, 16, 3); ctx.fill();
-    if (hot) { ctx.strokeStyle = "rgba(255,215,90,0.8)"; ctx.lineWidth = 1.1; roundRect(cx - wc / 2 - 2, cyy - 8, wc + 4, 16, 3); ctx.stroke(); }
-    for (let i = 0; i < n; i++) { const on = ((seed * 2654435761 + (i + 1) * 40503) >>> ((i + seed) % 9)) & 1; ctx.fillStyle = on ? col : "rgba(255,255,255,0.13)"; ctx.fillRect(cx - wc / 2 + i * cw + 0.6, cyy - 4.5, cw - 1.2, 9); } };
+  STEPS.forEach((s, i) => {
+    const cx = x0 + gap * (0.5 + i), done = i < idx, active = i === idx, fail = danger && i === N - 1;
+    const col = fail ? RED : done ? GREEN : active ? (i === 3 ? ORANGE : GREEN) : DIM;
+    if (active && !danger && !reduceMotion) { ctx.strokeStyle = `rgba(90,220,140,${0.5 * (1 - sub)})`; ctx.lineWidth = 1.4; ctx.beginPath(); ctx.arc(cx, cy, R + 2 + sub * 6, 0, 7); ctx.stroke(); } // working pulse
+    ctx.fillStyle = active ? "rgba(255,255,255,0.07)" : "rgba(255,255,255,0.02)"; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.fill();
+    ctx.strokeStyle = (done || active) ? col : DIM; ctx.lineWidth = active ? 2 : 1.2; ctx.beginPath(); ctx.arc(cx, cy, R, 0, 7); ctx.stroke();
+    text(fail ? "✗" : done ? "✓" : s.ic, cx, cy + 0.5, { size: 13, weight: 800, color: (done || active) ? col : DIM, align: "center", baseline: "middle" });
+    text("" + (i + 1), cx - R - 2, cy - R - 1, { size: 8, weight: 700, color: active ? INK : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    text(s.lab, cx, cy + R + 12, { size: 8.5, weight: active ? 700 : 600, color: active ? INK : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+  });
 
-  text("⬇", xDL, cy - 1, { size: 15, weight: 800, color: tokP > 0.02 ? C : DIM, align: "center", baseline: "middle" });
-  text("your download", xDL - 4, cy + 20, { size: 8.5, weight: 700, color: INK, baseline: "middle" });
-
-  text("each proof step folds in a sibling hash", foldXs[0] - 12, cy - 40, { size: 8, color: "rgba(150,175,210,0.75)", baseline: "middle" });
-  foldXs.forEach((fx, k) => { const near = Math.abs(tokX - fx) < 9, done = tokX >= fx - 2;
-    ctx.globalAlpha = done ? 0.4 : 0.85; bits(fx, cy - 26, 900 + k * 11, "rgba(150,175,210,0.95)", false, 30); ctx.globalAlpha = 1;
-    ctx.strokeStyle = near ? "rgba(255,245,170,0.95)" : "rgba(255,255,255,0.16)"; ctx.lineWidth = near ? 1.9 : 1; ctx.beginPath(); ctx.moveTo(fx, cy - 17); ctx.lineTo(fx, cy - 9); ctx.stroke(); });
-
-  if (tokP > 0.03 && !atBlock) bits(tokX, cy, 100 + foldsDone * 17, danger ? RED : atRoot ? "rgba(255,225,120,1)" : "rgba(150,220,255,1)", atRoot, 42); // the running hash
-  if (atRoot && !atBlock) text("= merkle root", tokX, cy + 20, { size: 8.5, weight: 700, color: "rgba(255,225,120,0.95)", align: "center", baseline: "middle" });
-
-  { const bw2 = 94, bh2 = 40, bx = xBlock - bw2 / 2, byb = cy - bh2 / 2; // the Bitcoin block — merkle root sits in its header
-    ctx.fillStyle = atBlock ? "rgba(247,147,26,0.12)" : "rgba(255,255,255,0.03)"; roundRect(bx, byb, bw2, bh2, 5); ctx.fill();
-    ctx.strokeStyle = atBlock ? ORANGE : DIM; ctx.lineWidth = atBlock ? 1.7 : 1.1; roundRect(bx, byb, bw2, bh2, 5); ctx.stroke();
-    text(blockNum ? "₿ block #" + blockNum.toLocaleString() : "₿ Bitcoin block", xBlock, byb + 9, { size: 8, weight: 700, color: atBlock ? ORANGE : DIM, align: "center", baseline: "middle" });
-    ctx.fillStyle = atBlock ? "rgba(255,225,120,0.2)" : "rgba(255,255,255,0.05)"; roundRect(bx + 7, byb + 18, bw2 - 14, 15, 3); ctx.fill();
-    if (atBlock) bits(xBlock, byb + 25.5, 100 + foldsDone * 17, "rgba(255,225,120,1)", false, bw2 - 26); else text("merkle root", xBlock, byb + 25.5, { size: 7.5, weight: 700, color: DIM, align: "center", baseline: "middle" });
-    text("stamped in a block", xBlock, cy + 28, { size: 8.5, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
-  }
-
-  if (p > 0.66 && !danger) { ctx.strokeStyle = "rgba(90,220,140,0.8)"; ctx.setLineDash([3, 3]); ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(xBlock + 40, cy); ctx.lineTo(readX, cy); ctx.stroke(); ctx.setLineDash([]); } // node reaches over to check
-  { for (let i = 0; i < 3; i++) { ctx.strokeStyle = atNode ? "rgba(90,220,140,0.75)" : DIM; roundRect(xNode - 6 + i * 9, cy - 6, 7, 12, 2); if (atNode && i === 1) { ctx.fillStyle = "rgba(90,220,140,0.2)"; ctx.fill(); } ctx.stroke(); } // your node's chain, this block lit
-    text(danger ? "✗" : atNode ? "✓" : "◇", xNode + 30, cy + 1, { size: 15, weight: 800, color: danger ? RED : atNode ? GREEN : DIM, align: "center", baseline: "middle" });
-    text(danger ? "your node rejects" : "your node confirms", xNode + 10, cy + 20, { size: 8.5, weight: 700, color: danger ? "rgba(255,120,120,0.9)" : "rgba(90,220,140,0.9)", align: "center", baseline: "middle" }); }
+  // the educational line for the current step
+  const st = STEPS[idx], fail6 = danger && idx === N - 1;
+  text("STEP " + (idx + 1) + " / " + N, x0, cy + 42, { size: 9, weight: 700, color: fail6 ? RED : "rgba(90,220,140,0.9)", baseline: "middle" });
+  text(fail6 ? "Rejected" : st.ttl, x0 + 58, cy + 42, { size: 10.5, weight: 700, color: fail6 ? RED : INK, baseline: "middle" });
+  text(fail6 ? "The block's merkle root did NOT match what the proof produced — the download is rejected and never installed." : st.body, x0, cy + 60, { size: 10, color: "rgba(255,255,255,0.64)", baseline: "middle" });
 
   // real-status strip — the current/incoming verdict, as a headline above the release history
   if (sv) {
@@ -3095,7 +3085,7 @@ function drawUpdates(r) {
       unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
     }[sv.level];
     if (M) {
-      const by = r.y + 104, bh = 22;
+      const by = r.y + 126, bh = 22;
       ctx.fillStyle = `rgba(${M.c},0.1)`; roundRect(x0, by, w, bh, 6); ctx.fill();
       ctx.strokeStyle = `rgba(${M.c},0.5)`; ctx.lineWidth = 1; roundRect(x0, by, w, bh, 6); ctx.stroke();
       text(M.ic + "   " + M.t, x0 + 12, by + bh / 2 + 0.5, { size: 11, weight: 700, color: `rgba(${M.c},1)`, baseline: "middle" });
@@ -3103,7 +3093,7 @@ function drawUpdates(r) {
   }
 
   // VERIFIED RELEASES — the history, each re-confirmed against your node (newest first)
-  const hy = r.y + (sv ? 142 : 112);
+  const hy = r.y + (sv ? 156 : 130);
   text("VERIFIED RELEASES", x0, hy, { size: 9, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("· each re-confirmed against your own node", x0 + 118, hy, { size: 9, color: "rgba(255,255,255,0.3)", baseline: "middle" });
   const LM = {
@@ -3116,7 +3106,7 @@ function drawUpdates(r) {
   };
   let ry = hy + 18;
   if (updateHistory && updateHistory.length) {
-    updateHistory.slice(0, 5).forEach((h) => {
+    updateHistory.slice(0, 4).forEach((h) => {
       const m = LM[h.level] || LM.unchecked, faint = h.level === "none" || h.level === "unchecked";
       text("v" + h.version, x0 + 4, ry, { size: 10.5, weight: 700, color: h.current ? "rgba(255,255,255,0.95)" : "rgba(255,255,255,0.66)", baseline: "middle", mono: true });
       text(m.ic + "  " + m.t(h), x0 + 78, ry, { size: 10, weight: 600, color: `rgba(${m.c},${faint ? 0.5 : 0.95})`, baseline: "middle" });
