@@ -3068,23 +3068,32 @@ function drawUpdates(r) {
   const BLU = "rgba(150,220,255,1)", GLD = "rgba(255,225,120,1)", DIMB = "rgba(150,220,255,0.4)", HEX = "0123456789abcdef";
   const mhash = (cx, cy, seed, scr, col, wc) => { wc = wc || 54; const n = 8, cw = wc / n, settled = Math.round((1 - Math.max(0, Math.min(1, scr))) * n);
     ctx.save(); ctx.font = "600 8.5px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let i = 0; i < n; i++) { const set = i < settled, ch = set ? HEX[((seed * 2654435761 + (i + 1) * 40503) >>> (i % 7)) & 15] : HEX[(Math.floor(tnow / 45) * 7 + i * 13 + seed * 3) & 15]; ctx.fillStyle = set ? col : "rgba(120,255,150,0.6)"; ctx.fillText(ch, cx - wc / 2 + i * cw + cw / 2, cy); }
+    for (let i = 0; i < n; i++) { const set = i < settled; let h = Math.imul(((set ? (seed | 0) * 9 : Math.floor(tnow / 45) * 7 + seed) + i + 1) | 0, 0x45d9f3b) >>> 0; h = Math.imul(h ^ (h >>> 16), 0x45d9f3b) >>> 0; const ch = HEX[(h ^ (h >>> 13)) & 15]; ctx.fillStyle = set ? col : "rgba(120,255,150,0.6)"; ctx.fillText(ch, cx - wc / 2 + i * cw + cw / 2, cy); }
     ctx.restore(); };
   const line = (ax, ay, bx, by, on, col, dash) => { ctx.strokeStyle = `rgba(${col},${on ? 0.85 : 0.13})`; ctx.lineWidth = on ? 1.7 : 1; if (dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); };
   const dmgBox = (cx, lbl, lit) => { ctx.fillStyle = lit ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)"; roundRect(cx - 30, yDmg - 9, 60, 18, 2); ctx.fill(); ctx.strokeStyle = lit ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.22)"; ctx.lineWidth = 1.1; roundRect(cx - 30, yDmg - 9, 60, 18, 2); ctx.stroke(); text(lbl, cx, yDmg, { size: 8, weight: 600, color: lit ? INK : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); };
   const hashCell = (cx, cy, seed, scr, col, box) => { ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx - 30, cy - 8, 60, 16, 3); ctx.fill(); ctx.strokeStyle = box; ctx.lineWidth = 1.1; roundRect(cx - 30, cy - 8, 60, 16, 3); ctx.stroke(); mhash(cx, cy, seed, scr, col, 54); };
+  // a flowing hash-DATA STREAM (replaces the arrow lines): hex glyphs march A→B in discrete steps when `on`
+  const stream = (ax, ay, bx, by, on, col) => {
+    if (!on) { ctx.strokeStyle = "rgba(255,255,255,0.07)"; ctx.lineWidth = 1; ctx.setLineDash([2, 4]); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); return; }
+    const nG = Math.max(5, Math.round(Math.hypot(bx - ax, by - ay) / 26)), step = Math.floor(tnow / 90);
+    ctx.save(); ctx.font = "600 8px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+    for (let g = 0; g < nG; g++) { const t = ((step / 9 + g / nG) % 1), gx = ax + (bx - ax) * t, gy = ay + (by - ay) * t; ctx.fillStyle = `rgba(${col},${0.9 * Math.sin(t * Math.PI) + 0.12})`; ctx.fillText(HEX[(step + g * 7 + (ax | 0)) & 15], gx, gy); }
+    ctx.restore(); };
   const lx = x0 + w * 0.13, gx = x0 + w * 0.5, rx = x0 + w * 0.87, xc = x0 + w * 0.5, convY = r.y + 40, ourY = r.y + 66, yHash = r.y + 102, yDmg = r.y + 130;
   const ourLit = idx <= 1, yourLit = idx >= 3, btcLit = idx === 1 || idx === 4 || idx === 5, matchLit = idx === 5, ySeed = danger ? 777 : 500, yourShown = idx >= 3;
 
   // ── top row: the mining conveyor — the tip (right) is being mined (matrix-scrambling); finished blocks slide left ──
-  text("⛓ BITCOIN BLOCKCHAIN — miners mine the tip · finished blocks slide left" + (blockNum ? " · #" + blockNum.toLocaleString() : ""), xc, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
-  const cbw = 42, cgp = 16, cstep = cbw + cgp, cslide = (tnow / 50) % cstep;
+  text("⛓ BITCOIN BLOCKCHAIN — the mining head builds a block; it completes, the chain steps left" + (blockNum ? " · #" + blockNum.toLocaleString() : ""), xc, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  const cbw = 42, cgp = 16, cstep = cbw + cgp, headX = x1 - cbw - 4, cycT = 2400, gen = Math.floor(tnow / cycT), cp = (tnow % cycT) / cycT;
+  const slideP = cp < 0.72 ? 0 : (1 - Math.pow(1 - (cp - 0.72) / 0.28, 3)); // hold while the head mines, then snap left exactly one notch — mechanical
   ctx.save(); ctx.beginPath(); ctx.rect(x0, convY - 12, w, 24); ctx.clip();
-  for (let bx = x1 - cbw - cslide; bx > x0 - cbw; bx -= cstep) { const slot = Math.round((x1 - cbw - bx) / cstep), mining = bx + cbw > x1 - cstep * 1.4, scr = mining ? 0.4 + 0.6 * Math.abs(Math.sin(tnow / 220 + slot)) : 0;
+  for (let n = -1; n < 40; n++) { const j = gen - n, bx = headX - (n + slideP) * cstep; if (bx < x0 - cbw) break; if (bx - cgp > x1) continue;
+    const scr = n < 0 ? 1 : n === 0 ? Math.max(0, 1 - cp / 0.72) : 0, mining = scr > 0.05; // seed = LOGICAL index j → each block's hash stays fixed as it slides. Head resolves out of a scramble; the incoming block (n=-1) is fully scrambling.
     ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bx - cgp, convY); ctx.lineTo(bx, convY); ctx.stroke();
     ctx.fillStyle = mining ? "rgba(120,255,150,0.07)" : "rgba(255,255,255,0.03)"; roundRect(bx, convY - 9, cbw, 18, 2); ctx.fill();
-    ctx.strokeStyle = mining ? "rgba(120,255,150,0.45)" : "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(bx, convY - 9, cbw, 18, 2); ctx.stroke();
-    mhash(bx + cbw / 2, convY, slot * 37 + 3, scr, "rgba(180,255,200,0.85)", cbw - 8); }
+    ctx.strokeStyle = mining ? "rgba(120,255,150,0.5)" : "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(bx, convY - 9, cbw, 18, 2); ctx.stroke();
+    mhash(bx + cbw / 2, convY, j, scr, "rgba(180,255,200,0.85)", cbw - 8); }
   ctx.restore();
 
   // ── our stamped block: on step 2 it drops from the conveyor down a row, holding our hash ──
@@ -3096,14 +3105,14 @@ function drawUpdates(r) {
     mhash(ourBX, oy, 500, 0, GLD, 46); ctx.globalAlpha = 1;
     if (ourDrop >= 1 && btcLit) text("our .dmg hash — dropped in", ourBX, ourY + 15, { size: 7, weight: 700, color: "rgba(247,147,26,0.9)", align: "center", baseline: "middle" }); }
 
-  // arrows: our hash → our block (stamp) · your node → our block (verify)
-  line(lx + 6, yHash - 9, ourBX - 18, ourY + 11, idx === 1, "255,215,120", [4, 3]);
-  line(rx - 6, yHash - 9, ourBX + 18, ourY + 11, idx === 4 || idx === 5, "90,220,140", [4, 3]);
-  if (idx === 1) text("via OpenTimestamps ↗", (lx + ourBX) / 2 - 26, (yHash + ourY) / 2, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
-  if (idx === 4) text("⬡ your node reaches in ↖", (rx + ourBX) / 2 + 34, (yHash + ourY) / 2, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
+  // data streams: our hash → the chain (stamp, via OpenTimestamps) · your node → our block (verify)
+  stream(lx + 8, yHash - 8, ourBX - 22, ourY + 3, idx === 1, "255,215,120");
+  stream(rx - 8, yHash - 8, ourBX + 22, ourY + 3, idx === 4 || idx === 5, "90,220,140");
+  if (idx === 1) text("streaming to the chain via OpenTimestamps", (lx + ourBX) / 2 - 6, (yHash + ourY) / 2 + 11, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
+  if (idx === 4) text("your node streams the block back", (rx + ourBX) / 2 + 6, (yHash + ourY) / 2 + 11, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
 
   // the constant — link between the two hashes
-  line(lx + 44, yHash, rx - 44, yHash, matchLit, danger ? "255,95,95" : "90,220,140", [3, 3]);
+  stream(lx + 44, yHash, rx - 44, yHash, matchLit, danger ? "255,95,95" : "90,220,140");
   text(matchLit ? (danger ? "✗ different — the download is rejected" : "✓ identical — the same fingerprint, verified") : "the .dmg hash — the same on both sides and in the chain", xc, yHash - 16, { size: 8, weight: matchLit ? 700 : 600, color: matchLit ? (danger ? RED : GREEN) : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 
   // OUR SIDE (left) — hash the .dmg (matrix settles out of the scramble)
@@ -3115,10 +3124,10 @@ function drawUpdates(r) {
   { const on = idx === 2 || idx === 3; ctx.fillStyle = on ? "rgba(150,220,255,0.08)" : "rgba(255,255,255,0.02)"; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.fill(); ctx.strokeStyle = on ? BLU : "rgba(255,255,255,0.2)"; ctx.lineWidth = on ? 1.4 : 1; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.stroke();
     text("☁ getnotzero.com", gx, yDmg - 2, { size: 7.5, weight: 700, color: on ? BLU : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); text(".dmg · SHA256SUMS · proof", gx, yDmg + 7, { size: 6.5, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
     text("WEB SERVER", gx, r.y + 150, { size: 8, weight: 700, color: on ? BLU : "rgba(255,255,255,0.4)", align: "center", baseline: "middle" }); }
-  line(lx + 32, yDmg, gx - 49, yDmg, idx === 2, "150,220,255", [3, 3]);
-  line(gx + 49, yDmg, rx - 32, yDmg, idx === 3, "150,220,255", null);
-  if (idx === 2) text("↑ we publish it", (lx + gx) / 2, yDmg - 8, { size: 7, color: "rgba(150,220,255,0.85)", align: "center", baseline: "middle" });
-  if (idx === 3) text("you download →", (gx + rx) / 2, yDmg - 8, { size: 7, weight: 600, color: "rgba(150,220,255,0.9)", align: "center", baseline: "middle" });
+  stream(lx + 32, yDmg, gx - 49, yDmg, idx === 1, "150,220,255");
+  stream(gx + 49, yDmg, rx - 32, yDmg, idx === 2, "150,220,255");
+  if (idx === 1) text("we also publish it →", (lx + gx) / 2, yDmg - 8, { size: 7, color: "rgba(150,220,255,0.85)", align: "center", baseline: "middle" });
+  if (idx === 2) text("you download →", (gx + rx) / 2, yDmg - 8, { size: 7, weight: 600, color: "rgba(150,220,255,0.9)", align: "center", baseline: "middle" });
 
   // YOUR SIDE (right) — download, then hash it yourself (matrix settles)
   if (yourShown) hashCell(rx, yHash, ySeed, idx === 3 ? 1 - dph : 0, yourLit ? (danger ? "rgba(255,110,110,1)" : BLU) : DIMB, yourLit ? (danger ? "rgba(255,95,95,0.7)" : "rgba(150,220,255,0.7)") : "rgba(255,255,255,0.18)");
