@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 326 };
+const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 342 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -3039,14 +3039,14 @@ function drawUpdates(r) {
   const sv = uv && uv.level ? { level: uv.level, version: uv.version, height: uv.height, incoming: true } : (va && va.level ? { level: va.level, version: va.version, height: va.height, incoming: false } : null);
   const danger = !!(sv && sv.level === "mismatch");
 
-  // ── the verification, walked through one step at a time (paced so each is readable, like THE CHURN) ──
+  // ── verification as two sides meeting at Bitcoin — the .dmg's hash is the constant everything rides on ──
   const STEPS = [
-    { ic: "#", lab: "hash the file", ttl: "Hash your download", body: "SHA-256 turns your installer into a unique 64-character fingerprint — flip one byte and it changes completely." },
-    { ic: "=", lab: "match SHA256SUMS", ttl: "Match the published checksum", body: "That fingerprint must equal the one listed for this file in the release's published SHA256SUMS." },
-    { ic: "⊞", lab: "fold the proof", ttl: "Fold it through the proof", body: "Hash the SHA256SUMS file, then replay its OpenTimestamps proof — each step folds in a sibling hash and re-hashes, climbing a merkle path." },
-    { ic: "₿", lab: "block's root", ttl: "Reach a block's merkle root", body: "After the last fold, that value equals the merkle root recorded inside one specific Bitcoin block." },
-    { ic: "⬡", lab: "ask your node", ttl: "Ask your node for that block", body: "Your node returns that block's header from its own validated chain — only headers are needed, so a pruned node works." },
-    { ic: "✓", lab: "roots match", ttl: "Compare → verified", body: "If the block's merkle root matches what the proof folded to, your download is provably committed on-chain. Trusting no one." },
+    { side: "our", ttl: "We hash the release", body: "We SHA-256 the .dmg into one unique fingerprint — the constant everything else rides on." },
+    { side: "btc", ttl: "We stamp it on Bitcoin", body: "Via OpenTimestamps that fingerprint is committed into a Bitcoin block — immutable and timestamped, impossible to forge or backdate." },
+    { side: "your", ttl: "You download the file", body: "You pull the .dmg from our web server over HTTPS — but you won't have to trust it." },
+    { side: "your", ttl: "You hash it yourself", body: "Your machine SHA-256s the download — producing the exact same fingerprint, if the file is genuine." },
+    { side: "btc", ttl: "Your node reads the block", body: "Your own node — which validated the whole chain itself — pulls that block's record. Only headers are needed, so a pruned node works." },
+    { side: "match", ttl: "The fingerprints match → verified", body: "Your fingerprint equals the one stamped on-chain — provably genuine, trusting no one." },
   ];
   const N = STEPS.length, SD = 3000, cyc = N * SD, tnow = Date.now(), dph = (tnow % 2400) / 2400;
   const idx = danger ? N - 1 : updPaused ? Math.max(0, Math.min(N - 1, updStep)) : reduceMotion ? N - 1 : Math.floor((tnow % cyc) / SD);
@@ -3062,48 +3062,47 @@ function drawUpdates(r) {
     updBackHit = { x: b1, y: byy, w: bwd, h: bh }; updPlayHit = { x: b2, y: byy, w: bwd, h: bh }; updFwdHit = { x: b3, y: byy, w: bwd, h: bh };
   }
 
-  // ── the three places verification spans; the step-through lights up what's active ──
-  const BLU = "rgba(150,220,255,1)", GLD = "rgba(255,225,120,1)";
-  const bits = (cx, cyy, seed, col, hot, wc, fill) => { wc = wc || 40; const n = 9, cw = wc / n, shown = fill == null ? n : Math.round(fill * n);
-    for (let i = 0; i < n; i++) { const on = i < shown && (((seed * 2654435761 + (i + 1) * 40503) >>> ((i + seed) % 9)) & 1); ctx.fillStyle = i >= shown ? "rgba(255,255,255,0.06)" : on ? col : "rgba(255,255,255,0.13)"; ctx.fillRect(cx - wc / 2 + i * cw + 0.4, cyy - 4, cw - 1, 8); } };
-  const zone = (zx, zy, zw, zh, hot, hc) => { ctx.fillStyle = hot ? `rgba(${hc},0.07)` : "rgba(255,255,255,0.02)"; roundRect(zx, zy, zw, zh, 5); ctx.fill(); ctx.strokeStyle = hot ? `rgba(${hc},0.6)` : "rgba(255,255,255,0.14)"; ctx.lineWidth = hot ? 1.5 : 1; roundRect(zx, zy, zw, zh, 5); ctx.stroke(); };
-  const atServer = idx <= 1, atYou = idx === 0 || idx === 1 || idx === 2 || idx === 5, atProof = idx === 2 || idx === 3, atBTC = idx >= 3, atNode = idx === 4 || idx === 5;
+  // ── two sides meeting at Bitcoin ── OUR SIDE builds the .dmg + stamps its hash on-chain; YOUR SIDE re-derives
+  // the SAME hash and checks it against that block via your own node. The .dmg's hash is the constant everywhere.
+  const BLU = "rgba(150,220,255,1)", GLD = "rgba(255,225,120,1)", DIMB = "rgba(150,220,255,0.4)";
+  const bits = (cx, cyy, seed, col, box, wc) => { wc = wc || 40; const n = 9, cw = wc / n;
+    if (box) { ctx.fillStyle = "rgba(255,255,255,0.05)"; roundRect(cx - wc / 2 - 3, cyy - 8, wc + 6, 16, 3); ctx.fill(); ctx.strokeStyle = box; ctx.lineWidth = 1.1; roundRect(cx - wc / 2 - 3, cyy - 8, wc + 6, 16, 3); ctx.stroke(); }
+    for (let i = 0; i < n; i++) { const on = ((seed * 2654435761 + (i + 1) * 40503) >>> ((i + seed) % 9)) & 1; ctx.fillStyle = on ? col : "rgba(255,255,255,0.12)"; ctx.fillRect(cx - wc / 2 + i * cw + 0.5, cyy - 4, cw - 1, 8); } };
+  const line = (ax, ay, bx, by, on, col, dash) => { ctx.strokeStyle = `rgba(${col},${on ? 0.85 : 0.14})`; ctx.lineWidth = on ? 1.7 : 1; if (dash) ctx.setLineDash(dash); ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); ctx.setLineDash([]); };
+  const lx = x0 + w * 0.2, rx = x0 + w * 0.8, xc = x0 + w * 0.5, yBtc = r.y + 44, yHash = r.y + 92, yDmg = r.y + 122;
+  const ourLit = idx <= 1, yourLit = (idx >= 2 && idx <= 4) || idx === 5, btcLit = idx === 1 || idx === 4 || idx === 5, matchLit = idx === 5, ySeed = danger ? 777 : 500;
 
-  // BITCOIN BLOCKCHAIN — across the top
-  const bl0 = x0 + w * 0.34, btcY = r.y + 50, nb = 6, bw3 = 24, bgap = ((x1 - bl0) - nb * bw3) / (nb - 1), anchorI = 3, anchX = bl0 + anchorI * (bw3 + bgap) + bw3 / 2;
-  text("⛓ BITCOIN BLOCKCHAIN", bl0, r.y + 33, { size: 8.5, weight: 700, color: atBTC ? ORANGE : "rgba(255,255,255,0.5)", baseline: "middle" });
-  text("· immutable, timestamped — your node synced it itself", bl0 + 128, r.y + 33, { size: 8, color: "rgba(255,255,255,0.34)", baseline: "middle" });
-  for (let k = 0; k < nb; k++) { const bxk = bl0 + k * (bw3 + bgap), anch = k === anchorI, hot = anch && atBTC; ctx.fillStyle = hot ? "rgba(247,147,26,0.14)" : "rgba(255,255,255,0.03)"; roundRect(bxk, btcY - 9, bw3, 18, 2); ctx.fill(); ctx.strokeStyle = hot ? ORANGE : anch ? "rgba(247,147,26,0.55)" : "rgba(255,255,255,0.22)"; ctx.lineWidth = anch ? 1.4 : 1; roundRect(bxk, btcY - 9, bw3, 18, 2); ctx.stroke(); if (hot) bits(bxk + bw3 / 2, btcY, 500, GLD, false, bw3 - 8); if (k < nb - 1) { ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(bxk + bw3, btcY); ctx.lineTo(bxk + bw3 + bgap, btcY); ctx.stroke(); } }
-  if (atBTC) text("this block's merkle root", anchX, btcY + 14, { size: 7, weight: 700, color: "rgba(247,147,26,0.9)", align: "center", baseline: "middle" });
+  // arrows from each hash up to the block
+  line(lx + 8, yHash - 9, xc - 46, yBtc + 11, idx === 1, "255,215,120", [4, 3]);
+  line(rx - 8, yHash - 9, xc + 46, yBtc + 11, idx === 4 || idx === 5, "90,220,140", [4, 3]);
+  if (idx === 1) text("via OpenTimestamps ↗", (lx + xc) / 2 - 20, (yHash + yBtc) / 2 - 1, { size: 7.5, weight: 600, color: "rgba(255,225,150,0.9)", align: "center", baseline: "middle" });
+  if (idx === 4) text("↖ your node reads it", (rx + xc) / 2 + 20, (yHash + yBtc) / 2 - 1, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.9)", align: "center", baseline: "middle" });
 
-  // WEB SERVER — bottom-left
-  const sX = x0, sW = w * 0.29, sY = r.y + 72, sH = 58;
-  zone(sX, sY, sW, sH, atServer, "150,220,255");
-  text("☁ WEB SERVER", sX + 8, sY + 11, { size: 8.5, weight: 700, color: atServer ? BLU : "rgba(255,255,255,0.55)", baseline: "middle" });
-  text("getnotzero.com", sX + sW - 8, sY + 11, { size: 7.5, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  ["⬇ notzero installer", "SHA256SUMS", "SHA256SUMS.ots (proof)"].forEach((f, k) => { const hi = (idx === 0 && k === 0) || (idx === 1 && k === 1) || (idx >= 2 && k === 2); text(f, sX + 11, sY + 25 + k * 10.5, { size: 7.5, weight: hi ? 700 : 500, color: hi ? INK : "rgba(255,255,255,0.5)", baseline: "middle", mono: true }); });
+  // BITCOIN block (top center) — holds the anchored fingerprint
+  text("⛓ BITCOIN BLOCKCHAIN" + (blockNum ? " · block #" + blockNum.toLocaleString() : ""), xc, r.y + 24, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+  { const bw2 = 92; ctx.fillStyle = btcLit ? "rgba(247,147,26,0.13)" : "rgba(255,255,255,0.03)"; roundRect(xc - bw2 / 2, yBtc - 12, bw2, 24, 4); ctx.fill(); ctx.strokeStyle = btcLit ? ORANGE : "rgba(247,147,26,0.5)"; ctx.lineWidth = btcLit ? 1.7 : 1; roundRect(xc - bw2 / 2, yBtc - 12, bw2, 24, 4); ctx.stroke(); bits(xc, yBtc, 500, GLD, null, bw2 - 22);
+    text("the anchored fingerprint · immutable", xc, yBtc + 18, { size: 7, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" }); }
 
-  // YOU — bottom-right
-  const yW = w * 0.29, yX = x1 - yW, yY = r.y + 72, yH = 58;
-  zone(yX, yY, yW, yH, atYou || atNode, "90,220,140");
-  text("🖥 YOU", yX + 8, yY + 11, { size: 8.5, weight: 700, color: (atYou || atNode) ? GREEN : "rgba(255,255,255,0.55)", baseline: "middle" });
-  text("your machine + node", yX + yW - 8, yY + 11, { size: 7.5, color: "rgba(255,255,255,0.4)", align: "right", baseline: "middle" });
-  const dlHot = idx <= 2; text("▤ your download", yX + 11, yY + 27, { size: 8, weight: dlHot ? 700 : 500, color: dlHot ? INK : "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
-  if (idx === 0) bits(yX + yW - 34, yY + 27, 100, BLU, false, 40, dph); else if (idx <= 2) bits(yX + yW - 34, yY + 27, idx === 2 ? 100 + (Math.floor(dph * 3) % 3) * 17 : 100, BLU, false, 40);
-  text("⬡ your node", yX + 11, yY + 44, { size: 8, weight: atNode ? 700 : 500, color: atNode ? GREEN : "rgba(255,255,255,0.5)", baseline: "middle", mono: true });
+  // the constant — a link between the two hashes
+  line(lx + 40, yHash, rx - 40, yHash, matchLit, danger ? "255,95,95" : "90,220,140", [3, 3]);
+  text(matchLit ? (danger ? "✗ different — the download is rejected" : "✓ identical — the same fingerprint, verified") : "the same fingerprint — the constant everything rides on", xc, yHash - 14, { size: 8, weight: matchLit ? 700 : 600, color: matchLit ? (danger ? RED : GREEN) : "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
 
-  // FLOW ①: web server → you (download over HTTPS)
-  { const ay = r.y + 96, on = atServer || idx === 2, c2 = on ? "150,220,255" : "255,255,255"; ctx.strokeStyle = `rgba(${c2},${on ? 0.7 : 0.16})`; ctx.lineWidth = on ? 1.6 : 1; ctx.setLineDash(on ? [] : [3, 3]); ctx.beginPath(); ctx.moveTo(sX + sW + 3, ay); ctx.lineTo(yX - 7, ay); ctx.stroke(); ctx.setLineDash([]); text("▶", yX - 6, ay, { size: 8, color: `rgba(${c2},${on ? 0.9 : 0.3})`, align: "center", baseline: "middle" });
-    text("download over HTTPS — but you don't have to trust it", (sX + sW + yX) / 2, ay - 8, { size: 7.5, color: `rgba(255,255,255,${on ? 0.55 : 0.32})`, align: "center", baseline: "middle" }); }
-  // FLOW ②: you → the anchored Bitcoin block (the proof folds here / your node holds it). What it means per step is in the caption below.
-  { const on = atBTC, c2 = on ? "255,215,120" : "255,255,255"; ctx.strokeStyle = `rgba(${c2},${on ? 0.8 : 0.14})`; ctx.lineWidth = on ? 1.5 : 1; ctx.setLineDash([4, 3]); ctx.beginPath(); ctx.moveTo(yX + yW * 0.4, yY - 2); ctx.lineTo(anchX + 3, btcY + 10); ctx.stroke(); ctx.setLineDash([]); }
-  if (idx === 5) text(danger ? "✗" : "✓", yX + yW * 0.4 + 12, yY - 8, { size: 14, weight: 800, color: danger ? RED : GREEN, align: "center", baseline: "middle" });
+  // OUR SIDE (left) + YOUR SIDE (right)
+  const col2 = (cx, seed, hcol, lit, dmgLbl, sideLbl, sideCol) => {
+    bits(cx, yHash, seed, lit ? hcol : DIMB, lit ? (danger && cx === rx ? "rgba(255,95,95,0.7)" : "rgba(150,220,255,0.7)") : null, 66);
+    text("↑ SHA-256", cx, (yDmg + yHash) / 2 + 1, { size: 7.5, weight: 700, color: lit ? BLU : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+    ctx.fillStyle = lit ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.02)"; roundRect(cx - 28, yDmg - 9, 56, 18, 2); ctx.fill(); ctx.strokeStyle = lit ? "rgba(255,255,255,0.5)" : "rgba(255,255,255,0.22)"; ctx.lineWidth = 1.1; roundRect(cx - 28, yDmg - 9, 56, 18, 2); ctx.stroke(); text(dmgLbl, cx, yDmg, { size: 8, weight: 600, color: lit ? INK : "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    text(sideLbl, cx, yDmg + 20, { size: 8, weight: 700, color: sideCol, align: "center", baseline: "middle" });
+  };
+  col2(lx, 500, BLU, ourLit, "📦 our .dmg", "☁ OUR SIDE — build + stamp", ourLit ? BLU : "rgba(255,255,255,0.5)");
+  col2(rx, ySeed, danger ? "rgba(255,110,110,1)" : BLU, yourLit, "📦 your .dmg", "🖥 YOUR SIDE — download + check", yourLit ? (danger ? RED : GREEN) : "rgba(255,255,255,0.5)");
+  if (idx === 2) text("↓ from getnotzero.com over HTTPS", rx, yDmg - 17, { size: 7, weight: 600, color: "rgba(150,220,255,0.85)", align: "center", baseline: "middle" });
 
   // the educational line for the current step
   const st = STEPS[idx], fail6 = danger && idx === N - 1;
-  text("STEP " + (idx + 1) + " / " + N + (updPaused ? "  · paused" : ""), x0, r.y + 144, { size: 9, weight: 700, color: fail6 ? RED : "rgba(90,220,140,0.9)", baseline: "middle" });
-  text(fail6 ? "Rejected" : st.ttl, x0 + (updPaused ? 108 : 62), r.y + 144, { size: 10.5, weight: 700, color: fail6 ? RED : INK, baseline: "middle" });
-  text(fail6 ? "The block's merkle root did NOT match what the proof produced — the download is rejected and never installed." : st.body, x0, r.y + 160, { size: 10, color: "rgba(255,255,255,0.64)", baseline: "middle" });
+  text("STEP " + (idx + 1) + " / " + N + (updPaused ? "  · paused" : ""), x0, r.y + 160, { size: 9, weight: 700, color: fail6 ? RED : "rgba(90,220,140,0.9)", baseline: "middle" });
+  text(fail6 ? "Rejected" : st.ttl, x0 + (updPaused ? 108 : 62), r.y + 160, { size: 10.5, weight: 700, color: fail6 ? RED : INK, baseline: "middle" });
+  text(fail6 ? "Your fingerprint did NOT match the one stamped on-chain — the download is rejected and never installed." : st.body, x0, r.y + 176, { size: 10, color: "rgba(255,255,255,0.64)", baseline: "middle" });
 
   // real-status strip — the current/incoming verdict, as a headline above the release history
   if (sv) {
@@ -3117,7 +3116,7 @@ function drawUpdates(r) {
       unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
     }[sv.level];
     if (M) {
-      const by = r.y + 176, bh = 22;
+      const by = r.y + 192, bh = 22;
       ctx.fillStyle = `rgba(${M.c},0.1)`; roundRect(x0, by, w, bh, 6); ctx.fill();
       ctx.strokeStyle = `rgba(${M.c},0.5)`; ctx.lineWidth = 1; roundRect(x0, by, w, bh, 6); ctx.stroke();
       text(M.ic + "   " + M.t, x0 + 12, by + bh / 2 + 0.5, { size: 11, weight: 700, color: `rgba(${M.c},1)`, baseline: "middle" });
@@ -3125,7 +3124,7 @@ function drawUpdates(r) {
   }
 
   // VERIFIED RELEASES — the history, each re-confirmed against your node (newest first)
-  const hy = r.y + (sv ? 206 : 192);
+  const hy = r.y + (sv ? 222 : 208);
   text("VERIFIED RELEASES", x0, hy, { size: 9, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("· each re-confirmed against your own node", x0 + 118, hy, { size: 9, color: "rgba(255,255,255,0.3)", baseline: "middle" });
   const LM = {
@@ -3148,7 +3147,7 @@ function drawUpdates(r) {
   } else {
     text("In the app, every release you run is listed here — each re-confirmed against your own node.", x0 + 4, ry, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   }
-  text("Only block headers are needed, so your pruned node re-checks every release — the one moment of risk is your first download.", x0, r.y + 300, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
+  text("Only block headers are needed, so your pruned node re-checks every release — the one moment of risk is your first download.", x0, r.y + 316, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
 }
 
 function drawBroadcast(r) {
