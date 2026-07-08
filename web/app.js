@@ -3086,9 +3086,9 @@ function drawUpdates(r) {
   // ── top row: the mining conveyor. It PAUSES during the stamp (step 2); afterwards it resumes, carrying our now-orange block along ──
   const blink4 = (p) => Math.floor(p * 8) % 2 === 0, aboveY = yHash - 26;
   text("⛓ BITCOIN BLOCKCHAIN — mined at the right, slides left" + (idx === 1 ? " · PAUSED — stamping" : ""), x0, r.y + 20, { size: 8.5, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.55)", baseline: "middle" });
-  const cbw = 56, cgp = 14, cstep = cbw + cgp, headX = x1 - cbw - 42, cycT = 2400; // blocks sized to match the copied/stored block; headX leaves room for the miners
+  const cbw = 56, cgp = 14, cstep = cbw + cgp, headX = x1 - cbw - 78, cycT = 2400; // blocks sized to match the copied/stored block; headX leaves room for the miner box
   const cycleStart = Math.floor(tnow / cyc) * cyc, stampT = cycleStart + UPD_DUR[0], s2End = stampT + UPD_DUR[1], convT = idx === 1 ? stampT : (tnow >= s2End ? tnow - UPD_DUR[1] : tnow); // freeze the train during step 2, resume after
-  const gen = Math.floor(convT / cycT), cp = (convT % cycT) / cycT, nCenter = Math.round((headX - xc) / cstep), ourGen = Math.floor(stampT / cycT) - nCenter, trainShift = xc - (headX - nCenter * cstep); // align our block exactly to centre (xc) so the stored block lands right under it
+  const gen = Math.floor(convT / cycT), cp = (convT % cycT) / cycT, nCenter = Math.round((headX - xc) / cstep), ourGen = Math.floor(stampT / cycT) - nCenter, trainShift = (xc - cbw / 2) - (headX - nCenter * cstep); // align our block's CENTRE to xc (bx is its left edge) so the stored block lands right under it
   const slideP = idx === 1 ? 0 : (cp < 0.72 ? 0 : (1 - Math.pow(1 - (cp - 0.72) / 0.28, 3)));
   ctx.save(); ctx.beginPath(); ctx.rect(x0, convY - 13, w, 26); ctx.clip();
   for (let n = -1; n < 32; n++) { const j = gen - n, bx = headX - (n + slideP) * cstep + trainShift; if (bx < x0 - cbw) break; if (bx - cgp > x1) continue;
@@ -3100,11 +3100,12 @@ function drawUpdates(r) {
     ctx.strokeStyle = nowOrange ? ORANGE : isOurs ? "rgba(235,245,255,0.8)" : mining ? "rgba(120,255,150,0.5)" : "rgba(255,255,255,0.2)"; ctx.lineWidth = (nowOrange || isOurs) ? 1.5 : 1; roundRect(bx, convY - 10, cbw, 20, 3); ctx.stroke();
     mhash(bx + cbw / 2, convY, isOurs ? 500 : j, scr, nowOrange ? GLD : isOurs ? "rgba(235,245,255,0.95)" : "rgba(180,255,200,0.85)", cbw - 10); }
   ctx.restore();
-  // ── the miners at the far right — where new blocks are mined + originate (mirrors the node sync's mining glyphs) ──
-  { const mx = x1 - 16; ctx.font = "700 11px ui-monospace, monospace"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
-    for (let g = 0; g < 5; g++) { const a = 0.3 + 0.5 * Math.abs(Math.sin(tnow / 120 + g * 0.7)); ctx.fillStyle = `rgba(120,255,150,${a})`; ctx.fillText(CYBER[(Math.floor(tnow / 70) + g * 5) % CYBER.length], mx, convY - 16 + g * 8); }
-    ctx.fillStyle = "rgba(120,255,150,0.5)"; ctx.font = "700 10px ui-monospace, monospace"; ctx.fillText("◄", mx - 15, convY);
-    text("⛏ miners", mx, convY + 25, { size: 7.5, weight: 700, color: "rgba(120,255,150,0.85)", align: "center", baseline: "middle" }); }
+  // ── the miners: a block being mined (horizontal hashing) at the far right — where new blocks originate ──
+  { const minerX = x1 - 32;
+    ctx.strokeStyle = "rgba(120,255,150,0.3)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(minerX - 28, convY); ctx.lineTo(minerX - 28 - cgp, convY); ctx.stroke(); // chain link toward the train
+    ctx.fillStyle = "rgba(120,255,150,0.09)"; roundRect(minerX - 28, convY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = "rgba(120,255,150,0.55)"; ctx.lineWidth = 1.2; roundRect(minerX - 28, convY - 10, 56, 20, 3); ctx.stroke();
+    mhash(minerX, convY, 900, 1, "rgba(140,255,170,0.95)", 46); // scr=1 → fully scrambling = actively mining, horizontally
+    text("⛏ miners", minerX, convY + 25, { size: 7.5, weight: 700, color: "rgba(120,255,150,0.85)", align: "center", baseline: "middle" }); }
 
   // ── the STORED block (row below, directly under our orange chain block): once the stream reaches the block, the
   //    stored copy is HASHED/BUILT in place here (matrix settling to the same hash), then blinks. It stays as our reference. ──
@@ -3133,10 +3134,12 @@ function drawUpdates(r) {
     text("=", rx, (aboveY + yHash) / 2, { size: 11, weight: 800, color: `rgba(${danger ? "255,95,95" : "90,220,140"},${on ? 1 : 0.4})`, align: "center", baseline: "middle" });
     text(danger ? "✗ mismatch — rejected" : (sub > 0.5 ? "✓ match — verified" : "comparing…"), rx, r.y + 60, { size: 8.5, weight: 800, color: danger ? RED : GREEN, align: "center", baseline: "middle" }); }
 
-  // OUR SIDE (left) — hash the .dmg (matrix settles out of the scramble, ONCE per step)
-  hashCell(lx, yHash, 500, idx === 0 ? Math.max(0, 1 - sub * 1.4) : 0, ourLit ? BLU : DIMB, ourLit ? "rgba(150,220,255,0.7)" : "rgba(255,255,255,0.18)");
-  text("↑ SHA-256", lx, r.y + 116, { size: 7.5, weight: 700, color: ourLit ? BLU : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
-  dmgBox(lx, "📦 our .dmg", ourLit); text("☁ OUR SIDE — build + stamp", lx, r.y + 150, { size: 8, weight: 700, color: ourLit ? BLU : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  // OUR SIDE (left) — we hash the .dmg; the fingerprint BUILDS up (matrix) into an orange block, exactly like the stored block
+  { const bscr = idx === 0 ? Math.max(0, 1 - (sub - 0.12) / 0.5) : 0; ctx.globalAlpha = ourLit ? 1 : 0.45;
+    ctx.fillStyle = "rgba(247,147,26,0.14)"; roundRect(lx - 28, yHash - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = ourLit ? ORANGE : "rgba(247,147,26,0.5)"; ctx.lineWidth = 1.5; roundRect(lx - 28, yHash - 10, 56, 20, 3); ctx.stroke();
+    mhash(lx, yHash, 500, bscr, GLD, 46); ctx.globalAlpha = 1; }
+  text("↑ SHA-256", lx, r.y + 117, { size: 7.5, weight: 700, color: ourLit ? "rgba(247,147,26,0.9)" : "rgba(255,255,255,0.32)", align: "center", baseline: "middle" });
+  dmgBox(lx, "📦 our .dmg", ourLit); text("☁ OUR SIDE — build + stamp", lx, r.y + 150, { size: 8, weight: 700, color: ourLit ? "rgba(247,147,26,0.9)" : "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
 
   // getnotzero.com (center) — the web server: we publish here, you download from here
   { const on = idx === 2 || idx === 3; ctx.fillStyle = on ? "rgba(150,220,255,0.08)" : "rgba(255,255,255,0.02)"; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.fill(); ctx.strokeStyle = on ? BLU : "rgba(255,255,255,0.2)"; ctx.lineWidth = on ? 1.4 : 1; roundRect(gx - 47, yDmg - 11, 94, 22, 4); ctx.stroke();
