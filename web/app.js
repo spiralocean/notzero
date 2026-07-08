@@ -510,7 +510,7 @@ const QUOTES = [
   { q: "Do, or do not. There is no try.", src: "Yoda, The Empire Strikes Back" },
   { q: "Just keep swimming.", src: "Dory, Finding Nemo" },
   { q: "To infinity and beyond!", src: "Buzz Lightyear, Toy Story" },
-  { q: "'Impossible'? I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
+  { q: "'Inconceivable'? You keep using that word. I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
   { q: "Adventure is out there!", src: "Ellie, Up" },
   // from Bitcoin's history
   { q: "Chancellor on brink of second bailout for banks", src: "The Times — Bitcoin's genesis block, 2009" },
