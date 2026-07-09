@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.31
+## Unreleased — next: 0.1.32
+
+## 0.1.31
+
+**Desktop**
+- **Hotfix — 0.1.30 crashed on launch.** 0.1.30 shipped without `ots-verify.js` in the packaged app, so it failed
+  immediately at startup (`Cannot find module './ots-verify.js'`) on every platform. 0.1.31 bundles it. If you're
+  stuck on a crashing 0.1.30, download 0.1.31 from [getnotzero.com](https://getnotzero.com) — a crashed install
+  can't auto-update itself. (Also hardened the release workflow so the changelog-publish step can no longer trip
+  `pipefail`, which had skipped the on-chain checksum anchoring for 0.1.30.)
 
 ## 0.1.30
 

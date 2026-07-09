@@ -171,14 +171,14 @@ jobs:
         shell: bash
         run: |
           rclone copyto CHANGELOG.md "$R2_BUCKET/CHANGELOG.md" --s3-no-check-bucket
-          echo "published CHANGELOG.md:"; curl -s "https://dl.getnotzero.com/CHANGELOG.md" | head -3
+          echo "published CHANGELOG.md:"; curl -s "https://dl.getnotzero.com/CHANGELOG.md" | head -3 || true  # head closes the pipe early → curl SIGPIPE; don't let pipefail fail the step (it cascaded to skip anchor in 0.1.30)
 
       - name: Verify the live feed
         if: env.IS_DRY != 'true'
         shell: bash
         run: |
           feed=$([ "${{ matrix.platform }}" = mac ] && echo latest-mac.yml || ([ "${{ matrix.platform }}" = win ] && echo latest.yml || echo latest-linux.yml))
-          echo "published feed:"; curl -s "https://dl.getnotzero.com/$feed" | head -3
+          echo "published feed:"; curl -s "https://dl.getnotzero.com/$feed" | head -3 || true  # same SIGPIPE/pipefail guard
 
   # Anchor this release's download hashes in the Bitcoin blockchain (OpenTimestamps). After all three platforms
   # publish, hash the exact files the website serves, write one SHA256SUMS, and timestamp it — so anyone (and,
