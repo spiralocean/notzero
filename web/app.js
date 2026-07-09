@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 268, oneRound: 436, shift: 282, churn: 414, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 436, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -1342,7 +1342,7 @@ function drawChurn(r) {
       drawRow(my, slide);
       if (curRow && shiftProg < 1) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
       my += 12; }
-    my += 2; text(fillP < 1 ? "one register feeds all three rotations" : "each row rotates the same bits by a different amount, then they XOR", x0, my, { size: 8, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+    my += 11; text(fillP < 1 ? "one register feeds all three rotations" : "each row rotates the same bits by a different amount, then they XOR", x0, my, { size: 8, color: "rgba(255,255,255,0.45)", baseline: "middle" });
   }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
