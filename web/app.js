@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 268, oneRound: 436, shift: 282, churn: 414, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -970,12 +970,12 @@ function drawFold(r) {
     if (foldPaused) text(`⏸ step ${kfi + 1}/${FOLD_KFS.length}`, b1 - 8, cyy, { size: 8, weight: 700, color: "rgba(255,215,90,0.85)", align: "right", baseline: "middle" }); }
 
   const lm = 66, rm = 58, segGap = 16, segW = (w - lm - rm - segGap * (N - 1)) / N, segX = (k) => x0 + lm + k * (segW + segGap);
-  const stripY = r.y + 64, stripH = 22, machY = r.y + 126, machH = 46;
+  const stripY = r.y + 76, stripH = 22, machY = r.y + 132, machH = 46;
   const boxX = segX(si) + slideP * (segX(Math.min(N - 1, si + 1)) - segX(si));
   const chip = (cx, cy, label, rgb, a) => { const cw = Math.max(48, label.length * 6.4 + 16), ch = 17; ctx.globalAlpha = a == null ? 1 : a; ctx.fillStyle = `rgba(${rgb},0.16)`; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.fill(); ctx.strokeStyle = `rgba(${rgb},0.95)`; ctx.lineWidth = 1.2; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.stroke(); text(label, cx, cy, { size: 9, weight: 700, color: `rgba(${rgb},1)`, align: "center", baseline: "middle" }); ctx.globalAlpha = 1; };
 
   // message strip — segments dim once consumed
-  text("your message  →  512-bit segments", x0 + lm, r.y + 44, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("your message  →  512-bit segments", x0 + lm, r.y + 52, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   for (let k = 0; k < N; k++) { const sx = segX(k), on = k === si, gone = k < si || (k === si && f > 0.2), nb = Math.floor(segW / 6);
     for (let b = 0; b < nb; b++) { ctx.fillStyle = hrand(k * 71 + b * 1.7) > 0.5 ? `rgba(${BLUE},${gone ? 0.12 : on ? 0.85 : 0.4})` : DIM; ctx.fillRect(sx + b * 6 + 1, stripY, 4, stripH); }
     ctx.strokeStyle = on && !gone ? `rgba(${BLUE},0.9)` : "rgba(255,255,255,0.16)"; ctx.lineWidth = on && !gone ? 1.5 : 1; roundRect(sx, stripY, segW, stripH, 3); ctx.stroke();
@@ -1056,7 +1056,7 @@ function drawOneRound(r) {
   const lx = x0, barX = x0 + 210, cw = (w - 210) / 32;
   const bar = (by, val, on) => { for (let i = 0; i < 32; i++) { ctx.fillStyle = ((val >>> (31 - i)) & 1) ? on : "rgba(255,255,255,0.06)"; ctx.fillRect(barX + i * cw + 0.5, by, Math.max(1, cw - 1), 10); } };
   // each row: bold left label (what it computes) + a plain-English sub (what it means) + the 32-bit result bar
-  const line = (yy, label, val, on, sub) => { text(label, lx, yy + 5, { size: 12.5, weight: 600, color: "rgba(255,255,255,0.85)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 20, { size: 10.5, color: "rgba(255,255,255,0.46)", baseline: "middle" }); bar(yy, val, on); };
+  const line = (yy, label, val, on, sub) => { text(label, lx, yy + 5, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.9)", baseline: "middle", mono: true }); if (sub) text(sub, lx, yy + 17, { size: 10.5, color: "rgba(255,255,255,0.42)", baseline: "middle" }); bar(yy, val, on); };
   const rows = [
     ["scramble e (Σ1)", S1, BL, "e⟲6 ⊕ e⟲11 ⊕ e⟲25 — three rotated copies of e, XORed together", 30, false],
     ["Choose (Ch)", ch, BL, "(e∧f) ⊕ (¬e∧g) — for each bit, e picks register f or g", 30, false],
@@ -1077,8 +1077,8 @@ function drawOneRound(r) {
       ctx.fillStyle = "rgba(255,215,90,0.34)"; roundRect(wx - 3, y - 3, ww + 6, 16, 3); ctx.fill();
       text("W", wx, y + 5, { size: 12.5, weight: 700, color: "rgba(255,232,135,1)", baseline: "middle", mono: true });
     }
-    y += gap;
-    if (divAfter) { ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 10); ctx.lineTo(x1, y - 10); ctx.stroke(); } // divider before the new registers
+    y += gap + 6; // wider gap between rows so each header+explainer reads as its own group
+    if (divAfter) { ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, y - 12); ctx.lineTo(x1, y - 12); ctx.stroke(); } // divider before the new registers
   }
   text("…then everything shifts down one — b←a · c←b · d←c · f←e · g←f · h←g. That's the whole round; all 64 run this same recipe.", x0, y, { size: 11, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
@@ -1255,7 +1255,7 @@ function drawChurn(r) {
     if (resBlink) { ctx.strokeStyle = "rgba(255,255,240,0.95)"; ctx.lineWidth = 1.4; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); } // the column being added — extends up through the stored operands it's using
     const obits = vals.map(v => (v >>> bCur) & 1), cin = carry[bCur], tot = obits.reduce((a, x) => a + x, 0) + cin;
-    my += 16; text(arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+    my += 23; text(arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
@@ -1272,7 +1272,7 @@ function drawChurn(r) {
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
-    my += 17; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}${st.choose ? "   (choose: e=1→f, e=0→g)" : "   (1 if an odd number are 1)"}` : (st.choose ? `Ch = (e∧f) ⊕ (¬e∧g) — the "choose": where e=1 take f, where e=0 take g` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`), x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
+    my += 23; text(arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}${st.choose ? "   (choose: e=1→f, e=0→g)" : "   (1 if an odd number are 1)"}` : (st.choose ? `Ch = (e∧f) ⊕ (¬e∧g) — the "choose": where e=1 take f, where e=0 take g` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`), x0, my, { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true });
   }
   else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
     const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
@@ -1853,9 +1853,10 @@ function drawMempool(r) {
   // --- the "now" divider ---
   if (nHist) {
     const divX = r.x + padX + histW + dividerW / 2 - gap / 2 + slide;
-    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(divX, top - 16); ctx.lineTo(divX, bot + 4); ctx.stroke(); ctx.setLineDash([]);
-    ctx.fillStyle = "rgba(8,6,12,0.85)"; roundRect(divX - 16, top - 34, 32, 16, 4); ctx.fill(); // dark backdrop so "now" reads over the header text
-    text("now", divX, top - 26, { size: 10.5, weight: 700, color: "rgba(255,255,255,0.92)", align: "center", baseline: "middle" });
+    ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(divX, top - 4); ctx.lineTo(divX, bot + 4); ctx.stroke(); ctx.setLineDash([]);
+    ctx.save(); ctx.shadowColor = "rgba(6,5,10,0.95)"; ctx.shadowBlur = 4; // soft dark halo (not a box) so "now" reads over the matrix rain without covering the caption
+    for (let g = 0; g < 3; g++) text("now", divX, top - 12, { size: 10.5, weight: 700, color: "rgba(255,255,255,0.9)", align: "center", baseline: "middle" });
+    ctx.restore();
   }
 
   // --- the "next" block — your ticket; the hero that hardens + slides into history on a block-found ---
@@ -3084,12 +3085,12 @@ function drawUpdates(r) {
   // a flowing hash-DATA STREAM — water-in-a-pipe (same as the node sync): the tap opens → the leading edge travels
   // A→B and the pipe fills; the tap closes → the trailing edge drains out. `key` gives each its own head/tail/scroll.
   const stream = (ax, ay, bx, by, on, key) => { const st = tickStream(updStreams, key, on && !reduceMotion, 1.6); drawStream(ax, ay, bx, by, st, 1); };
-  const lx = x0 + w * 0.13, gx = x0 + w * 0.5, rx = x0 + w * 0.87, xc = x0 + w * 0.5, convY = r.y + 56, nodeY = r.y + 98, ourY = r.y + 98, yHash = r.y + 170, yDmg = r.y + 206; // train below the subtitle; YOUR NODE above your side; roomy rows
+  const lx = x0 + w * 0.13, gx = x0 + w * 0.5, rx = x0 + w * 0.87, xc = x0 + w * 0.5, convY = r.y + 62, nodeY = r.y + 100, ourY = r.y + 100, yHash = r.y + 172, yDmg = r.y + 208; // train below the subtitle; YOUR NODE above your side; roomy rows
   const ourLit = idx <= 1, yourLit = idx >= 3, btcLit = idx === 1 || idx === 4, matchLit = idx === 5, ySeed = danger ? 777 : 500, yourShown = idx >= 3;
 
   // ── top row: the mining conveyor. It PAUSES during the stamp (step 2); afterwards it resumes, carrying our now-orange block along ──
   const blink4 = (p) => Math.floor(p * 8) % 2 === 0, aboveY = yHash - 36;
-  text("⛓ BITCOIN BLOCKCHAIN — mined at the right, slides left" + (idx === 1 ? " · PAUSED — stamping" : ""), x0, r.y + 40, { size: 9, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.6)", baseline: "middle" });
+  text("⛓ BITCOIN BLOCKCHAIN — mined at the right, slides left" + (idx === 1 ? " · PAUSED — stamping" : ""), x0, r.y + 38, { size: 9, weight: 700, color: btcLit ? ORANGE : "rgba(255,255,255,0.6)", baseline: "middle" });
   const cbw = 56, cgp = 14, cstep = cbw + cgp, headX = x1 - cbw - 78, cycT = 2400; // blocks sized to match the copied/stored block; headX leaves room for the miner box
   const cycleStart = Math.floor(tnow / cyc) * cyc, stampT = cycleStart + UPD_DUR[0], s2End = stampT + UPD_DUR[1], convT = idx === 1 ? stampT : (tnow >= s2End ? tnow - UPD_DUR[1] : tnow); // freeze the train during step 2, resume after
   const gen = Math.floor(convT / cycT), cp = (convT % cycT) / cycT, nCenter = Math.round((headX - xc) / cstep), ourGen = Math.floor(stampT / cycT) - nCenter, trainShift = (xc - cbw / 2) - (headX - nCenter * cstep); // align our block's CENTRE to xc (bx is its left edge) so the stored block lands right under it
