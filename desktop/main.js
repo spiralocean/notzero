@@ -280,11 +280,14 @@ function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
     });
   });
 }
-// Pre-install: show what's new with an explicit Update / Later choice, instead of installing silently.
+// Record that the user has already seen a version's release notes, so the post-update recap doesn't repeat them.
+function markVersionSeen(v) { if (!v) return; try { const c = JSON.parse(fs.readFileSync(configPath(), "utf8")); c.last_seen_version = v; fs.writeFileSync(configPath(), JSON.stringify(c, null, 2), { mode: 0o600 }); } catch (_) {} }
+// Pre-install "what's new" + explicit Update/Later choice. Shown ONLY on an explicit action (Check for Updates, or
+// clicking the in-app "update available" pill) — never unsolicited; the pill is the passive notice.
 function promptUpdateDialog(info) {
   const target = (info && info.version) || updateAvailableVer || "", cur = app.getVersion();
   whatsNewDialog({ fromVer: cur, toVer: target, title: `notzero ${target} is available` + (cur ? `  (you're on ${cur})` : ""), buttons: ["Update Now", "See Full Notes", "Later"], extraDetail: "Update now? notzero downloads it, restarts, and resumes mining automatically." })
-    .then((r) => { if (r === 0) autoUpdater.downloadUpdate().catch(() => {}); else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); });
+    .then((r) => { if (r === 0) { markVersionSeen(target); autoUpdater.downloadUpdate().catch(() => {}); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // notes shown here → skip the post-update recap for this version
 }
 function initAutoUpdate() {
   if (!app.isPackaged) return;
@@ -294,16 +297,15 @@ function initAutoUpdate() {
     updateAvailableVer = info && info.version ? info.version : "";
     pendingUpdateVer = updateAvailableVer;                      // drives the persistent in-app "update available" pill
     const wasManual = updateManual; updateManual = false;
-    if (wasManual) { promptUpdateDialog(info); return; }        // explicit "Check for Updates" → what's new + choose
+    if (wasManual) { promptUpdateDialog(info); return; }        // explicit "Check for Updates" / pill click → what's new + Update/Later choice
     if (autoUpdateOn()) return;                                 // auto mode background: autoDownload installs on quit
-    // notify ONCE per version — across restarts too (persisted). The in-app pill carries ongoing visibility, so
-    // there's no need for the old every-2-hours nag.
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) return; // app OPEN → the in-app "update available" pill IS the notice; never pop an unsolicited dialog
+    // app closed / in the tray → one OS notification per version (persisted, so no every-2-hours nag), pointing at the pill
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     if (updateAvailableVer && (updateAvailableVer === notifiedVer || cfg.last_notified_version === updateAvailableVer)) return;
     notifiedVer = updateAvailableVer;
     try { cfg.last_notified_version = updateAvailableVer; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {}
-    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) { promptUpdateDialog(info); return; } // app open → dialog with the choice
-    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → the “Update available” banner (or Help → Check for Updates).` }).show(); } catch (_) {} // closed → one notification
+    try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → the “Update available” banner (or Help → Check for Updates).` }).show(); } catch (_) {}
   });
   autoUpdater.on("update-not-available", () => { pendingUpdateVer = null; if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
   autoUpdater.on("update-downloaded", async (info) => {
@@ -853,9 +855,10 @@ async function createWindow() {
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
-  // Windows + Linux: the X button hides to the tray and keeps the node + miner running in the background
-  // (like macOS keeping the app in the dock). Only the tray's Quit / menu Exit really stops it.
-  win.on("close", (e) => { if (process.platform !== "darwin" && !isQuitting && tray) { e.preventDefault(); win.hide(); notifyBackgroundOnce(); } });
+  // Closing the window HIDES it (never destroys) and keeps the node + miner running in the background — Windows +
+  // Linux to the tray, macOS in the dock. Hiding (vs destroying) is what lets a reopen restore the exact window
+  // size + position (and scroll/state). Only tray Quit / menu Exit / ⌘Q (isQuitting) actually closes it.
+  win.on("close", (e) => { if (!isQuitting && (tray || process.platform === "darwin")) { e.preventDefault(); win.hide(); notifyBackgroundOnce(); } });
   // open http(s)/mailto links (terms, support email) in the user's browser/mail client, not a new app window
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^(https?|mailto):/i.test(url)) shell.openExternal(url); return { action: "deny" }; });
   // first run → wizard. Managed mode → setup screen too, so the install progress is visible
@@ -910,7 +913,7 @@ if (!app.requestSingleInstanceLock()) {
     startupComplete = true; // past here, an uncaught error is a runtime hiccup (just log it) — not a reason to show the reinstall page
   });
 }
-app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window
+app.on("activate", () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } else createWindow(); }); // dock click → show the existing (hidden) window, preserving its size/position; only build a new one if none exists
 app.on("before-quit", () => { isQuitting = true; stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node)
 // macOS keeps the app in the dock; Windows + Linux hide to the tray — in all three the miner keeps running and
 // only the tray Quit / menu Exit / ⌘Q stops it. We only quit here as a fallback: no tray could be created

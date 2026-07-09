@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.33
 
+**Desktop**
+- **Update notices are calmer — the pill, not a popup.** An available update just lights the in-app "update
+  available" pill (top-right); it no longer pops an unsolicited dialog while you're working. Clicking the pill
+  still shows the release notes with an Update / Later choice, and the notes no longer appear **twice** (once at
+  the notice and again after updating) — you see them once.
+- **macOS: the window remembers its size + position.** Closing the window now *hides* it (the app keeps mining in
+  the dock) instead of destroying it, so reopening from the dock restores exactly where you were — same size,
+  same position, same scroll — instead of a fresh default-size window.
+
 ## 0.1.32
 
 **Desktop**
