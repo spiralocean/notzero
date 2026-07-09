@@ -57,7 +57,7 @@
       ],
       "artifactName": "notzero-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.finance",
-      "icon": "assets/icon.png",
+      "icon": "assets/icon.icns",
       "notarize": false
     },
     "win": {
