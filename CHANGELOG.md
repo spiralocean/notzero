@@ -18,7 +18,9 @@ version number and bump `desktop/package.json`.
 - **VERIFIED UPDATES reads clearly while a proof is still settling.** A freshly-installed version now says
   *"installed & verified — its Bitcoin timestamp is still confirming"* instead of a bare "pending" (which looked
   like the update itself wasn't verified). Once anchored, each release shows its Bitcoin block **plus a live
-  confirmation count** (chain tip − the anchor block).
+  confirmation count** (chain tip − the anchor block). In the animation, the stamped block is marked **🔒 locked
+  in a block from the moment it's on-chain** — immutable immediately, *not* gated on a confirmation threshold —
+  with its confirmation depth beside it (each new block on top just buries it deeper).
 
 ## 0.1.31
 

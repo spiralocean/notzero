@@ -3134,7 +3134,8 @@ function drawUpdates(r) {
   if (storedShow) { ctx.globalAlpha = storedA;
     ctx.fillStyle = "rgba(247,147,26,0.14)"; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = ORANGE; ctx.lineWidth = 1.5; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.stroke();
     mhash(xc, ourY, 500, storedScr, GLD, 46); ctx.globalAlpha = 1;
-    if (idx >= 2) text("⛓ stored on-chain", xc, ourY + 18, { size: 8, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" }); }
+    if (idx >= 2) { const cf = confsFor(sv && sv.height); // real depth of the running version's stamp, once it's anchored (blank while still confirming)
+      text("🔒 locked in a block" + (cf ? " · " + cf.toLocaleString() + (cf === 1 ? " confirmation" : " confirmations") : ""), xc, ourY + 18, { size: 8, weight: 700, color: "rgba(247,147,26,0.82)", align: "center", baseline: "middle" }); } }
   else if (idx === 0) { ctx.setLineDash([3, 2]); ctx.strokeStyle = "rgba(247,147,26,0.4)"; ctx.lineWidth = 1; roundRect(xc - 28, ourY - 10, 56, 20, 3); ctx.stroke(); ctx.setLineDash([]); }
 
   // ── YOUR NODE (top of your side) — it reads the stamped block straight from the chain; the hash you check is
