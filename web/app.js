@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 170, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -1548,8 +1548,8 @@ function drawBitOps(r) {
   };
   triple("⊕ XOR", "1 where the two bits DIFFER, 0 where they match", "⊕", 29, A ^ B);
   triple("∧ AND", "1 only where BOTH bits are 1, else 0", "∧", 31, A & B);
-  // ── add — its own box. Carries ACROSS columns, so the zoom shows the carry rule (not one bar column)
-  card(top, BIN_H);
+  // ── add — its own box. Carries ACROSS columns, so the zoom shows the carry rule (not one bar column) — a touch taller to give the carry row air
+  card(top, BIN_H + 12);
   { const hy = top + 11, aa = top + 22, bb = top + 31, ar = top + 41;
     head(hy, "➕ add", "add as numbers; when a column overflows it carries into the next (top carry wraps, mod 2³²)");
     rlbl(aa, "A", IN); row(aa, A, IN);
@@ -1559,9 +1559,9 @@ function drawBitOps(r) {
     text("this op, one column:", ex0, aa - 3, { size: 8.5, color: dim, baseline: "middle" });
     cell(ex0, cy, 1, IN); glyph(ex0 + 30, my, "+"); cell(ex0 + 42, cy, 1, B2); glyph(ex0 + 72, my, "=");
     cell(ex0 + 84, cy, 1, OUT); cell(ex0 + 106, cy, 0, OUT);
-    text("↑ carry", ex0 + 84, my + 15, { size: 8, color: G, baseline: "middle" });
+    text("↑ carry", ex0 + 84, my + 18, { size: 8, color: G, baseline: "middle" });
   }
-  top += BIN_H + GAP;
+  top += BIN_H + 12 + GAP;
   text("these are the TOOLS, not the order — ONE ROUND (above) shows how they're combined into the recipe, run 64× until it looks random", x0, top + 4, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
@@ -1645,7 +1645,10 @@ function drawNextBlock(r) {
       const nowM = Math.min(elapsed / 60, SPAN), mx = hx + (nowM / SPAN) * hw, rightSide = nowM > SPAN * 0.76;
       const mkCol = over ? "255,190,90" : ACCENT;
       ctx.strokeStyle = `rgba(${mkCol},0.95)`; ctx.lineWidth = 1.5; ctx.setLineDash([3, 3]); ctx.beginPath(); ctx.moveTo(mx, hTop - 4); ctx.lineTo(mx, hBot); ctx.stroke(); ctx.setLineDash([]);
-      text(`▾ now ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`, mx + (rightSide ? -4 : 4), hTop + 3, { size: 9.5, weight: 700, color: `rgba(${mkCol},1)`, align: rightSide ? "right" : "left", baseline: "middle" });
+      { const nowTxt = `▾ now ${Math.floor(elapsed / 60)}:${String(elapsed % 60).padStart(2, "0")}`;
+        ctx.font = "700 9.5px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif"; const ntw = ctx.measureText(nowTxt).width;
+        const bxl = rightSide ? mx - 5 - ntw : mx + 5; ctx.fillStyle = "rgba(8,6,12,0.88)"; roundRect(bxl - 3, hTop - 5, ntw + 6, 16, 4); ctx.fill(); // dark backdrop so the marker reads over the gold bar
+        text(nowTxt, mx + (rightSide ? -5 : 5), hTop + 3, { size: 9.5, weight: 700, color: over ? "rgba(255,216,150,1)" : "rgba(150,235,255,1)", align: rightSide ? "right" : "left", baseline: "middle" }); }
     }
   }
   if (over) text(`long blocks are normal — each inner ring = another 10-min window (now in #${intervals + 1}) · ~37% run past 10, ~5% past 30`, r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
@@ -1751,7 +1754,7 @@ function drawMempool(r) {
   const depth = Math.max(mem.length, Math.round((mp.vsize || mem.length * 1e6) / 1e6));
   text(`${mp.count.toLocaleString()} pending · ~${depth.toLocaleString()} blocks deep · time flows right → left: txs arrive, get mined, fall into history`, r.x + r.w / 2, r.y + 18, { size: 12, weight: 600, color: `rgba(${ACCENT},0.85)`, align: "center", baseline: "middle" });
 
-  const padX = 20, top = r.y + 70, bot = r.y + r.h - 38, maxBH = bot - top, gap = 10; // top pushed down to give the fee explainer its own row under the title
+  const padX = 20, top = r.y + 70, bot = r.y + r.h - 50, maxBH = bot - top, gap = 10; // top pushed down to give the fee explainer its own row under the title; bottom lifted so the dust label + "if you win" get air
   const dividerW = 22, nHist = hist.length, nBlocks = nHist + 1; // history blocks + the single "next" hero; the backlog is the fee-cliff strip
   const bw = Math.max(76, Math.min(108, ((r.w - 2 * padX - dividerW) * 0.46) / nBlocks - gap)); // blocks take ~left half; the strip fills the rest
   const SIZE_REF = 2.6e6, sizeH = (b) => Math.max(0.34, Math.min(1, (b.blockSize || b.size || b.blockVSize || 0) / SIZE_REF)); // height = data (bytes)
@@ -1851,7 +1854,8 @@ function drawMempool(r) {
   if (nHist) {
     const divX = r.x + padX + histW + dividerW / 2 - gap / 2 + slide;
     ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.setLineDash([3, 4]); ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(divX, top - 16); ctx.lineTo(divX, bot + 4); ctx.stroke(); ctx.setLineDash([]);
-    text("now", divX, top - 26, { size: 10, weight: 700, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+    ctx.fillStyle = "rgba(8,6,12,0.85)"; roundRect(divX - 16, top - 34, 32, 16, 4); ctx.fill(); // dark backdrop so "now" reads over the header text
+    text("now", divX, top - 26, { size: 10.5, weight: 700, color: "rgba(255,255,255,0.92)", align: "center", baseline: "middle" });
   }
 
   // --- the "next" block — your ticket; the hero that hardens + slides into history on a block-found ---
@@ -2769,8 +2773,8 @@ function drawSync(r) {
     if (bps > 0.02) { const s = behind / bps; etaStr = s > 172800 ? ` · ~${(s / 86400).toFixed(1)} days left` : s > 3600 ? ` · ~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left` : s > 90 ? ` · ~${Math.round(s / 60)} min left` : " · almost caught up"; }
     else etaStr = " · estimating time…";
   }
-  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 56, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
-  if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 72, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 63, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 78, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
@@ -3128,7 +3132,7 @@ function drawUpdates(r) {
   if (built > 0.02) { ctx.globalAlpha = built; const on6 = idx === 5 ? (blink4(dph) ? 1 : 0.26) : 1; ctx.globalAlpha = built * on6;
     ctx.fillStyle = "rgba(247,147,26,0.13)"; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.fill(); ctx.strokeStyle = idx >= 4 ? ORANGE : "rgba(247,147,26,0.7)"; ctx.lineWidth = 1.5; roundRect(rx - 28, aboveY - 10, 56, 20, 3); ctx.stroke();
     mhash(rx, aboveY, 500, idx === 4 ? Math.max(0, 1 - (sub - 0.5) / 0.32) : 0, GLD, 46); ctx.globalAlpha = 1;
-    if (idx >= 4) text("↓ from your node", rx, aboveY + 18, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.8)", align: "center", baseline: "middle" }); }
+    if (idx === 4) text("↓ from your node", rx, aboveY + 18, { size: 7.5, weight: 600, color: "rgba(90,220,140,0.8)", align: "center", baseline: "middle" }); }
 
   // data streams — step 2: our hash → the Bitcoin block (OpenTimestamps) · step 5: the chain → your node (it reads the block), then it hands you the hash
   stream(lx + 8, yHash - 8, xc - 22, convY + 8, idx === 1 && sub < 0.3, "upd:submit");
