@@ -31,6 +31,7 @@ desktop/resources/
 
 # local release credentials (never commit)
 release.env
+rclone.txt
 
 # large local UTXO snapshot artifact (never commit)
 scripts/utxo-snapshot-*.dat
