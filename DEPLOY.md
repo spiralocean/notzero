@@ -10,6 +10,21 @@ The desktop app (`web/` + `desktop/`) is one shared source built per platform. *
 here on the mac, push, then the other boxes pull and build.** This single-origin order is what avoids the
 diverge-and-merge mess of parallel edits.
 
+> **Current process = a tag-triggered CI workflow** (`.github/workflows/release.yml`) — it builds + signs +
+> notarizes + publishes all three platforms and anchors `SHA256SUMS` (OpenTimestamps). Standard flow:
+> 1. Bump `desktop/package.json` + `desktop/package-lock.json` version, move `CHANGELOG.md` **Unreleased** under
+>    the new version → commit → **`git push origin main`**.
+> 2. **DRY RUN FIRST — always, before tagging.** GitHub → **Actions → "Release" → "Run workflow"** → branch
+>    `main` → leave **"Build only" checked** (that checkbox *is* `dry_run`) → Run. It builds all three platforms
+>    and runs the **asar-require gate + launch smoke test WITHOUT publishing**. Wait for it to be green on
+>    mac/Windows/Linux — this is what stops a bad build (missing module, startup crash, a gate quirk) from
+>    reaching users, as 0.1.30 did.
+> 3. Only once the dry run is green: **`git tag vX.Y.Z && git push origin vX.Y.Z`** (must match package.json) →
+>    the real release runs. (Pre-flight the node-gated block check once locally: `python3 scripts/verify-block.py`.)
+>
+> The per-platform `scripts/release-*.sh` / `.ps1` below are what CI runs inside each matrix job; the old local
+> `source release.env && scripts/release-mac.sh` path still works but is superseded by the tag flow.
+
 1. **Mac (origin + ship mac):** edit shared source → **bump `desktop/package.json` version once** (shared
    across all three) → **move `CHANGELOG.md` "Unreleased" under the new version** → commit →
    **`git push origin main`** ← load-bearing → `source release.env && scripts/release-mac.sh`. If `web/` or
