@@ -1256,7 +1256,7 @@ function drawChurn(r) {
     if (resBlink) { ctx.strokeStyle = "rgba(255,255,240,0.95)"; ctx.lineWidth = 1.4; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); } // the column being added — extends up through the stored operands it's using
     const obits = vals.map(v => (v >>> bCur) & 1), cin = carry[bCur], tot = obits.reduce((a, x) => a + x, 0) + cin;
-    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, y: my + scrollP * 46, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
+    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${obits.join(" + ")}${cin ? "  + " + cin + " carry" : ""}  =  ${tot.toString(2)}₂  →  write ${tot & 1}, carry ${tot >> 1}` : `${st.g} — add every operand's column, write the low bit, carry the rest up`, y: my, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
   }
   else if (steps[curStep].xops) { // XOR — stack the inputs, combine column by column (no carry: 1 when an odd number of inputs are 1)
     const st = steps[curStep], xo = st.xops, aColor = st.c, n = xo.length;
@@ -1273,7 +1273,7 @@ function drawChurn(r) {
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
-    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}${st.choose ? "   (choose: e=1→f, e=0→g)" : "   (1 if an odd number are 1)"}` : (st.choose ? `Ch = (e∧f) ⊕ (¬e∧g) — the "choose": where e=1 take f, where e=0 take g` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`), y: my + scrollP * 46, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
+    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${xbits.join(" ⊕ ")}  =  ${xbits.reduce((a, x) => a ^ x, 0)}${st.choose ? "   (choose: e=1→f, e=0→g)" : "   (1 if an odd number are 1)"}` : (st.choose ? `Ch = (e∧f) ⊕ (¬e∧g) — the "choose": where e=1 take f, where e=0 take g` : `${st.g} — XOR: each output bit is 1 when an odd number of inputs are 1 (no carry)`), y: my, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
   }
   else if (steps[curStep].chsel) { // Choose — e is the selector: where e=1 take f (blue), where e=0 take g (violet)
     const st = steps[curStep], eV = st.chsel[0] >>> 0, fV = st.chsel[1] >>> 0, gV = st.chsel[2] >>> 0, aColor = st.c;
@@ -1292,7 +1292,7 @@ function drawChurn(r) {
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
       const srcY = ((eV >>> bCur) & 1) ? fRowY : gRowY; ctx.strokeStyle = "rgba(255,255,255,0.98)"; ctx.lineWidth = 1.8; ctx.strokeRect(ix - 1.5, srcY - 1.5, mcw + 2, 10); } // the register e is pulling this column's bit from
     const eb = (eV >>> bCur) & 1;
-    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, y: my + scrollP * 46, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
+    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   e=${eb}  →  take ${eb ? "f" : "g"}'s bit  =  ${((eb ? fV : gV) >>> bCur) & 1}` : `Ch — e is the selector: where e=1 take f (blue), where e=0 take g (violet)`, y: my, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
   }
   else if (steps[curStep].maj3) { // Majority — read a, then b, then c in, then vote (1 when ≥2 agree)
     const st = steps[curStep], aV = st.maj3[0] >>> 0, bV = st.maj3[1] >>> 0, cV = st.maj3[2] >>> 0, aColor = st.c;
@@ -1309,7 +1309,7 @@ function drawChurn(r) {
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
-    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   a=${av} b=${bv} c=${cv}  →  ${ones} of 3 are 1  →  ${ones >= 2 ? 1 : 0}` : `Maj — each output bit is the majority: 1 when at least two of a, b, c agree`, y: my + scrollP * 46, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
+    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   a=${av} b=${bv} c=${cv}  →  ${ones} of 3 are 1  →  ${ones >= 2 ? 1 : 0}` : `Maj — each output bit is the majority: 1 when at least two of a, b, c agree`, y: my, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
   }
   else if (steps[curStep].and2) { // AND — read both operands in (blink each, then write its row), then AND them bit by bit
     const st = steps[curStep], o1 = st.and2[0], o2 = st.and2[1], aColor = st.c;
@@ -1326,7 +1326,7 @@ function drawChurn(r) {
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const b1 = (o1[1] >>> bCur) & 1, b2 = (o2[1] >>> bCur) & 1;
-    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${b1} ∧ ${b2}  =  ${b1 & b2}   (1 only if both are 1)` : `${st.l} — AND: 1 only where both inputs are 1`, y: my + scrollP * 46, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
+    my += 23; churnExplain = { t: arp < 1 ? `column ${bCur}:   ${b1} ∧ ${b2}  =  ${b1 & b2}   (1 only if both are 1)` : `${st.l} — AND: 1 only where both inputs are 1`, y: my, o: { size: 8.5, weight: 600, color: "rgba(255,242,165,0.9)", baseline: "middle", mono: true } };
   }
   else if (steps[curStep].rn) { // sigma rotate — read the register into all three rows first, then shift one row per step
     const isS1 = curStep <= 2, gStart = isS1 ? 0 : 8, amounts = isS1 ? [6, 11, 25] : [2, 13, 22], regV = (isS1 ? src[4] : src[0]) >>> 0, opCol = isS1 ? TEAL : VIOL, reg = isS1 ? "e" : "a", rotIdx = curStep - gStart;
@@ -1343,7 +1343,7 @@ function drawChurn(r) {
       drawRow(my, slide);
       if (curRow && shiftProg < 1) { ctx.strokeStyle = "rgba(255,245,170,0.9)"; ctx.lineWidth = 1.2; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
       my += 12; }
-    my += 11; churnExplain = { t: fillP < 1 ? "one register feeds all three rotations" : "each row rotates the same bits by a different amount, then they XOR", y: my + scrollP * 46, o: { size: 8, color: "rgba(255,255,255,0.45)", baseline: "middle" } };
+    my += 11; churnExplain = { t: fillP < 1 ? "one register feeds all three rotations" : "each row rotates the same bits by a different amount, then they XOR", y: my, o: { size: 8, color: "rgba(255,255,255,0.45)", baseline: "middle" } };
   }
   else {
     // input reference — show the register this operation reads, so the rotations connect back to it
@@ -1376,7 +1376,7 @@ function drawChurn(r) {
     }
   }
   if (scrollP > 0) ctx.restore();
-  if (churnExplain) text(churnExplain.t, x0, churnExplain.y, churnExplain.o); // drawn OUTSIDE the scroll clip/fade so the explanation stays put + readable while the worked rows scroll up
+  if (churnExplain) { const keep = Math.ceil((1 - scrollP) * churnExplain.t.length); if (keep > 0) text(churnExplain.t.slice(0, keep), x0, churnExplain.y, churnExplain.o); } // stays put; as the step scrolls out it REVERSE-CLEARS (backspaces) char by char
   if (freshRow) { // the just-computed result travels continuously up from its actual result row in the detail into its reserved store slot
     const from = resultRowY > 0 ? resultRowY + scrollP * 46 : storedBottom + 30, ty = freshSlotY + (1 - slideUp) * Math.max(20, from - freshSlotY), lc = freshRow.c;
     ctx.globalAlpha = Math.min(1, slideUp * 1.8);
