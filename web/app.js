@@ -539,7 +539,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 150, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 340, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 240, closeness: 250, tickets: 180, merkle: 300, hashBuild: 352, avalanche: 206, verify: 262, hashInside: 464, fold: 258, oneRound: 384, shift: 282, churn: 402, sigma1: 300, ch: 258, maj: 252, bitOps: 292, network: 198, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -975,7 +975,7 @@ function drawFold(r) {
   const chip = (cx, cy, label, rgb, a) => { const cw = Math.max(48, label.length * 6.4 + 16), ch = 17; ctx.globalAlpha = a == null ? 1 : a; ctx.fillStyle = `rgba(${rgb},0.16)`; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.fill(); ctx.strokeStyle = `rgba(${rgb},0.95)`; ctx.lineWidth = 1.2; roundRect(cx - cw / 2, cy - ch / 2, cw, ch, 4); ctx.stroke(); text(label, cx, cy, { size: 9, weight: 700, color: `rgba(${rgb},1)`, align: "center", baseline: "middle" }); ctx.globalAlpha = 1; };
 
   // message strip — segments dim once consumed
-  text("your message  →  512-bit segments", x0 + lm, r.y + 54, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  text("your message  →  512-bit segments", x0 + lm, r.y + 44, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   for (let k = 0; k < N; k++) { const sx = segX(k), on = k === si, gone = k < si || (k === si && f > 0.2), nb = Math.floor(segW / 6);
     for (let b = 0; b < nb; b++) { ctx.fillStyle = hrand(k * 71 + b * 1.7) > 0.5 ? `rgba(${BLUE},${gone ? 0.12 : on ? 0.85 : 0.4})` : DIM; ctx.fillRect(sx + b * 6 + 1, stripY, 4, stripH); }
     ctx.strokeStyle = on && !gone ? `rgba(${BLUE},0.9)` : "rgba(255,255,255,0.16)"; ctx.lineWidth = on && !gone ? 1.5 : 1; roundRect(sx, stripY, segW, stripH, 3); ctx.stroke();
@@ -1630,7 +1630,7 @@ function drawNextBlock(r) {
     if (hw > 200) {
       const BW = 3, NB = 11, SPAN = NB * BW, buckets = new Array(NB).fill(0); // 3-min buckets: 0–3, 3–6, … 27–30, 30+
       for (const v of bt) buckets[Math.min(NB - 1, Math.floor(v / BW))]++;
-      const maxC = Math.max(1, ...buckets), bw = hw / NB, hBot = r.y + r.h - 36, hTop = r.y + 36, hH = hBot - hTop;
+      const maxC = Math.max(1, ...buckets), bw = hw / NB, hBot = r.y + r.h - 50, hTop = r.y + 40, hH = hBot - hTop;
       const mean = bt.reduce((a, b) => a + b, 0) / bt.length;
       text(`block times · last ${bt.length} blocks · avg ${mean.toFixed(1)} min`, hx, r.y + 20, { size: 11, weight: 600, color: "rgba(255,255,255,0.6)", baseline: "middle" });
       for (let i = 0; i < NB; i++) {
@@ -2235,12 +2235,12 @@ function drawHashBuild(r) {
     }
     bx += segW;
   });
-  text("the 6 header fields, in order", barX, valY + 17, { size: 10, weight: 600, color: "rgba(255,255,255,0.38)" });
+  text("the 6 header fields, in order", barX, valY + 13, { size: 10, weight: 600, color: "rgba(255,255,255,0.38)" });
 
   // ---- ZONE 2: the REAL 80-byte header — the exact contiguous bytes that get hashed, built in the SAME
   // order as the fields above, as each one locks
-  const concatY = valY + 38;
-  text("packed into the 80-byte header — the exact bytes that get hashed (little-endian):", r.x + r.w / 2, concatY - 13, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  const concatY = valY + 46;
+  text("packed into the 80-byte header — the exact bytes that get hashed (little-endian):", r.x + r.w / 2, concatY - 15, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, concatY);
 
   // caption (phase-aware) — narrates the current step
