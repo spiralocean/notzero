@@ -14,6 +14,12 @@ version number and bump `desktop/package.json`.
   instead of crashing; (3) if startup ever fails anyway, the app shows a local **"reinstall the latest version"
   page** instead of dying with no explanation.
 
+**Dashboard**
+- **VERIFIED UPDATES reads clearly while a proof is still settling.** A freshly-installed version now says
+  *"installed & verified — its Bitcoin timestamp is still confirming"* instead of a bare "pending" (which looked
+  like the update itself wasn't verified). Once anchored, each release shows its Bitcoin block **plus a live
+  confirmation count** (chain tip − the anchor block).
+
 ## 0.1.31
 
 **Desktop**

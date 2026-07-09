@@ -3059,6 +3059,8 @@ function drawUpdates(r) {
   const uv = updateVerification, va = versionAnchor;
   const sv = uv && uv.level ? { level: uv.level, version: uv.version, height: uv.height, incoming: true } : (va && va.level ? { level: va.level, version: va.version, height: va.height, incoming: false } : null);
   const danger = !!(sv && sv.level === "mismatch");
+  const nodeTip = model.tipHeight || (model.node && model.node.blocks) || null;
+  const confsFor = (h) => (nodeTip && h && nodeTip >= h) ? (nodeTip - h + 1) : null; // confirmations once a version is anchored: chain tip − the anchor block + 1
 
   // ── verification as two sides meeting at Bitcoin — the .dmg's hash is the constant everything rides on ──
   const STEPS = [
@@ -3190,8 +3192,8 @@ function drawUpdates(r) {
   if (sv) {
     const who = sv.incoming ? "v" + sv.version + " ready" : "you're on v" + sv.version, whoP = sv.incoming ? "v" + sv.version : "you're on v" + sv.version;
     const M = {
-      onchain:    { c: "90,220,140", ic: "✓", t: who + " · verified on-chain" + (sv.height ? " — Bitcoin block " + sv.height.toLocaleString() : "") },
-      pending:    { c: "247,190,60", ic: "◷", t: who + " · checksums verified · on-chain confirmation pending" },
+      onchain:    { c: "90,220,140", ic: "✓", t: who + " · verified on-chain" + (sv.height ? " — Bitcoin block " + sv.height.toLocaleString() + (confsFor(sv.height) ? " · " + confsFor(sv.height).toLocaleString() + " confirmations" : "") : "") },
+      pending:    { c: "247,190,60", ic: "◷", t: who + " · installed & verified — its Bitcoin timestamp is still confirming (~a few hrs)" },
       checksums:  { c: "120,210,255", ic: "✓", t: who + " · checksums verified" },
       mismatch:   { c: "255,95,95", ic: "⚠", t: "v" + sv.version + " failed verification — not installed" },
       unverified: { c: "255,255,255", ic: "·", t: whoP + " · verification not available yet" },
@@ -3210,9 +3212,9 @@ function drawUpdates(r) {
   text("VERIFIED RELEASES", x0, hy, { size: 9, weight: 700, color: "rgba(255,255,255,0.4)", baseline: "middle" });
   text("· each re-confirmed against your own node", x0 + 118, hy, { size: 9, color: "rgba(255,255,255,0.3)", baseline: "middle" });
   const LM = {
-    onchain:  { c: "90,220,140", ic: "✓", t: (h) => "verified on-chain · block " + (h.height ? h.height.toLocaleString() : "?") },
-    anchored: { c: "90,220,140", ic: "✓", t: (h) => "anchored on-chain · block " + (h.height ? h.height.toLocaleString() : "?") },
-    pending:  { c: "247,190,60", ic: "◷", t: () => "on-chain confirmation pending" },
+    onchain:  { c: "90,220,140", ic: "✓", t: (h) => "verified on-chain · block " + (h.height ? h.height.toLocaleString() : "?") + (confsFor(h.height) ? " · " + confsFor(h.height).toLocaleString() + " confs" : "") },
+    anchored: { c: "90,220,140", ic: "✓", t: (h) => "anchored on-chain · block " + (h.height ? h.height.toLocaleString() : "?") + (confsFor(h.height) ? " · " + confsFor(h.height).toLocaleString() + " confs" : "") },
+    pending:  { c: "247,190,60", ic: "◷", t: () => "installed & verified · Bitcoin timestamp confirming" },
     mismatch: { c: "255,95,95", ic: "⚠", t: () => "verification failed" },
     none:     { c: "255,255,255", ic: "·", t: () => "released before on-chain anchoring" },
     unchecked:{ c: "255,255,255", ic: "·", t: () => "not checked — node offline?" },
