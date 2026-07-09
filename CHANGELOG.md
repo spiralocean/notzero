@@ -16,6 +16,10 @@ version number and bump `desktop/package.json`.
 - **Linux: relaunching no longer piles up stray processes.** A second launch of the tray-resident app now
   hard-exits immediately instead of leaving an orphaned AppImage launcher behind. Those accumulating shims were
   what tripped the system's "obsolete binaries / relogin required" notice.
+- **Linux: the "what's new" dialog fits the screen.** Its Update/Later buttons no longer fall off the bottom when
+  the release notes are long — the notes are capped to a screen-safe length (with "See Full Notes"), the same fix
+  the macOS dialog already had. (Linux GTK dialogs don't scroll a long body, just like macOS; Windows does, so
+  it's unchanged.)
 
 **Dashboard**
 - **VERIFIED UPDATES reads clearly while a proof is still settling.** A freshly-installed version now says

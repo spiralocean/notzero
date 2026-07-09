@@ -264,10 +264,10 @@ function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
   return new Promise((resolve) => {
     fetchTextAny(CHANGELOG_URLS, (md) => {
       let notes = md ? changelogSince(md, fromVer, toVer) : "";
-      // macOS showMessageBox does NOT scroll a long `detail` — it grows the dialog past the screen and the buttons
-      // fall off the bottom (Windows scrolls, so it's fine). Cap by LINE COUNT on mac so the dialog always fits;
-      // "See Full Notes" opens the complete changelog. Others get a looser char cap since they scroll.
-      const mac = process.platform === "darwin", maxLines = mac ? 13 : 44, maxChars = mac ? 1000 : 1800;
+      // macOS AND Linux (GTK) showMessageBox do NOT scroll a long `detail` — the dialog grows past the screen and
+      // the Update/Cancel buttons fall off the bottom out of reach. Only Windows scrolls. So cap by LINE COUNT on
+      // mac + Linux so the dialog always fits; "See Full Notes" opens the complete changelog. Windows stays looser.
+      const compact = process.platform !== "win32", maxLines = compact ? 13 : 44, maxChars = compact ? 1000 : 1800;
       let lines = notes.split("\n"), clipped = false;
       if (lines.length > maxLines) { lines = lines.slice(0, maxLines); clipped = true; }
       notes = lines.join("\n");
