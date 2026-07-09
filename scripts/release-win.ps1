@@ -48,6 +48,9 @@ foreach ($f in @($exe, $yml)) { if (-not (Test-Path $f)) { throw "missing build 
 Write-Host "-> verifying the packaged app.asar contains every required module..."
 node (Join-Path $ROOT "scripts\check-asar-requires.cjs")
 if ($LASTEXITCODE -ne 0) { throw "asar require check FAILED — refusing to publish a broken build" }
+Write-Host "-> smoke test: launching the packaged app to confirm it starts without crashing..."
+node (Join-Path $ROOT "scripts\smoke-launch.cjs")
+if ($LASTEXITCODE -ne 0) { throw "smoke test FAILED — refusing to publish a broken build" }
 
 # 3) publish to R2 (skipped on a dry run — build-only validation)
 if ($env:DRY_RUN -eq "1") {

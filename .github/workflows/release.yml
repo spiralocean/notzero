@@ -102,7 +102,7 @@ jobs:
 
       - name: Linux AppImage deps
         if: matrix.platform == 'linux'
-        run: sudo apt-get update && sudo apt-get install -y libfuse2
+        run: sudo apt-get update && sudo apt-get install -y libfuse2 xvfb  # xvfb: virtual display for the launch smoke test
 
       - name: npm ci
         working-directory: desktop

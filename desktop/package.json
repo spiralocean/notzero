@@ -29,7 +29,8 @@
       "ots-verify.js",
       "package.json",
       "assets/icon.png",
-      "wizard.html"
+      "wizard.html",
+      "error.html"
     ],
     "extraResources": [
       {

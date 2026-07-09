@@ -15,6 +15,27 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+
+// Last line of defense against a bad build: if startup itself throws (a packaging bug the CI asar-gate + smoke
+// test somehow missed), don't die silently — Electron is a browser, so show a local page telling the user to
+// reinstall the latest version. Scoped to STARTUP: once the app is up, a later runtime hiccup just gets logged
+// (it must NOT pop a "reinstall" window). In CI smoke mode, exit non-zero so the launch test flags the crash.
+let startupComplete = false;
+function showStartupError(err) {
+  try { console.error("[notzero] STARTUP ERROR:", (err && err.stack) || err); } catch (_) {}
+  if (startupComplete) return;
+  if (process.env.NOTZERO_SMOKE === "1") { try { app.exit(1); } catch (_) { process.exit(1); } return; }
+  const open = () => { try {
+    const w = new BrowserWindow({ width: 560, height: 480, resizable: false, title: "notzero needs reinstalling", webPreferences: { contextIsolation: true } });
+    if (w.removeMenu) w.removeMenu();
+    w.loadFile(path.join(__dirname, "error.html")).catch(() => {});
+    w.webContents.setWindowOpenHandler(({ url }) => { try { shell.openExternal(url); } catch (_) {} return { action: "deny" }; }); // download link opens in the real browser
+  } catch (_) {} };
+  try { if (app.isReady()) open(); else app.whenReady().then(open); } catch (_) {}
+}
+process.on("uncaughtException", showStartupError);
+process.on("unhandledRejection", showStartupError);
+
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
@@ -863,6 +884,7 @@ if (!app.requestSingleInstanceLock()) {
 } else {
   app.on("second-instance", showMainWindow);
   app.whenReady().then(() => {
+    if (process.env.NOTZERO_SMOKE === "1") { console.log("NOTZERO_SMOKE_OK"); app.exit(0); return; } // CI launch smoke test: reaching here means every top-level require + init succeeded; exit cleanly BEFORE any side effects (engine/node/window). A startup crash never prints this and exits non-zero.
     DATA_DIR = app.getPath("userData"); // the app's own isolated config/state/node.json
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
     NODE_JSON = path.join(DATA_DIR, "node.json");
@@ -881,6 +903,7 @@ if (!app.requestSingleInstanceLock()) {
     refreshCurrentVersionAnchor(); setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
     refreshUpdateHistory(); setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
     startNotifier(); // OS notifications for block won / new best / node sync changes
+    startupComplete = true; // past here, an uncaught error is a runtime hiccup (just log it) — not a reason to show the reinstall page
   });
 }
 app.on("activate", () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); }); // dock click → reopen window

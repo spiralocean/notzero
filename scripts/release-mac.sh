@@ -45,6 +45,8 @@ DMGBASE="$(basename "$DMG")"; ZIPBASE="$(basename "$ZIP")"
 # gate: refuse to publish a package that's missing a required local module (0.1.30 crashed on a missing ots-verify.js)
 echo "-> verifying the packaged app.asar contains every required module..."
 node "$ROOT/scripts/check-asar-requires.cjs" || { echo "x asar require check FAILED — refusing to publish a broken build" >&2; exit 1; }
+echo "-> smoke test: launching the packaged app to confirm it starts without crashing..."
+node "$ROOT/scripts/smoke-launch.cjs" || { echo "x smoke test FAILED — refusing to publish a broken build" >&2; exit 1; }
 
 if [ "${DRY_RUN:-}" = "1" ]; then
   echo "-> DRY RUN — built $DMGBASE + $ZIPBASE (unsigned), skipping notarize + R2 upload."

@@ -47,6 +47,8 @@ APPBASE="$(basename "$APPIMG")"
 # gate: refuse to publish a package missing a required local module (see release-mac.sh / 0.1.30 postmortem)
 echo "-> verifying the packaged app.asar contains every required module..."
 node "$ROOT/scripts/check-asar-requires.cjs" || { echo "x asar require check FAILED — refusing to publish a broken build" >&2; exit 1; }
+echo "-> smoke test: launching the packaged app to confirm it starts without crashing..."
+node "$ROOT/scripts/smoke-launch.cjs" || { echo "x smoke test FAILED — refusing to publish a broken build" >&2; exit 1; }
 
 # 3) publish to R2 (skipped on a dry run — build-only validation)
 if [ "${DRY_RUN:-}" = "1" ]; then
