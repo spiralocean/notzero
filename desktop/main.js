@@ -876,11 +876,15 @@ function applyAutoStart(cfg) {
   catch (_) { /* best effort — unsupported platform just won't autostart */ }
 }
 
-// Single-instance lock: the app survives window-close in the tray (Windows), so a second launch must
+// Single-instance lock: the app survives window-close in the tray (Windows + Linux), so a second launch must
 // just reveal the running instance — never spin up a second miner + managed node (which would clash on
 // the RPC port). The secondary process exits immediately; the primary focuses its window.
 if (!app.requestSingleInstanceLock()) {
-  app.quit();
+  // Hard exit, NOT app.quit(): before whenReady on Linux/AppImage a graceful quit can leave the outer AppImage
+  // runtime process hung (holding its FUSE mount), so relaunching the tray-resident app piles up orphaned
+  // launcher shims — which later trip needrestart's "obsolete binaries / relogin required" notice. exit(0) is
+  // immediate and lets the runtime tear down cleanly.
+  app.exit(0);
 } else {
   app.on("second-instance", showMainWindow);
   app.whenReady().then(() => {

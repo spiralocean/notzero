@@ -13,6 +13,9 @@ version number and bump `desktop/package.json`.
   update-verification module loads **defensively**, so a missing/broken optional file degrades to "unverified"
   instead of crashing; (3) if startup ever fails anyway, the app shows a local **"reinstall the latest version"
   page** instead of dying with no explanation.
+- **Linux: relaunching no longer piles up stray processes.** A second launch of the tray-resident app now
+  hard-exits immediately instead of leaving an orphaned AppImage launcher behind. Those accumulating shims were
+  what tripped the system's "obsolete binaries / relogin required" notice.
 
 **Dashboard**
 - **VERIFIED UPDATES reads clearly while a proof is still settling.** A freshly-installed version now says
