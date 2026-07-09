@@ -1215,7 +1215,7 @@ function drawChurn(r) {
     live.forEach((o) => { const h = o.h, fresh = curStep === h.f;
       const relProg = (curStep === o.to) ? Math.min(1, Math.max(0, (animEl - (stepDoneMs + scrollHold + 300)) / 450)) : 0; // consumed → scroll up once its last-use operation (and any hold) finishes
       if (relProg >= 1) return; // fully scrolled up — gone
-      if (fresh) { freshSlotY = my; if (animDone) freshRow = h; my += 9.5; return; } // reserve the slot always (stable layout); the result row travels up into it only once computed (animDone)
+      if (fresh) { freshSlotY = my; if (animDone) freshRow = h; my += 9.5 * Math.min(1, animEl / 260); return; } // the slot GROWS in over the first 260ms so the store makes room smoothly (no jump); result travels up into it once computed (animDone)
       const using = h.u.includes(curStep) && relProg === 0;
       let a = 1, dx = 0, dy = 0; if (relProg > 0) { a = 1 - relProg; dy = -relProg * 22; } // consumed values scroll up out of view
       const lc = h.c; // keep each stored value its own colour; "being used" is shown by the border below, not a colour change
@@ -1250,7 +1250,7 @@ function drawChurn(r) {
       } else rbar(my, vals[k], aColor);
       my += rh; drew++; }
     my = Math.max(my, RESY - 3); ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; if (scrollP > 0) ctx.globalAlpha = 0; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     const resBlink = (curStep === 14 || curStep === 15) && animDone && animEl < stepDoneMs + 1800 && Math.floor(churnLiveNow / 150) % 2 === 0; // blink the mix result row in time with the register cell it just filled
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? (resBlink ? "rgba(255,255,235,1)" : aColor) : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (resBlink) { ctx.strokeStyle = "rgba(255,255,240,0.95)"; ctx.lineWidth = 1.4; ctx.strokeRect(mbarX - 2, my - 1.5, x1 - mbarX + 3, 10); }
@@ -1269,7 +1269,7 @@ function drawChurn(r) {
     let drew = storedNames.length;
     for (let k = 0; k < n; k++) { if (xo[k][2]) continue; text((drew === 0 ? "  " : "⊕ ") + xo[k][0], x0, my + 3.5, { size: 8, weight: 600, color: aColor, baseline: "middle", mono: true }); rbar(my, xo[k][1] >>> 0, aColor); my += 12; drew++; }
     my = Math.max(my, RESY - 3); ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; if (scrollP > 0) ctx.globalAlpha = 0; frameOut(my); text("= " + (st.g + "  ").slice(0, 5), x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1) { const ix = mbarX + (31 - bCur) * mcw, hlTop = (storedNames.length && storedUseTop != null) ? storedUseTop : yTop; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, hlTop, mcw + 2, my + 9 - hlTop); }
     const xbits = xo.map(o => (o[1] >>> bCur) & 1);
@@ -1287,7 +1287,7 @@ function drawChurn(r) {
     const fRowY = my; text("  f", x0, my + 3.5, { size: 8, weight: 600, color: FCOL, baseline: "middle", mono: true }); fbar(my, fV, FCOL, stepPerReg); my += 11;
     const gRowY = my; text("  g", x0, my + 3.5, { size: 8, weight: 600, color: GCOL, baseline: "middle", mono: true }); fbar(my, gV, GCOL, stepPerReg * 2); my += 11;
     my = Math.max(my, RESY - 3); ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; if (scrollP > 0) ctx.globalAlpha = 0; frameOut(my); text("= Ch", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, eb = (eV >>> b) & 1, bit = (st.v >>> b) & 1, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : bit ? (eb ? FCOL : GCOL) : (eb ? "rgba(110,205,255,0.24)" : "rgba(205,168,255,0.24)"); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); } // every column tinted by e's pick (dim where the chosen bit is 0)
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop);
       const srcY = ((eV >>> bCur) & 1) ? fRowY : gRowY; ctx.strokeStyle = "rgba(255,255,255,0.98)"; ctx.lineWidth = 1.8; ctx.strokeRect(ix - 1.5, srcY - 1.5, mcw + 2, 10); } // the register e is pulling this column's bit from
@@ -1305,7 +1305,7 @@ function drawChurn(r) {
     const yTop = my - 2;
     readRow("  a", aV, 0); readRow("  b", bV, stepPerReg); readRow("  c", cV, stepPerReg * 2);
     my = Math.max(my, RESY - 3); ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; frameOut(my); text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; if (scrollP > 0) ctx.globalAlpha = 0; frameOut(my); text("= Maj", x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const av = (aV >>> bCur) & 1, bv = (bV >>> bCur) & 1, cv = (cV >>> bCur) & 1, ones = av + bv + cv;
@@ -1322,7 +1322,7 @@ function drawChurn(r) {
     const yTop = my - 2;
     readRow("  " + o1[0], o1[1] >>> 0, 0); readRow("∧ " + o2[0], o2[1] >>> 0, stepPerReg);
     my = Math.max(my, RESY - 3); ctx.strokeStyle = "rgba(255,255,255,0.28)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(mbarX - 4, my - 1); ctx.lineTo(x1, my - 1); ctx.stroke(); my += 3;
-    resultRowY = my; frameOut(my); text("= " + st.l, x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
+    resultRowY = my; if (scrollP > 0) ctx.globalAlpha = 0; frameOut(my); text("= " + st.l, x0, my + 3.5, { size: 8, weight: 700, color: aColor, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { const b = 31 - i, local = sweepPos - b; ctx.fillStyle = local < 0 ? "rgba(255,255,255,0.035)" : (((st.v >>> (31 - i)) & 1) ? aColor : DIM); ctx.fillRect(mbarX + i * mcw + 0.5, my, Math.max(1, mcw - 1), 7); }
     if (arp < 1 && animEl >= stepReadMs) { const ix = mbarX + (31 - bCur) * mcw; ctx.strokeStyle = "rgba(255,245,170,0.95)"; ctx.lineWidth = 1.3; ctx.strokeRect(ix - 1.5, yTop, mcw + 2, my + 9 - yTop); }
     const b1 = (o1[1] >>> bCur) & 1, b2 = (o2[1] >>> bCur) & 1;
@@ -1377,12 +1377,10 @@ function drawChurn(r) {
   }
   if (scrollP > 0) ctx.restore();
   if (churnExplain) { const keep = Math.ceil((1 - scrollP) * churnExplain.t.length); if (keep > 0) text(churnExplain.t.slice(0, keep), x0, churnExplain.y, churnExplain.o); } // stays put; as the step scrolls out it REVERSE-CLEARS (backspaces) char by char
-  if (freshRow) { // the just-computed result travels continuously up from its actual result row in the detail into its reserved store slot
-    const from = resultRowY > 0 ? resultRowY + scrollP * 46 : storedBottom + 30, ty = freshSlotY + (1 - slideUp) * Math.max(20, from - freshSlotY), lc = freshRow.c;
-    ctx.globalAlpha = Math.min(1, slideUp * 1.8);
-    text(freshRow.l, x0, ty + 3.5, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
+  if (freshRow && scrollP > 0) { // during scroll-out the ACTUAL output row slides — full opacity, one continuous motion — from its (pinned) result row straight up into its reserved store slot (no fade-out-here / fade-in-there)
+    const from = resultRowY > 0 ? resultRowY : storedBottom + 30, ty = from + slideUp * (freshSlotY - from), lc = freshRow.c;
+    frameOut(ty); text(freshRow.l, x0, ty + 3.5, { size: 8, weight: 700, color: lc, baseline: "middle", mono: true });
     for (let i = 0; i < 32; i++) { ctx.fillStyle = ((freshRow.v >>> (31 - i)) & 1) ? lc : DIM; ctx.fillRect(mbarX + i * mcw + 0.5, ty, Math.max(1, mcw - 1), 7); }
-    ctx.globalAlpha = 1;
   }
   const msgY = aby + 172;
   text("MESSAGE WORDS ↦ one consumed per round · W0–W15 = your 512-bit message (blue) · W16+ = expanded (purple)", x0, msgY, { size: 9, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
