@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.30
+## Unreleased — next: 0.1.31
+
+## 0.1.30
 
 **Desktop**
 - **Updates verified against your own node.** Before installing an auto-update, notzero checks the download's hash
@@ -16,6 +18,14 @@ version number and bump `desktop/package.json`.
 - **Release-notes dialog fits the screen (macOS).** The "what's new" dialog no longer grows past the screen on
   smaller Macs — where the buttons could fall off the bottom out of reach. Long notes are capped to a screen-safe
   length (with "See Full Notes" for the rest) and render cleanly without stray markdown.
+
+**Dashboard**
+- **Adjustable text size.** A new A−/A+ control (top-left, next to the motion toggle) scales the whole dashboard
+  up or down and remembers your choice — easier reading on any display, without hunting for browser zoom. The app
+  opens a touch larger by default.
+- **Clearer hash walk-throughs.** THE CHURN and several panels got readability and spacing polish: each step's
+  explanation now holds long enough to read (then clears as it scrolls out), rows stay put instead of jumping, and
+  every result slides cleanly into the running hash state.
 
 ## 0.1.29
 
