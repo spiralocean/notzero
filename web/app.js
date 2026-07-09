@@ -1092,7 +1092,7 @@ let churnPaused = false, churnNow = 0, churnLiveNow = 0, churnSpeed = 1, churnRo
 let foldT = 0, foldLast = 0, foldPaused = false, foldPlayHit = null, foldBackHit = null, foldFwdHit = null;
 const FOLD_KFS = [0.42, 0.66, 0.92, 1.42, 1.66, 1.92, 2.42, 2.66, 2.99], FOLD_HOLD = 3000, FOLD_TRANS = 950, FOLD_UNIT = FOLD_HOLD + FOLD_TRANS, FOLD_TOTAL = FOLD_KFS.length * FOLD_UNIT;
 const CHURN_STEPS = 16, CHURN_DUP_MS = 2000, CHURN_SHIFT_MS = 1000; // DUP = blank row scrolls in → blink source → duplicate; SHIFT = rotate registers right
-const CHURN_STEP_DURS = [4500, 2000, 2000, 3200, 8200, 8200, 3200, 5700, 4500, 2000, 2000, 3200, 10700, 3200, 7700, 5200]; // per mix step: read + operate + settle (ms @1×) — variable; rotation steps carry no trailing pause; Ch XORs its two stored halves so it's short like the other XORs
+const CHURN_STEP_DURS = [4500, 2000, 2000, 4600, 9600, 9600, 4600, 7100, 4500, 2000, 2000, 4600, 12100, 4600, 7700, 5200]; // per mix step: read + operate + HOLD-to-read + settle (ms @1×) — the producing steps carry a ~1.4s read-pause on the finished output before it scrolls up
 const CHURN_STEP_CUM = CHURN_STEP_DURS.reduce((a, d) => (a.push(a[a.length - 1] + d), a), [0]);
 const CHURN_MIX_MS = CHURN_STEP_CUM[16]; // = 84000
 function drawChurn(r) {
@@ -1203,8 +1203,8 @@ function drawChurn(r) {
   else text("THE MIX — new a & e  (waiting for the row to settle…)", x0, my, { size: 9, weight: 700, color: "rgba(255,215,90,0.82)", baseline: "middle" });
   my += 13;
   const HELD = [{ l: "Σ1", f: 3, u: [7], c: TEAL, v: S1 }, { l: "e∧f", f: 4, u: [6], c: TEAL, v: (e_ & f_) >>> 0 }, { l: "¬e∧g", f: 5, u: [6], c: TEAL, v: (~e_ & g_) >>> 0 }, { l: "Ch", f: 6, u: [7], c: TEAL, v: chm }, { l: "T1", f: 7, u: [14, 15], c: GLD, v: T1v }, { l: "Σ0", f: 11, u: [13], c: VIOL, v: S0 }, { l: "Maj", f: 12, u: [13], c: VIOL, v: maj }, { l: "T2", f: 13, u: [15], c: GLD, v: T2v }];
-  const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 0; // new e/a hold 2s (register + row blink) before anything scrolls
-  const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs) / 600)); // rises in sync with the detail scrolling up (600ms)
+  const stepDoneMs = stepReadMs + stepOpMs, animDone = animEl >= stepDoneMs, scrollHold = (curStep === 14 || curStep === 15) ? 2000 : 1400; // hold the finished output long enough to READ the explainer before it scrolls up (new e/a already hold 2s for the register + row blink)
+  const slideUp = Math.min(1, Math.max(0, (animEl - stepDoneMs - scrollHold) / 600)); // rises in sync with the detail scrolling up (600ms), AFTER the read-hold
   let storedUseTop = null, freshRow = null, freshSlotY = 0, resultRowY = 0, churnExplain = null; // the per-step explainer is captured here and drawn AFTER the scroll transform, so it stays readable while the rows scroll up
   if (curStep >= 0) { // HELD — a value enters the store once its own animation finishes (rising up), glows while a later step consumes it, then scrolls up when that step is done
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
