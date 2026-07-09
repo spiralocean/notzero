@@ -322,11 +322,23 @@ async function refresh() {
 const canvas = document.getElementById("stage");
 const ctx = canvas.getContext("2d");
 let W = 0, H = 0, dpr = 1;
+// user text-size / zoom: shrinks the LOGICAL coordinate space so the whole UI is drawn (and reflowed) larger while
+// the physical bitmap keeps full devicePixelRatio — i.e. bigger AND crisp, never blurry. 1 = default; persisted.
+// Pointer events are divided by this before hit-testing (see ptr() below) so clicks stay aligned.
+let userScale = Math.min(1.6, Math.max(0.8, parseFloat(localStorage.getItem("uiScale")) || 1));
 function resize() {
-  dpr = window.devicePixelRatio || 1;
-  W = canvas.clientWidth; H = canvas.clientHeight;
-  canvas.width = Math.round(W * dpr); canvas.height = Math.round(H * dpr);
+  const rawDpr = window.devicePixelRatio || 1, cw = canvas.clientWidth, ch = canvas.clientHeight;
+  W = cw / userScale; H = ch / userScale;
+  dpr = rawDpr * userScale;
+  canvas.width = Math.round(cw * rawDpr); canvas.height = Math.round(ch * rawDpr);
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+}
+function setUserScale(s) {
+  const v = Math.min(1.6, Math.max(0.8, Math.round(s * 10) / 10));
+  if (v === userScale) return;
+  userScale = v;
+  try { localStorage.setItem("uiScale", String(v)); } catch (_) {}
+  resize(); requestRender();
 }
 window.addEventListener("resize", resize);
 
@@ -564,7 +576,7 @@ let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover h
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
 let broadcastBurstUntil = 0; // BROADCAST panel fires an intense "block found" burst for a window after a win
-let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null, zoomOutHit = null, zoomInHit = null;
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
@@ -576,7 +588,7 @@ const updAutoStep = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_D
 const updAutoSub = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DUR.length; i++) { if (tt < UPD_DUR[i]) return tt / UPD_DUR[i]; tt -= UPD_DUR[i]; } return 1; };
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
   }).catch(() => {});
 }
 pollConfig();
@@ -2340,9 +2352,9 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   }
   text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 16, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
-  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 20, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 28, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   // #6: what makes the hash random
-  text("the randomness: every input is fixed, yet SHA-256's output is unpredictable — you can't aim, only compute & check", cx, y2 + 36, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  text("the randomness: every input is fixed, yet SHA-256's output is unpredictable — you can't aim, only compute & check", cx, y2 + 44, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
 
   const y3 = headerBottom + 122;
   if (live) {
@@ -2403,7 +2415,7 @@ function drawFieldDetail(idx, p, dr, b, tk, height) {
     text(`SHA-256( "${seedShort}  :  ${h.toLocaleString()}" )`, cx, dr.y + 44, { size: 13, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle", mono: true });
     text("( machine seed  :  block height )", cx, dr.y + 60, { size: 10, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" }); // #4: label the parts
     text("↓  first 4 bytes", cx, dr.y + 78, { size: 11, color: `rgba(${ACCENT},0.75)`, align: "center", baseline: "middle" });
-    fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 96, 24);
+    fieldValueRow("#" + tk.nonce.toLocaleString(), p, cx, dr.y + 104, 24);
     text("we take ONE deterministic value — a real miner sweeps all ~4 billion of them", cx, dr.y + dr.h - 16, { size: 11, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
   }
 }
@@ -3443,6 +3455,25 @@ function drawMotionToggle() {
   if (hover) text("click to cycle motion · full → calm → off (off is lightest on older machines)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
   motionHit = { x, y, w, h };
 }
+// visible text-size control (top-left, next to the motion toggle) so users discover they can enlarge the UI
+// without hunting for browser zoom. A−  110%  A+ — click either end; the level is remembered across sessions.
+function drawZoomControl() {
+  const y = 11, h = 20, bw = 22, gap = 3, startX = (motionHit ? motionHit.x + motionHit.w : PAD) + 12;
+  let x = startX;
+  const seg = (bx, lbl, enabled) => {
+    const hov = enabled && inHit({ x: bx, y, w: bw, h }, mouseX, mouseY);
+    ctx.fillStyle = `rgba(255,255,255,${hov ? 0.1 : 0.045})`; roundRect(bx, y, bw, h, 5); ctx.fill();
+    ctx.strokeStyle = `rgba(${ACCENT},${hov ? 0.5 : 0.2})`; ctx.lineWidth = 1; roundRect(bx, y, bw, h, 5); ctx.stroke();
+    text(lbl, bx + bw / 2, y + h / 2, { size: 13, weight: 700, color: !enabled ? "rgba(255,255,255,0.22)" : hov ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+    return { x: bx, y, w: bw, h };
+  };
+  zoomOutHit = seg(x, "A−", userScale > 0.8); x += bw + gap;
+  ctx.font = "700 10px ui-monospace, monospace";
+  const pct = Math.round(userScale * 100) + "%", pw = Math.max(30, ctx.measureText(pct).width + 10);
+  text(pct, x + pw / 2, y + h / 2, { size: 10, weight: 700, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); x += pw;
+  zoomInHit = seg(x, "A+", userScale < 1.6);
+  if (inHit(zoomOutHit, mouseX, mouseY) || inHit(zoomInHit, mouseX, mouseY)) text("text size — make everything bigger or smaller (remembered)", startX, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+}
 
 // top-center liveness pill — answers "is it actually submitting tickets?" at a glance, so a user never has
 // to hunt or wonder. green = synced + a fresh ticket · amber = node still syncing · red = stalled/offline.
@@ -3729,7 +3760,7 @@ function render(ts) {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
-  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
   drawHoverTooltip(); // hover details for ticket bars / the "you" marker — on top of everything
@@ -3771,11 +3802,25 @@ function drawHoverTooltip() {
   ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(bx, by, bw, bh, 5); ctx.stroke();
   lines.forEach((l, i) => text(l, bx + pad, by + pad + 7 + i * lh, { size: 11, weight: i === 0 ? 700 : 500, color: i === 0 ? "rgba(255,255,255,0.96)" : "rgba(255,255,255,0.72)", baseline: "middle" }));
 }
-canvas.addEventListener("click", (e) => {
+// map a pointer event into the zoom-scaled logical space the UI is laid out in (offsets & wheel deltas ÷ userScale)
+function ptr(e) {
+  if (userScale === 1) return e;
+  const s = userScale;
+  return new Proxy(e, { get(t, k) {
+    if (k === "offsetX") return t.offsetX / s;
+    if (k === "offsetY") return t.offsetY / s;
+    if (k === "deltaX") return t.deltaX / s;
+    if (k === "deltaY") return t.deltaY / s;
+    const v = t[k]; return typeof v === "function" ? v.bind(t) : v;
+  } });
+}
+canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
   if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
   if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
+  if (inHit(zoomOutHit, e.offsetX, e.offsetY)) { setUserScale(userScale - 0.1); return; } // text size −
+  if (inHit(zoomInHit, e.offsetX, e.offsetY)) { setUserScale(userScale + 0.1); return; } // text size +
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
   if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
@@ -3815,13 +3860,13 @@ canvas.addEventListener("click", (e) => {
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
   if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
 });
-canvas.addEventListener("mousemove", (e) => {
+canvas.addEventListener("mousemove", (ev) => { const e = ptr(ev);
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
   const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc)), updBtn = expanded.has("updates") && (inHit(updPlayHit, e.offsetX, cyc) || inHit(updBackHit, e.offsetX, cyc) || inHit(updFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(zoomOutHit, e.offsetX, e.offsetY) || inHit(zoomInHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
 });
-canvas.addEventListener("wheel", (e) => {
+canvas.addEventListener("wheel", (ev) => { const e = ptr(ev);
   if (maxScroll <= 0) return;
   e.preventDefault();
   scrollY = Math.max(0, Math.min(scrollY + e.deltaY, maxScroll));
