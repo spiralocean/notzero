@@ -1209,12 +1209,12 @@ function drawChurn(r) {
   if (curStep >= 0) { // HELD — a value enters the store once its own animation finishes (rising up), glows while a later step consumes it, then scrolls up when that step is done
     const live = HELD.map(h => ({ h, to: Math.max(...h.u) })).filter(o => {
       if (curStep > o.to) return false; // released and gone
-      return curStep > o.h.f || (curStep === o.h.f && animDone); // only enters the store once its own compute animation is done
+      return curStep >= o.h.f; // reserve the slot from the start of its producing step (the result only travels in once computed) — so the layout below never jumps when the op completes
     }).sort((a, b) => ((a.h.u.includes(curStep) ? 1 : 0) - (b.h.u.includes(curStep) ? 1 : 0)) || (a.h.f - b.h.f)); // values used by THIS step sink to the bottom (next to the operation) so the sweep encloses only them
     live.forEach((o) => { const h = o.h, fresh = curStep === h.f;
       const relProg = (curStep === o.to) ? Math.min(1, Math.max(0, (animEl - (stepDoneMs + scrollHold + 300)) / 450)) : 0; // consumed → scroll up once its last-use operation (and any hold) finishes
       if (relProg >= 1) return; // fully scrolled up — gone
-      if (fresh) { freshRow = h; freshSlotY = my; my += 9.5; return; } // reserve the slot; the result row itself travels up into it (drawn after the detail, below), so the store fills continuously
+      if (fresh) { freshSlotY = my; if (animDone) freshRow = h; my += 9.5; return; } // reserve the slot always (stable layout); the result row travels up into it only once computed (animDone)
       const using = h.u.includes(curStep) && relProg === 0;
       let a = 1, dx = 0, dy = 0; if (relProg > 0) { a = 1 - relProg; dy = -relProg * 22; } // consumed values scroll up out of view
       const lc = h.c; // keep each stored value its own colour; "being used" is shown by the border below, not a colour change
