@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.32
+## Unreleased — next: 0.1.33
+
+## 0.1.32
 
 **Desktop**
 - **A bad build can't strand you silently.** Layers of protection after the 0.1.30 startup-crash incident:
@@ -20,6 +22,9 @@ version number and bump `desktop/package.json`.
   the release notes are long — the notes are capped to a screen-safe length (with "See Full Notes"), the same fix
   the macOS dialog already had. (Linux GTK dialogs don't scroll a long body, just like macOS; Windows does, so
   it's unchanged.)
+- **macOS: fixed the garbled app icon.** The icon rendered as colour noise in Finder and System Settings ›
+  Notifications on Apple Silicon — electron-builder's PNG→icns conversion was mangling it. The app now ships a
+  native `.icns`.
 
 **Dashboard**
 - **VERIFIED UPDATES reads clearly while a proof is still settling.** A freshly-installed version now says
