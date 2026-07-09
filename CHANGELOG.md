@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.32
 
+**Desktop**
+- **Startup can't be crashed by a missing optional module.** The on-chain update-verification module now loads
+  defensively — if it's ever absent it degrades to "unverified" instead of taking the whole app down on launch
+  (the 0.1.30 failure mode). Belt-and-suspenders on top of a new release-pipeline gate (`check-asar-requires`)
+  that refuses to publish any build whose packaged app is missing a required module.
+
 ## 0.1.31
 
 **Desktop**

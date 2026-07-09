@@ -44,6 +44,11 @@ $blockmap = "$exe.blockmap"
 $yml = Join-Path $DIST "latest.yml"
 foreach ($f in @($exe, $yml)) { if (-not (Test-Path $f)) { throw "missing build artifact: $f" } }
 
+# gate: refuse to publish a package missing a required local module (see 0.1.30 postmortem)
+Write-Host "-> verifying the packaged app.asar contains every required module..."
+node (Join-Path $ROOT "scripts\check-asar-requires.cjs")
+if ($LASTEXITCODE -ne 0) { throw "asar require check FAILED — refusing to publish a broken build" }
+
 # 3) publish to R2 (skipped on a dry run — build-only validation)
 if ($env:DRY_RUN -eq "1") {
   Write-Host "-> DRY RUN — built notzero-$VERSION-win.exe (+ latest.yml), skipping R2 upload."

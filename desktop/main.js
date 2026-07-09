@@ -19,7 +19,14 @@ const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning 
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const crypto = require("node:crypto");
-const { verifyAgainstNode, parseProof } = require("./ots-verify.js"); // on-chain (OpenTimestamps) update verification against the local node
+// on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
+// missing/broken module can never crash startup (0.1.30 shipped without ots-verify.js and died on launch). If it
+// can't load, fall back to benign no-op stubs ("unchecked" / no proof) so verification just degrades to
+// "unverified" and the app keeps running — and can therefore still auto-update itself out of a bad build.
+let verifyAgainstNode = async () => ({ status: "unchecked", reason: "ots-verify unavailable" });
+let parseProof = () => ({ bitcoin: [] });
+try { const m = require("./ots-verify.js"); verifyAgainstNode = m.verifyAgainstNode; parseProof = m.parseProof; }
+catch (e) { console.error("[notzero] ots-verify unavailable — on-chain update verification disabled:", e && e.message); }
 
 const REQUIRED_FREE_BYTES = 25 * 1024 ** 3; // ~25 GB headroom for snapshot + pruned chain + load-time peak
 // Free bytes on the volume holding `dir` (null if it can't be determined → don't block).

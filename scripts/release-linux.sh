@@ -44,6 +44,10 @@ YML="$DIST/latest-linux.yml"
 { [ -n "$APPIMG" ] && [ -f "$APPIMG" ] && [ -f "$YML" ]; } || { echo "x build artifacts missing in $DIST" >&2; exit 1; }
 APPBASE="$(basename "$APPIMG")"
 
+# gate: refuse to publish a package missing a required local module (see release-mac.sh / 0.1.30 postmortem)
+echo "-> verifying the packaged app.asar contains every required module..."
+node "$ROOT/scripts/check-asar-requires.cjs" || { echo "x asar require check FAILED — refusing to publish a broken build" >&2; exit 1; }
+
 # 3) publish to R2 (skipped on a dry run — build-only validation)
 if [ "${DRY_RUN:-}" = "1" ]; then
   echo "-> DRY RUN — built $APPBASE (+ latest-linux.yml), skipping R2 upload."
