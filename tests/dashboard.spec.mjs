@@ -32,5 +32,7 @@ test("win celebration (preview)", async ({ page }) => {
   await page.mouse.click(1180, 21); // the "▶ preview a win" control (top-right)
   await page.waitForTimeout(600); // reduced-motion pins the celebration card to its settled (static) state
   // center card only — avoids the faint footer/version bleeding through the scrim
-  await expect(page).toHaveScreenshot("celebration.png", { clip: { x: 340, y: 300, width: 600, height: 300 } });
+  // fonts.ready re-resolves slowly (~1.5s) after the celebration's big text appears, so each retry of the
+  // screenshot eats most of the default 5s expect budget — give this one shot room to stabilize
+  await expect(page).toHaveScreenshot("celebration.png", { clip: { x: 340, y: 300, width: 600, height: 300 }, timeout: 20000 });
 });
