@@ -14,6 +14,19 @@ version number and bump `desktop/package.json`.
 - **macOS: the window remembers its size + position.** Closing the window now *hides* it (the app keeps mining in
   the dock) instead of destroying it, so reopening from the dock restores exactly where you were — same size,
   same position, same scroll — instead of a fresh default-size window.
+- **Mining no longer stalls on a flaky IPv6 connection.** On some networks the route to the public block API
+  (mempool.space) over IPv6 silently black-holes — the miner would wait out a long timeout on every call and
+  fall minutes behind, occasionally skipping a block's ticket entirely. The engine now prefers IPv4, and in live
+  mode it triggers each attempt off **your own synced node's** tip instead of the public API — so a slow or
+  broken external route can't delay the one thing that matters. A public-API hiccup now only affects the
+  supplementary price/stats display, never the ticket.
+
+**Dashboard**
+- **Your best hash shows its exact odds.** The closeness panel used to round rarity to whole zero-bits, so the
+  figure only moved in 2× jumps. It now shows the exact 1-in-N for your specific best hash — e.g. *1 in 176*
+  rather than a bucketed *1 in 128* — next to the true odds of an actual win, and the "new best" toast carries
+  the exact odds too. Framed as a record you've set, not progress toward a win (every ticket is an independent
+  draw).
 
 ## 0.1.32
 
