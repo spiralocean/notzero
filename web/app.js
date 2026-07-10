@@ -189,6 +189,23 @@ function oddsOneIn(b) {
     for (const [v, name] of [[1e12, "trillion"], [1e9, "billion"], [1e6, "million"], [1e3, "thousand"]]) if (n >= v) return "1 in " + (n / v).toFixed(n / v < 10 ? 1 : 0) + " " + name; }
   return "1 in ~10^" + Math.round(b * 0.30103);
 }
+// Exact rarity of one SPECIFIC hash: P(random hash ≤ h) = h/2^256, so "this good or better" is 1 in 2^256/h —
+// the continuous read of oddsOneIn's zero-bits bucket, which only moves in whole-bit (2×) jumps. Also the
+// honest win odds when fed the target. Returns log2(N) of the "1 in N" figure; format with oddsExact().
+function rarityBits(hashHex) {
+  const h = bigHex(hashHex); if (h <= 0n) return 256;
+  const bits = h.toString(2).length, shift = Math.max(0, bits - 53); // top 53 bits fit a double exactly
+  return 256 - Math.log2(Number(h >> BigInt(shift))) - shift;
+}
+function oddsExact(l2) {
+  const n = Math.pow(2, l2);
+  if (n < 1e4) return "1 in " + Math.round(n).toLocaleString();
+  for (const [v, name] of [[1e12, "trillion"], [1e9, "billion"], [1e6, "million"], [1e3, "thousand"]])
+    if (n >= v && n < v * 1e3) return "1 in " + (n / v).toFixed(n / v < 10 ? 1 : 0) + " " + name;
+  const d = l2 * 0.30103; let e = Math.floor(d), m = Math.pow(10, d - e);
+  if (m >= 9.95) { m /= 10; e += 1; }
+  return `1 in ${m.toFixed(1)}×10^${e}`;
+}
 
 // ---- model ----
 const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
@@ -606,7 +623,7 @@ function fireCelebration({ preview = false, mode = "you", verified = true, heigh
 // (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
 let seenBest = -1, bestToastHit = null;
 const bestToast = { t: 0, active: false, bits: 0 };
-function fireBestToast(bits) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; } // persists until clicked
+function fireBestToast(bits, hash) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; bestToast.odds = hash ? oddsExact(rarityBits(hash)) : ""; } // persists until clicked
 // --- network-win detection: the win announces itself ON-CHAIN via the coinbase tag the miner already
 // writes (/BitcoinLottery/…). No server, no phone-home — we just read the public coinbase. ---
 const LOTTERY_TAG = "/BitcoinLottery/";
@@ -2032,7 +2049,7 @@ function drawCloseness(r) {
     const best = mn.best;
     if (best && best.hash) {
       const bz = leadingZeroHexChars(best.hash), zb = typeof best.zero_bits === "number" ? best.zero_bits : bz * 4, rem = zb % 4;
-      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits · ${oddsOneIn(zb)}${rem ? ` (+${rem}/4)` : ""}`);
+      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits · ${oddsExact(rarityBits(best.hash))}${rem ? ` (+${rem}/4)` : ""}`);
       // NIBBLE GAUGE — bit-level progress into the NEXT leading "0", the resolution hex chars throw away.
       // zb = 4·(full zero chars) + (zero bits of the frontier nibble); rem (= zb % 4) of 4 dots = bits toward
       // the next whole "0". Drawn under the first non-zero char so it lines up with where the next 0 will appear.
@@ -2112,9 +2129,9 @@ function drawCloseness(r) {
     bestHit = { x: bX - 9, y: bY - 11, w: 18, h: 22, lines: [
       "◆ best — your closest hash yet",
       `${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} zero bits`,
-      `odds of a hash this good: ${oddsOneIn(bestBits)}`,
+      `odds of a hash this good: ${best && best.hash ? oddsExact(rarityBits(best.hash)) : oddsOneIn(bestBits)}`,
       best && best.height ? `on block #${(best.height || 0).toLocaleString()}` : "this session's record",
-      `still +${Math.max(0, tBits - bestBits)} bits from the target — a win is ${oddsOneIn(tBits)}`,
+      `still +${Math.max(0, tBits - bestBits)} bits from the target — a win is ${at.target ? oddsExact(rarityBits(at.target)) : oddsOneIn(tBits)}`,
     ] };
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
@@ -2126,7 +2143,7 @@ function drawCloseness(r) {
     youHit = { x: yx - 10, y: tkY - 12, w: 20, h: bandH + 26, lines: [
       "you — your current live hash",
       `${youBits} leading zero bit${youBits === 1 ? "" : "s"} (absolute)`,
-      `odds of a hash this good: ${oddsOneIn(youBits)}`,
+      `odds of a hash this good: ${oddsExact(rarityBits(at.hash))}`,
       `target needs ${tBits} → +${Math.max(0, tBits - youBits)} more bits to win`,
     ] };
     text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
@@ -3570,7 +3587,7 @@ function drawBestToast() {
   // "needs ~19" target are BOTH hex chars; the zero-bits figure is shown separately and clearly labelled.
   const hz = Math.floor(bestToast.bits / 4);
   const label = `🎯 new best · ${hz} leading “0”${hz === 1 ? "" : "s"} (${bestToast.bits} zero bits)`;
-  const sub = `a winning block needs about 19 leading “0”s`;
+  const sub = `${bestToast.odds ? `${bestToast.odds} tickets get this far · ` : ""}a winning block needs about 19 leading “0”s`;
   ctx.font = "700 13px -apple-system, system-ui, sans-serif"; const tw = ctx.measureText(label).width;
   ctx.font = "600 11px -apple-system, system-ui, sans-serif"; const sw = ctx.measureText(sub).width;
   const pw = Math.max(tw, sw) + 50, ph = 46, slide = reduceMotion ? 0 : (1 - inP) * 18;
@@ -3757,7 +3774,7 @@ function render(ts) {
   // NEW BEST → a small toast (mid-tier reward; fires once when the leading-zero record improves this session)
   const bestNow = mnW && mnW.best ? (mnW.best.zero_bits || 0) : 0;
   if (seenBest < 0) { if (mnW && mnW.best) seenBest = bestNow; } // wait for data, then remember the standing record
-  else if (bestNow > seenBest) { seenBest = bestNow; if (!celebration.active) fireBestToast(bestNow); }
+  else if (bestNow > seenBest) { seenBest = bestNow; if (!celebration.active) fireBestToast(bestNow, mnW.best.hash); }
   // NETWORK wins → everyone running this learns of it from the on-chain coinbase tag (no server)
   const netWins = lotteryWins();
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
