@@ -17,6 +17,7 @@ import hashlib
 import json
 import os
 import platform
+import socket
 import ssl
 import struct
 import sys
@@ -470,6 +471,22 @@ except Exception:  # noqa: BLE001
     _SSL_CTX = ssl.create_default_context()
 
 
+# Prefer IPv4. Some home/VPS networks have silently broken IPv6 routes to the public APIs (seen live:
+# several of mempool.space's AAAA addresses SYN-blackhole from a Hetzner box while IPv4 answers in ms).
+# urllib tries getaddrinfo results in order and burns the full connect timeout on every dead address, so
+# one http_get could stall for minutes and drag the whole poll loop with it — tickets went out 10-20 min
+# after blocks arrived. IPv6-only networks still work: v6 addresses stay in the list, just after v4.
+_real_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_first_getaddrinfo(*args, **kwargs):
+    infos = _real_getaddrinfo(*args, **kwargs)
+    return sorted(infos, key=lambda info: 0 if info[0] == socket.AF_INET else 1)  # stable: keeps order within each family
+
+
+socket.getaddrinfo = _ipv4_first_getaddrinfo
+
+
 def http_get(url: str, timeout: int = 30) -> dict | list | str:
     req = urllib.request.Request(url, headers={"User-Agent": "bitcoin-lottery-miner/0.1"})
     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
@@ -693,7 +710,7 @@ def check_win(hash_bytes: bytes, target: int) -> bool:
 
 
 def get_tip_height() -> int:
-    return int(http_get(f"{MEMPOOL_API}/blocks/tip/height"))
+    return int(http_get(f"{MEMPOOL_API}/blocks/tip/height", timeout=15))
 
 
 def get_block_hash(height: int) -> str:
@@ -1340,23 +1357,46 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                     mask_address(settings["payout_address"]) if settings["payout_address"] else ""
                 )
 
-            height = get_tip_height()
-            state["current_tip_height"] = height
+            # The network tip from mempool.space is display/fallback only — a public-API outage or a slow
+            # route must never block the one thing this loop exists for (attempting the next block).
+            network_height: Optional[int] = None
+            try:
+                network_height = get_tip_height()
+            except (urllib.error.URLError, RuntimeError, ValueError, OSError):
+                pass
             state["last_poll_at"] = utc_now()
             state = refresh_node_status(state, settings)
+
+            # In live mode the ticket trigger is our own node's tip: it hears new blocks first and works
+            # even with mempool.space down. Symbolic mode has no node, so the public tip stays the trigger.
+            node = state.get("node") or {}
+            if mode == "live" and node.get("ready") and node.get("blocks"):
+                height = int(node["blocks"])
+            else:
+                height = network_height
+            if height is not None:
+                state["current_tip_height"] = height
+
             state = update_price_state(state, config)
             state = update_wallet_balance_state(state, config)
             state = update_display_stats(state, new_block=False)
             save_state(state)
 
+            if height is None:
+                msg = "Tip height unavailable (node and mempool.space both unreachable) — will retry"
+                if daemon:
+                    log_daemon(msg)
+                else:
+                    print(msg, file=sys.stderr)
+                time.sleep(POLL_INTERVAL_SEC)
+                continue
+
             if height != last_height:
                 if mode == "live":
-                    node = state.get("node") or {}
                     if not node.get("ready"):
-                        msg = (
-                            f"Block {height} arrived but node not ready "
-                            f"({node['verificationprogress'] * 100:.2f}% synced) — will retry"
-                        )
+                        progress = node.get("verificationprogress")
+                        detail = f"{progress * 100:.2f}% synced" if progress is not None else node.get("status", "unreachable")
+                        msg = f"Block {height} arrived but node not ready ({detail}) — will retry"
                         if daemon:
                             log_daemon(msg)
                         else:
