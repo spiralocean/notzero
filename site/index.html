@@ -248,9 +248,9 @@
 
 <div class="odds wrap reveal">
   <div class="k">your odds, per ticket</div>
-  <div class="num"><span class="one">1</span> in 600 sextillion</div>
-  <div class="num-full">600,000,000,000,000,000,000,000 — a six with twenty-three zeros</div>
-  <p class="coinflip">Want to feel it? Flip a coin and count the heads in a row. A winning ticket is about <b>79 heads in a row</b> — each leading zero in the block's hash is one more heads, and every one halves the odds.</p>
+  <div class="num"><span class="one">1</span> in <span id="odds-mag">600 sextillion</span></div>
+  <div class="num-full" id="odds-full">600,000,000,000,000,000,000,000 — a six with twenty-three zeros</div>
+  <p class="coinflip">Want to feel it? Flip a coin and count the heads in a row. A winning ticket is about <b id="odds-flips">79 heads in a row</b> — each leading zero in the block's hash is one more heads, and every one halves the odds.</p>
   <p class="note">Give or take. And yet, every ten minutes, somebody, somewhere, <b>still finds a block.</b></p>
 </div>
 
@@ -402,6 +402,26 @@
   // show the current downloadable version next to the button (auto-pulled from the update feed)
   fetch("/api/version").then((r) => r.json()).then((d) => {
     if (d.version) ["dl-sub", "dl-sub2"].forEach((id) => { const s = document.getElementById(id); if (s) s.textContent = s.textContent + " · v" + d.version; });
+  }).catch(() => {});
+
+  // keep the odds current: per-ticket odds = difficulty × 2^32, recomputed from LIVE difficulty so the figure
+  // never goes stale as the network retargets. If the fetch fails (offline / API down), the baked HTML stays.
+  fetch("https://mempool.space/api/v1/mining/hashrate/3d", { cache: "no-store" }).then((r) => r.json()).then((d) => {
+    const diff = d && d.currentDifficulty;
+    if (!diff || !isFinite(diff)) return;
+    const odds = diff * 2 ** 32, flips = Math.round(Math.log2(odds));
+    let exp = Math.floor(Math.log10(odds)), lead = Math.round(odds / 10 ** exp);
+    if (lead >= 10) { lead = 1; exp += 1; }
+    const NAMES = { 18: "quintillion", 21: "sextillion", 24: "septillion", 27: "octillion", 30: "nonillion" };
+    const m = exp - ((exp - 18) % 3), name = NAMES[m], mult = lead * 10 ** (exp - m); // clean whole number, 1–900
+    const O = ["zero","one","two","three","four","five","six","seven","eight","nine","ten","eleven","twelve","thirteen","fourteen","fifteen","sixteen","seventeen","eighteen","nineteen"];
+    const T = ["","","twenty","thirty","forty","fifty","sixty","seventy","eighty","ninety"];
+    const words = (n) => (n < 20 ? O[n] : T[(n / 10) | 0] + (n % 10 ? "-" + O[n % 10] : ""));
+    const digits = (String(lead) + "0".repeat(exp)).replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+    const set = (id, txt) => { const el = document.getElementById(id); if (el) el.textContent = txt; };
+    if (name) set("odds-mag", mult.toLocaleString() + " " + name);
+    if (name) set("odds-full", digits + " — a " + words(lead) + " with " + words(exp) + " zeros");
+    set("odds-flips", flips + " heads in a row");
   }).catch(() => {});
 
   // ---- tip jar: QR codes + copy ----
