@@ -26,8 +26,8 @@
     --bg: #05040a;
     --bg-2: #0a0712;
     --ink: #ece8f0;
-    --muted: rgba(236,232,240,0.52);
-    --faint: rgba(236,232,240,0.30);
+    --muted: rgba(236,232,240,0.62);
+    --faint: rgba(236,232,240,0.5);
     --orange: #ff991a;
     --orange-soft: rgba(255,153,26,0.14);
     --green: rgb(90,220,140);
@@ -128,6 +128,8 @@
   .odds .num { font-family: var(--mono); font-weight: 500; font-size: clamp(32px, 6.2vw, 58px); letter-spacing: -1.5px; margin: 16px auto 8px; color: var(--ink); line-height: 1.05; }
   .odds .num .one { color: var(--orange); }
   .odds .num-full { font-family: var(--mono); font-size: clamp(11px, 2.1vw, 13.5px); color: var(--faint); letter-spacing: 0.4px; margin: 0 auto 22px; word-break: break-word; max-width: 34ch; }
+  .odds .coinflip { max-width: 560px; margin: 0 auto 16px; color: var(--muted); font-size: 16px; line-height: 1.5; }
+  .odds .coinflip b { color: var(--orange); font-weight: 600; }
   .odds .note { max-width: 560px; margin: 0 auto; color: var(--muted); font-size: 16px; }
   .odds .note b { color: var(--green); font-weight: 500; }
 
@@ -175,9 +177,11 @@
   .foot .f-links { font-family: var(--mono); font-size: 13px; display: flex; gap: 22px; }
   .foot .f-links a { color: var(--faint); text-decoration: none; transition: color .2s; }
   .foot .f-links a:hover { color: var(--ink); }
-  .foot-fine { font-family: var(--mono); font-size: 11.5px; color: rgba(236,232,240,0.22); margin-top: 26px; letter-spacing: 0.3px; }
+  .foot-fine { font-family: var(--mono); font-size: 11.5px; color: rgba(236,232,240,0.5); margin-top: 26px; letter-spacing: 0.3px; }
+  .foot-fine a { color: rgba(236,232,240,0.8); text-decoration: underline; text-underline-offset: 2px; transition: color .2s; }
+  .foot-fine a:hover { color: var(--orange); }
   .colophon { font-family: var(--mono); font-size: 12px; letter-spacing: 0.22em; text-transform: lowercase; margin-top: 24px; text-align: center; }
-  .colophon a { color: rgba(236,232,240,0.30); text-decoration: none; transition: color .3s; }
+  .colophon a { color: rgba(236,232,240,0.5); text-decoration: none; transition: color .3s; }
   .colophon a span { color: var(--muted); }
   .colophon a:hover, .colophon a:hover span { color: var(--orange); }
 
@@ -231,14 +235,14 @@
     <a class="demo-link" href="https://demo.getnotzero.com" target="_blank" rel="noopener">Watch the live demo ↗</a>
   </div>
   <div class="others rise" id="others" style="animation-delay:.46s"></div>
-  <div class="rise" id="dlcount" style="animation-delay:.5s; font-size:12px; color:rgba(255,255,255,0.42); margin-top:10px; text-align:center; min-height:14px; font-family:ui-monospace,monospace;"></div>
+  <div class="rise" id="dlcount" style="animation-delay:.5s; font-size:12px; color:rgba(255,255,255,0.6); margin-top:10px; text-align:center; min-height:14px; font-family:ui-monospace,monospace;"></div>
   <div class="verify rise" style="animation-delay:.56s">
     <span class="vmark">✓</span>
     <p id="verify-text"><b>Free and open source</b> — you can read every line of exactly what it does. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn't us.</p>
   </div>
   <div class="verify rise" style="animation-delay:.62s; margin-top:9px;">
     <span class="vmark" aria-hidden="true" style="opacity:0">✓</span>
-    <p style="margin:0"><a href="https://getnotzero.com/verify">Verify your download ↗</a> — match it against a hash we stamped into the Bitcoin blockchain.</p>
+    <p style="margin:0"><a href="/verify">Verify your download ↗</a> — match it against a hash we stamped into the Bitcoin blockchain.</p>
   </div>
 </header>
 
@@ -246,7 +250,8 @@
   <div class="k">your odds, per ticket</div>
   <div class="num"><span class="one">1</span> in 100 sextillion</div>
   <div class="num-full">100,000,000,000,000,000,000,000 — a one with twenty-three zeros</div>
-  <p class="note">Give or take. You're around a hundred billion times likelier to be struck by lightning this year — and yet, every ten minutes, somebody, somewhere, <b>still finds a block.</b></p>
+  <p class="coinflip">Want to feel it? Flip a coin and count the heads in a row. A winning ticket is about <b>76 heads in a row</b> — each leading zero in the block's hash is one more heads, and every one halves the odds.</p>
+  <p class="note">Give or take. And yet, every ten minutes, somebody, somewhere, <b>still finds a block.</b></p>
 </div>
 
 <section class="blk wrap reveal">
@@ -337,7 +342,7 @@
       <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener" id="src">View the source</a>
     </div>
   </div>
-  <div class="foot-fine" id="terms">Open source · non-custodial · this never holds your keys, only a receiving address. <b>No telemetry, no accounts, no tracking</b> — the app never reports on you; it only fetches updates and public Bitcoin data (all pull, never push). This site uses Cloudflare's cookieless, privacy-first analytics. © 2026 Spiral Ocean.<br/><br/>
+  <div class="foot-fine" id="terms">Open source · non-custodial · this never holds your keys, only a receiving address. <b>No telemetry, no accounts, no tracking</b> — the app never reports on you; it only fetches updates and public Bitcoin data (all pull, never push). This site uses Cloudflare's cookieless, privacy-first analytics. © 2026 Spiral Ocean · <a href="/verify#since">timestamped to Bitcoin since block 957,017</a> (July 7, 2026).<br/><br/>
     <b>Terms &amp; disclaimer.</b> notzero is free, open-source software, provided <b>as-is with no warranty</b> — you run it at your own risk. By downloading and running it, you agree to these terms. It is <b>not financial advice</b>. notzero is <b>solo Bitcoin mining</b>, not a wager or betting service — no money is paid in, and there is no operator or house taking bets. Finding a block solo is <b>astronomically unlikely</b>; never spend money expecting to win. notzero is <b>non-custodial</b> — it never holds your private keys or wallet, only a receiving address you control. You are responsible for your own device's security and for any taxes on rewards in your jurisdiction. Questions: <a href="mailto:support@getnotzero.com">support@getnotzero.com</a>.</div>
   <div class="colophon"><a href="https://spiralocean.com" target="_blank" rel="noopener">a <span>spiralocean</span> project</a></div>
 </footer>

@@ -13,7 +13,7 @@
     .wrap { max-width:720px; margin:0 auto; padding:40px 22px 80px; }
     header { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:8px; }
     .brand { display:flex; align-items:center; gap:10px; font-weight:800; font-size:18px; }
-    .btc { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#f7931a,#ffb84d); color:#0a0a0f; display:grid; place-items:center; font-weight:900; }
+    .btc { width:26px; height:26px; border-radius:7px; background:linear-gradient(135deg,#f7931a,#ffb84d); color:#0a0a0f; display:grid; place-items:center; font-weight:900; font-size:16px; line-height:1; padding-bottom:2px; }
     h1 { font-size:28px; margin:20px 0 4px; letter-spacing:.2px; }
     .sub { color:var(--dim); margin:0 0 30px; font-size:17px; }
     h2 { font-size:18px; margin:34px 0 8px; }
@@ -36,8 +36,8 @@
 <body>
   <div class="wrap">
     <header>
-      <a class="brand" href="https://getnotzero.com"><span class="btc">₿</span> notzero</a>
-      <a href="https://getnotzero.com">← Home</a>
+      <a class="brand" href="/"><span class="btc">₿</span> notzero</a>
+      <a href="/">← Home</a>
     </header>
 
     <h1>Verify your download</h1>
@@ -89,6 +89,17 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
     <p>And because the proof only needs block <em>headers</em>, an ordinary <strong>pruned</strong> node (like notzero's) is enough — you don't need a full archival copy of the chain.</p>
     <p>notzero will soon do this <strong>automatically, in-app</strong>: check each build against your node before trusting it, and gate updates on that check. This page is the manual version of the same idea.</p>
 
+    <h2 id="since"><span class="step">✦</span> How long notzero has existed — proof, not a claim</h2>
+    <p>The same mechanism dates the project itself. notzero's <strong>earliest release</strong> was timestamped onto the Bitcoin blockchain in <strong>block 957,017</strong>, mined <strong>July 7, 2026</strong>. Because a Bitcoin timestamp can't be backdated, that block is permanent, independently-checkable proof that notzero existed by then — you don't have to take our word for how long it's been around.</p>
+    <p style="color:var(--dim); font-size:14.5px">Honest scope: a timestamp proves a thing existed <em>by</em> a given block — an upper bound on age. Our work began a little earlier, but this is the oldest point provable trustlessly on Bitcoin, so it's the date we stand on.</p>
+    <div class="card files">
+      <p style="margin-top:0"><strong>Check it yourself</strong> — same tools as above:</p>
+      <p>→ <a href="https://dl.getnotzero.com/SHA256SUMS-0.1.29">dl.getnotzero.com/SHA256SUMS-0.1.29</a><br>
+         → <a href="https://dl.getnotzero.com/SHA256SUMS-0.1.29.ots">dl.getnotzero.com/SHA256SUMS-0.1.29.ots</a> — its Bitcoin timestamp proof</p>
+      <pre><code>ots verify SHA256SUMS-0.1.29.ots</code></pre>
+      <p style="margin-bottom:0">It reports block <strong>957,017</strong> — verifiable against your own node, exactly like the download check above.</p>
+    </div>
+
     <div class="card warn">
       <h2>What this does and doesn't protect</h2>
       <p>This is <strong>tamper-evidence and independent verification</strong> — it lets you (and your node) confirm a download matches an immutable on-chain record. It's a genuine, honest signal, not a magic guarantee:</p>
@@ -99,7 +110,7 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
       </ul>
     </div>
 
-    <footer>notzero is free and open source — you can read every line of what it does. Back to <a href="https://getnotzero.com">getnotzero.com</a>.</footer>
+    <footer>notzero is free and open source — you can read every line of what it does. Back to <a href="/">getnotzero.com</a>.</footer>
   </div>
 </body>
 </html>
