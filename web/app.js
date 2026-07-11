@@ -206,6 +206,33 @@ function oddsExact(l2) {
   if (m >= 9.95) { m /= 10; e += 1; }
   return `1 in ${m.toFixed(1)}×10^${e}`;
 }
+// People don't feel "1 in 2^b" — a lottery you can't picture. But this app draws ONE ticket per block (~10 min),
+// so rarity converts to TIME people can feel: a 1-in-2^b hash is expected about every 2^b blocks. Round it into a
+// relatable interval — "once a month", "once a decade", "longer than history", up to multiples of the universe's age.
+function sciWords(x) {
+  for (const [v, name] of [[1e12, "trillion"], [1e9, "billion"], [1e6, "million"], [1e3, "thousand"]])
+    if (x >= v) { const q = x / v; return `${q < 10 ? q.toFixed(1) : Math.round(q)} ${name}`; }
+  return Math.round(x).toLocaleString();
+}
+function expectedEvery(l2) {
+  const BLOCK_SEC = 600, YR = 31557600, AGE_UNIVERSE = 1.38e10; // one draw / block; seconds per year; universe age in years
+  const log10yr = l2 * 0.30103 + Math.log10(BLOCK_SEC) - Math.log10(YR); // log10 of (2^l2 blocks) expressed in years
+  if (log10yr < 0) { const days = Math.pow(10, log10yr) * 365.25;
+    if (days < 1.5) return "about once a day";
+    if (days < 12) return `about once every ${Math.round(days)} days`;
+    if (days < 45) return "about once a month";
+    return `about once every ${Math.round(days / 30)} months`; }
+  const years = Math.pow(10, log10yr);
+  if (years < 1.6) return "about once a year";
+  if (years < 12) return `about once every ${Math.round(years)} years`;
+  if (years < 45) return `about once every ${Math.round(years / 10) * 10} years`;      // decades
+  if (years < 900) return `about once every ${Math.round(years / 100) * 100} years`;   // centuries
+  if (years < 12000) return "rarer than all of recorded history";
+  if (years < AGE_UNIVERSE) return `about once every ${sciWords(years)} years`;
+  return `~${sciWords(years / AGE_UNIVERSE)}× the age of the universe`;
+}
+// N leading zero BITS = N coin-flips all landing heads — the unit that makes the doubling felt (each zero halves it).
+function coinFlips(bits) { const n = Math.round(bits); return `${n} coin-flip${n === 1 ? "" : "s"} landing heads in a row`; }
 
 // ---- model ----
 const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
@@ -494,6 +521,7 @@ const QUOTES = [
   "The lottery is hope with a timestamp.",
   "One in 2²⁵⁶ is still one.",
   "Every hash is a roll of the cosmic dice.",
+  "Feel the odds: flip a coin and count the heads in a row. Each leading zero is one more heads — a win needs about 79.",
   "Statistically improbable ≠ impossible.",
   "The hash doesn't know it's supposed to be impossible.",
   "Ten minutes to the next block. Ten minutes to glory.",
@@ -568,7 +596,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 250, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -2034,6 +2062,7 @@ function drawCloseness(r) {
   if (at && at.hash) {
     const winner = (model.block && model.block.id) || "";
     const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
+    const tgtBits = at.target ? 256 - bigHex(at.target).toString(2).length : 76; // the win threshold in zero BITS = coin-flips to win
     text("YOUR LIVE ATTEMPT vs THE TARGET & WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
     const rowX = r.x + 16, hx0 = rowX + 58, n = 64, rowW = r.w - 340, sp = rowW / n; // full 64-hex so it matches the HASH BUILD final hash exactly; leave room on the right for the "· N zeros · won by …" sub
     const row = (label, hex, y, lit, sub) => {
@@ -2042,7 +2071,7 @@ function drawCloseness(r) {
       for (let i = 0; i < show.length; i++) { const z = i < lead; text(show[i], hx0 + sp * (i + 0.5), y, { size: 13, weight: z ? 700 : 400, color: z ? lit : "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
       text(sub, r.x + r.w - 16, y, { size: 11, weight: 600, color: lit, align: "right", baseline: "middle" });
     };
-    if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros`);
+    if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros · ${tgtBits} heads in a row`);
     const lastWin = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1], winPool = lastWin && lastWin.pool ? ` · won by ${lastWin.pool}` : "";
     if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros${winPool}`);
     row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
@@ -2064,7 +2093,7 @@ function drawCloseness(r) {
       }
     }
     // ---- ODDS MAP HEAT MAP — every attempt plotted by leading-zero-bits (reversed: WIN = BELOW target = LEFT) ----
-    const tBits = at.target ? 256 - bigHex(at.target).toString(2).length : 76;
+    const tBits = tgtBits;
     const youBits = at.leading_zero_bits != null ? at.leading_zero_bits : (256 - bigHex(at.hash).toString(2).length);
     const bestBits = best && best.zero_bits != null ? best.zero_bits : youBits;
     const bestZeros = best && best.hash ? leadingZeroHexChars(best.hash) : youZ;
@@ -2126,12 +2155,15 @@ function drawCloseness(r) {
     const bX = px(bestBits), bY = tkY + bandH / 2, bd = 4.4;
     ctx.fillStyle = "rgba(255,215,90,1)"; ctx.strokeStyle = "rgba(10,8,4,0.7)"; ctx.lineWidth = 1;
     ctx.beginPath(); ctx.moveTo(bX, bY - bd); ctx.lineTo(bX + bd, bY); ctx.lineTo(bX, bY + bd); ctx.lineTo(bX - bd, bY); ctx.closePath(); ctx.fill(); ctx.stroke();
+    const bestL2 = best && best.hash ? rarityBits(best.hash) : bestBits, winL2 = at.target ? rarityBits(at.target) : tBits;
     bestHit = { x: bX - 9, y: bY - 11, w: 18, h: 22, lines: [
       "◆ best — your closest hash yet",
       `${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} zero bits`,
-      `odds of a hash this good: ${best && best.hash ? oddsExact(rarityBits(best.hash)) : oddsOneIn(bestBits)}`,
+      `odds of a hash this good: ${oddsExact(bestL2)}`,
+      `like ${coinFlips(bestBits)} — 4 per leading zero`,
+      `${bestBits} heads in a row turns up ${expectedEvery(bestBits)} here (1 ticket / 10 min)`,
       best && best.height ? `on block #${(best.height || 0).toLocaleString()}` : "this session's record",
-      `still +${Math.max(0, tBits - bestBits)} bits from the target — a win is ${at.target ? oddsExact(rarityBits(at.target)) : oddsOneIn(tBits)}`,
+      `a win = ${tBits} heads in a row (${leadingZeroHexChars(at.target || "")} zeros) — ${expectedEvery(winL2)} of nonstop mining`,
     ] };
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
@@ -2144,10 +2176,14 @@ function drawCloseness(r) {
       "you — your current live hash",
       `${youBits} leading zero bit${youBits === 1 ? "" : "s"} (absolute)`,
       `odds of a hash this good: ${oddsExact(rarityBits(at.hash))}`,
-      `target needs ${tBits} → +${Math.max(0, tBits - youBits)} more bits to win`,
+      `a win = ${tBits} heads in a row (${leadingZeroHexChars(at.target || "")} zeros) · ${oddsExact(winL2)}`,
+      `that's ${expectedEvery(winL2)} of nonstop mining`,
     ] };
-    text(`◄ BELOW target = WIN · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
+    text(`◄ BELOW target = WIN · ${tBits} heads in a row · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
+    if (best && best.hash) // the felt version of the best hash: lead with zeros (quickest to grasp), then coin-flips (the doubling), then time at this machine's cadence
+      text(`◆ your best hash: ${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} — that's ${bestBits} coin-flips all landing heads — turns up ${expectedEvery(bestBits)} at 1 ticket every 10 min`,
+        tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
     text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestZeros} zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
