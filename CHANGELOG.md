@@ -4,7 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.34
+## Unreleased — next: 0.1.35
+
+## 0.1.34
+
+**Dashboard**
+- **Odds you can feel.** Your best hash and the target are now shown as *coin-flips* — each leading zero in the
+  hash is one more heads landing in a row — and as how often a hash that good turns up on your machine (once a
+  month, once a decade, and so on), right alongside the exact 1-in-N. A win comes out to about 79 heads in a row.
+  A new rotating line invites you to flip a real coin and count your streak.
 
 ## 0.1.33
 
