@@ -2064,25 +2064,39 @@ function drawCloseness(r) {
     const need = leadingZeroHexChars(at.target || winner || ""), youZ = leadingZeroHexChars(at.hash);
     const tgtBits = at.target ? 256 - bigHex(at.target).toString(2).length : 76; // the win threshold in zero BITS = coin-flips to win
     text("YOUR LIVE ATTEMPT vs THE TARGET & WINNING BLOCK", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.62)", baseline: "middle" });
-    const rowX = r.x + 16, hx0 = rowX + 58, n = 64, rowW = r.w - 340, sp = rowW / n; // full 64-hex so it matches the HASH BUILD final hash exactly; leave room on the right for the "· N zeros · won by …" sub
+    const rowX = r.x + 16, hx0 = rowX + 58, n = 64;
+    // Pre-compute the right-side labels + best metadata so we can (a) reserve exactly the widest label's width and
+    // (b) size/truncate the hex to never collide with the label or overlap itself on a narrow window / low-res
+    // screen. (Before this, a fixed 340px reserve + full 64-hex overran both, garbling the row at small widths.)
+    const lastWin = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1], winPool = lastWin && lastWin.pool ? ` · won by ${lastWin.pool}` : "";
+    const best = mn.best;
+    const bz = best && best.hash ? leadingZeroHexChars(best.hash) : 0, zb = best && typeof best.zero_bits === "number" ? best.zero_bits : bz * 4, rem = zb % 4;
+    const subTarget = at.target ? `the bar to beat · ${leadingZeroHexChars(at.target)} zeros · ${tgtBits} heads in a row` : "";
+    const subWinner = winner ? `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros${winPool}` : "";
+    const subYou = `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`;
+    const subBest = best && best.hash ? `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits · ${oddsExact(rarityBits(best.hash))}${rem ? ` (+${rem}/4)` : ""}` : "";
+    ctx.font = "600 11px -apple-system, system-ui, sans-serif"; // match the label font for measureText
+    let maxSubW = 0; for (const s of [subTarget, subWinner, subYou, subBest]) if (s) maxSubW = Math.max(maxSubW, ctx.measureText(s).width);
+    const GAP = 20, MIN_SP = 9; // GAP between hex and its label; MIN_SP keeps mono hex chars from overlapping
+    const hexZoneW = Math.max(MIN_SP, (r.x + r.w - 16 - maxSubW - GAP) - hx0); // hx0 → the label's left edge
+    const shown = Math.max(1, Math.min(n, Math.floor(hexZoneW / MIN_SP))); // how many hex chars fit legibly
+    const sp = hexZoneW / shown, truncated = shown < n;
     const row = (label, hex, y, lit, sub) => {
       text(label, rowX, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.5)", baseline: "middle" });
-      const lead = leadingZeroHexChars(hex), show = hex.slice(0, n);
-      for (let i = 0; i < show.length; i++) { const z = i < lead; text(show[i], hx0 + sp * (i + 0.5), y, { size: 13, weight: z ? 700 : 400, color: z ? lit : "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
+      const lead = leadingZeroHexChars(hex), cnt = truncated ? shown - 1 : shown;
+      for (let i = 0; i < cnt; i++) { const z = i < lead; text(hex[i], hx0 + sp * (i + 0.5), y, { size: 13, weight: z ? 700 : 400, color: z ? lit : "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true }); }
+      if (truncated) text("…", hx0 + sp * (shown - 0.5), y, { size: 13, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true });
       text(sub, r.x + r.w - 16, y, { size: 11, weight: 600, color: lit, align: "right", baseline: "middle" });
     };
-    if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, `the bar to beat · ${leadingZeroHexChars(at.target)} zeros · ${tgtBits} heads in a row`);
-    const lastWin = (model.recentBlocks || [])[(model.recentBlocks || []).length - 1], winPool = lastWin && lastWin.pool ? ` · won by ${lastWin.pool}` : "";
-    if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", `#${(model.tipHeight || 0).toLocaleString()} · ${leadingZeroHexChars(winner)} zeros${winPool}`);
-    row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", `#${(at.height || 0).toLocaleString()} · ${youZ} zero${youZ === 1 ? "" : "s"}`);
-    const best = mn.best;
+    if (at.target) row("target", at.target, r.y + 42, `rgba(${ACCENT},0.95)`, subTarget);
+    if (winner) row("winner", winner, r.y + 70, "rgb(90,225,140)", subWinner);
+    row("you", at.hash, r.y + 98, at.won ? "rgb(90,225,140)" : "rgba(255,190,110,0.97)", subYou);
     if (best && best.hash) {
-      const bz = leadingZeroHexChars(best.hash), zb = typeof best.zero_bits === "number" ? best.zero_bits : bz * 4, rem = zb % 4;
-      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", `#${(best.height || 0).toLocaleString()} · ${bz} zero${bz === 1 ? "" : "s"} · ${zb} bits · ${oddsExact(rarityBits(best.hash))}${rem ? ` (+${rem}/4)` : ""}`);
+      row("best", best.hash, r.y + 112, "rgba(255,215,90,1)", subBest);
       // NIBBLE GAUGE — bit-level progress into the NEXT leading "0", the resolution hex chars throw away.
       // zb = 4·(full zero chars) + (zero bits of the frontier nibble); rem (= zb % 4) of 4 dots = bits toward
       // the next whole "0". Drawn under the first non-zero char so it lines up with where the next 0 will appear.
-      if (bz < n) {
+      if (bz < (truncated ? shown - 1 : n)) {
         const fx = hx0 + sp * (bz + 0.5), fy = r.y + 122, dr = 1.5, dsp = 3.3;
         for (let i = 0; i < 4; i++) {
           const dx = fx + (i - 1.5) * dsp;
