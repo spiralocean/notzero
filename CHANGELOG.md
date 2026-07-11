@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.35
+## Unreleased — next: 0.1.36
+
+## 0.1.35
+
+**Desktop**
+- **macOS: auto-updates install cleanly again.** An update would download but then hang on "installing" —
+  the app never fully quit, so the installer couldn't swap in the new version and you had to force-quit and
+  relaunch. Fixed: the app now quits properly when installing an update. *(One-time note for macOS: updating
+  **from 0.1.34 to 0.1.35** still needs a manual quit — fully **Quit** the app with ⌘Q (not just closing the
+  window, which keeps it running), then reopen; from 0.1.35 onward, updates install on their own.)*
 
 ## 0.1.34
 
