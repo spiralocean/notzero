@@ -13,8 +13,8 @@ version number and bump `desktop/package.json`.
   in full when the window is wide.
 - **"Verified updates" wording now reads right on every OS.** The update-verification explainer referred to the
   macOS `.dmg` file for everyone; it now just says "the app," so it's accurate for Windows and Linux users too.
-- **Small polish:** the live stats line labels the last attempt in "bits" (matching the best-hash figure) instead
-  of a bare number.
+- **Small polish:** the closeness panel labels its "bits" figures consistently — the live stats line and the
+  best-hash summary now both show the unit instead of a bare number.
 
 ## 0.1.35
 

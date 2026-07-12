@@ -2196,7 +2196,7 @@ function drawCloseness(r) {
     text(`◄ BELOW target = WIN · ${tBits} heads in a row · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
     if (best && best.hash) // the felt version of the best hash: lead with zeros (quickest to grasp), then coin-flips (the doubling), then time at this machine's cadence
-      text(`◆ your best hash: ${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} — that's ${bestBits} coin-flips all landing heads — turns up ${expectedEvery(bestBits)} at 1 ticket every 10 min`,
+      text(`◆ your best hash: ${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits — that's ${bestBits} coin-flips all landing heads — turns up ${expectedEvery(bestBits)} at 1 ticket every 10 min`,
         tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
