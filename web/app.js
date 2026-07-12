@@ -2200,7 +2200,7 @@ function drawCloseness(r) {
         tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
-    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestZeros} zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits · ● last ${youBits}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestZeros} zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits · ● last ${youBits} bit${youBits === 1 ? "" : "s"}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
   // a node is configured (the desktop app) but there's no live attempt yet — syncing/connecting, not a demo
