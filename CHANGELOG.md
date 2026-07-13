@@ -6,6 +6,26 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.37
 
+**Dashboard**
+- **The "block mined" banner no longer overlaps the mempool labels.** When a new block was found, the green
+  "⛏ block #… mined" announcement in the MEMPOOL panel landed on top of the "backlog · … sat/vB" row beneath the
+  title, smearing both. It now sits on its own line (taking over the fee explainer's row while it shows), clear of
+  the labels below.
+- **The blockchain train shows the full block height again.** The blocks in the sync/conveyor view labelled their
+  height mod 100000, so a tip of 957781 rendered as #57781 — looking like a stale chain 900000 blocks behind the
+  real one. They now show the full height, matching the network number.
+- **"Preview a block" always shows something now.** The preview only animates inside the MEMPOOL/SYNC panels, so
+  clicking it with both collapsed looked dead. It now opens the MEMPOOL panel (the block-mined harvest) when both
+  are closed, so the click always has a visible effect.
+- **The "N peers" label no longer overlaps the sync warning.** While the node was catching up, the peer-arch label
+  sat on top of the "your computer may warm up…" line. The arch now drops a row while syncing so the two are clear.
+
+**Desktop**
+- **No more false "node offline?" after a reboot.** The on-chain update check ran the instant the app launched, so
+  if bitcoind was still starting it stamped VERIFIED UPDATES with "not checked — node offline?" even though the
+  node came up moments later. The first check now waits (up to 5 min, with backoff) for the node to answer RPC
+  before running; the periodic re-checks are unchanged, so a genuinely offline node still reports honestly.
+
 ## 0.1.36
 
 **Dashboard**
