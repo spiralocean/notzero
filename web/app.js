@@ -2693,7 +2693,7 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
   // Orange is reserved exclusively for the mining block (drawn separately) — so only ever ONE orange block.
   ctx.strokeStyle = (verified && highlight) ? "rgba(120,235,150,0.95)" : verified ? "rgba(90,200,130,0.45)" : "rgba(255,255,255,0.3)";
   ctx.lineWidth = (verified && highlight) ? 1.9 : verified ? 1.1 : 1; roundRect(x, y, bw, bh, 4); ctx.stroke();
-  if (height) text("#" + (height % 100000), x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
+  if (height) text("#" + height, x + bw / 2, y + 11, { size: 11, weight: 700, color: "rgba(255,255,255,0.78)", align: "center", baseline: "middle" });
   if (info && info.size) text(mbFmt(info.size), x + bw / 2, y + bh - 9, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (verified) text("✓", x + bw - 11, y + 11, { size: 13, weight: 700, color: "rgb(90,230,140)", align: "center", baseline: "middle" });
   // pruning: cover the block with churning matrix glyphs — digesting/dissolving it as it fades
@@ -2966,7 +2966,7 @@ function drawSync(r) {
       if (!(firstSlot && syncState.phase === "step")) {
         ctx.strokeStyle = "rgba(255,255,255,0.16)"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(lastRight, cy); ctx.lineTo(fx, cy); ctx.stroke(); // neutral: future blocks aren't confirmed
         ctx.setLineDash([3, 3]); ctx.strokeStyle = "rgba(255,255,255,0.2)"; ctx.lineWidth = 1; roundRect(fx, my, bw, bh, 4); ctx.stroke(); ctx.setLineDash([]);
-        text("#" + (fh % 100000), fx + bw / 2, cy, { size: 10, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
+        text("#" + fh, fx + bw / 2, cy, { size: 10, color: "rgba(255,255,255,0.28)", align: "center", baseline: "middle" });
         lastRight = fx + bw;
       }
       fx += spacing; fh += 1; firstSlot = false;
