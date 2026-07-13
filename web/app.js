@@ -1832,7 +1832,7 @@ function drawMempool(r) {
   // #6 fee weather (top-left)
   if (model.fees) { const w = feeWeather(model.fees.fastestFee); ctx.fillStyle = `rgba(${w.col},0.95)`; ctx.beginPath(); ctx.arc(r.x + padX + 4, r.y + 18, 4, 0, 7); ctx.fill(); text(`${w.mood} · ${model.fees.fastestFee} sat/vB`, r.x + padX + 13, r.y + 18, { size: 11, weight: 700, color: `rgba(${w.col},0.95)`, baseline: "middle" }); }
   // plain-English explainer: what the backlog is doing to fees, and why (mechanism, not a prediction)
-  { const explF = model.fees ? model.fees.fastestFee : (nextBlk && nextBlk.medianFee) || 0; if (explF) text(mempoolExplainer(explF, depth, mp.count), r.x + r.w / 2, r.y + 36, { size: 10.5, color: "rgba(255,255,255,0.52)", align: "center", baseline: "middle" }); }
+  { const explF = model.fees ? model.fees.fastestFee : (nextBlk && nextBlk.medianFee) || 0; if (explF && mpHarvestT <= 0) text(mempoolExplainer(explF, depth, mp.count), r.x + r.w / 2, r.y + 36, { size: 10.5, color: "rgba(255,255,255,0.52)", align: "center", baseline: "middle" }); } // hidden while the block-mined banner borrows this row
 
   // #2 harvest — the next block is mined: it flashes, slides LEFT across "now" into history, txs fly off
   if (!reduceMotion) {
@@ -1971,7 +1971,7 @@ function drawMempool(r) {
     ctx.restore();
   }
   // (the set block's slide into history is drawn as part of the history train, above)
-  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 54, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" });
+  if (mpHarvestT > 0) text(`⛏ block #${mpHarvestTip.toLocaleString()} mined — ${mpHarvestTx.toLocaleString()} txs confirmed`, r.x + r.w / 2, r.y + 36, { size: 12, weight: 700, color: `rgba(90,225,140,${Math.min(1, mpHarvestT * 1.6)})`, align: "center", baseline: "middle" }); // sits in the explainer's row (which is hidden meanwhile) — clear of the backlog labels below
 
   // bottom row: latest-tx ticker (left, gold for a whale) · fee legend (centre) · your payday (right)
   const lt = model.recentTxs && model.recentTxs[0], ltVal = lt ? (lt.value || 0) / 1e8 : 0, whaleLt = ltVal >= 1;
