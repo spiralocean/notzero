@@ -694,7 +694,7 @@ function lotteryWins() {
   for (const b of (model.recentBlocks || [])) if (b && b.lottery && b.height != null && !out.has(b.height)) out.set(b.height, { height: b.height, hash: b.id || "", verified: false });
   return [...out.values()].sort((a, b) => b.height - a.height);
 }
-let scrollY = 0, maxScroll = 0;
+let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
 const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
@@ -3767,6 +3767,7 @@ function render(ts) {
   window.__frames = Object.fromEntries(frames.filter((f) => f.content).map((f) => [f.section, f.content])); // expose panel rects (for snapshot tests to clip exactly)
   maxScroll = Math.max(0, total + FOOTER_PAD - H); // FOOTER_PAD leaves clearance so the last panel's bottom clears the fixed footer
   if (scrollY > maxScroll) scrollY = maxScroll;
+  if (scrollToSection) { const tf = frames.find((x) => x.section === scrollToSection); if (tf) scrollY = Math.max(0, Math.min(tf.header.y - 48, maxScroll)); scrollToSection = null; } // bring a requested panel just below the fixed top controls
 
   ctx.save();
   ctx.translate(0, -scrollY);
@@ -3867,6 +3868,9 @@ function render(ts) {
   const haveBlocks = (model.recentBlocks && model.recentBlocks.length > 0) || !!(model.node && model.node.lottery_blocks);
   if (seenLottery === null) { if (haveBlocks) seenLottery = new Set(netWins.map((w) => w.height)); } // wait for data, then remember what predates this load — no retroactive celebration
   else for (const w of netWins) if (!seenLottery.has(w.height)) { seenLottery.add(w.height); if (w.verified && !celebration.active) fireCelebration({ mode: "network", verified: true, height: w.height, hash: w.hash }); } // only auto-celebrate locally-verified wins; unverified (mempool) ones just show the badge
+  // scrim behind the fixed TOP controls (status pill, preview/motion/size) so scrolled panel content doesn't
+  // collide with them once the header has scrolled up out of view. Mirrors the footer scrim. Only when scrolled.
+  if (scrollY > 0) { const tGrad = ctx.createLinearGradient(0, 0, 0, 42); tGrad.addColorStop(0, "rgba(5,4,10,0.97)"); tGrad.addColorStop(0.62, "rgba(5,4,10,0.82)"); tGrad.addColorStop(1, "rgba(5,4,10,0)"); ctx.fillStyle = tGrad; ctx.fillRect(0, 0, W, 42); }
   if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
@@ -3935,7 +3939,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
   }
-  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; if (!expanded.has("mempool") && !expanded.has("sync")) { expanded.add("mempool"); saveExpanded(); } requestRender(); return; } // replay the block-mined animations — open a panel to show it if both are collapsed (otherwise the click looks dead)
+  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; if (!expanded.has("mempool")) { expanded.add("mempool"); saveExpanded(); } scrollToSection = "mempool"; requestRender(); return; } // replay the block-mined animations — always open + scroll to the MEMPOOL harvest so the preview is visible wherever the user is (the sync commit is a bonus when that panel's open + at the tip)
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
     const cyc = e.offsetY + scrollY;
