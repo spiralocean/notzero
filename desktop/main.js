@@ -155,6 +155,28 @@ function nodeRpcFromConfig() {
   return (m, p) => rpcCall(rpcUrl, authHeader, m, p);
 }
 
+// Is the node answering RPC right now? A cheap liveness probe — not a sync check. Returns false while bitcoind is
+// still starting (no creds/cookie yet, connection refused, or the -28 "warming up" error), true once it responds.
+async function nodeReachable() {
+  const rpc = nodeRpcFromConfig();
+  if (!rpc) return false;
+  try { const r = await rpc("uptime", []); return !!(r && r.ok); } catch (_) { return false; }
+}
+
+// After a reboot bitcoind can take a while to accept RPC. Poll (bounded, with backoff) until it answers, so the
+// first on-chain update check doesn't stamp "unchecked — node offline?" on a node that's merely still starting.
+// Resolves true once reachable, or false when the budget elapses — callers proceed either way (the 30-min
+// interval retries regardless, and a truly-offline node then reports offline honestly).
+async function waitForNodeReachable(budgetMs = 300000) {
+  const deadline = Date.now() + budgetMs;
+  for (let wait = 2000; ; wait = Math.min(wait * 1.5, 15000)) {
+    if (await nodeReachable()) return true;
+    const left = deadline - Date.now();
+    if (left <= 0) return false;
+    await new Promise((r) => setTimeout(r, Math.min(wait, left)));
+  }
+}
+
 // Fetch a small file from the download CDN — utf8 string, or a Buffer when binary. null on any failure.
 function fetchDl(name, binary) {
   return new Promise((resolve) => {
@@ -910,8 +932,9 @@ if (!app.requestSingleInstanceLock()) {
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
-    refreshCurrentVersionAnchor(); setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
-    refreshUpdateHistory(); setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
+    (async () => { await waitForNodeReachable(); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })(); // hold the first check until a just-rebooted node is answering RPC, so it isn't a false "offline"
+    setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
+    setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
     startNotifier(); // OS notifications for block won / new best / node sync changes
     startupComplete = true; // past here, an uncaught error is a runtime hiccup (just log it) — not a reason to show the reinstall page
   });
