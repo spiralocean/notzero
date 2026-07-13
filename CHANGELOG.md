@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.37
+## Unreleased — next: 0.1.38
+
+## 0.1.37
 
 **Dashboard**
 - **The "block mined" banner no longer overlaps the mempool labels.** When a new block was found, the green
