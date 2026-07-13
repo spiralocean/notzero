@@ -59,6 +59,13 @@ const gb = (b) => Math.round(b / 1024 ** 3);
 const WEB_DIR = app.isPackaged ? path.join(process.resourcesPath, "web") : path.join(__dirname, "..", "web");
 const ICON = path.join(__dirname, "assets", "icon.png");
 const WIZARD = path.join(__dirname, "wizard.html");
+
+// DEV-ONLY dashboard preview: `NOTZERO_PREVIEW=<state> npm start` renders the real desktop shell against the
+// working-tree web/, with a fixture node.json for a chosen node state — so the dashboard's startup/syncing/
+// no-peers/at-tip UX can be seen and verified without a live bitcoind or the python engines. Never active in a
+// packaged build. States: "starting" (node not answering yet), "syncing" (IBD, few peers), "no-peers"
+// (reachable, zero peers), "at-tip" (synced — the bundled sample). Any other value falls back to "at-tip".
+const PREVIEW = !app.isPackaged && process.env.NOTZERO_PREVIEW ? process.env.NOTZERO_PREVIEW.trim() : null;
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
   ".svg": "image/svg+xml", ".png": "image/png", ".css": "text/css; charset=utf-8", ".ico": "image/x-icon",
@@ -794,6 +801,29 @@ async function retryManagedNode() {
   startManagedNode();
 }
 
+// ---- DEV preview fixtures (only reached when PREVIEW is set) ----
+// The /config response that makes the dashboard render in desktop mode (gear, update pill, scale) without a real
+// config file. node_mode "managed" is the case the startup messaging matters most for (the app runs the node).
+function previewConfig() {
+  return {
+    exists: true, node_mode: "managed", platform: process.platform, app_version: app.getVersion(),
+    payout_address: "bc1qpreviewpreviewpreviewpreviewpreviewpv0", rpc_url: "http://127.0.0.1:8332",
+    has_rpc_pass: true, uses_cookie: false, auto_start: true, notifications_enabled: true, auto_update: true,
+    show_whats_new: true, update_available: "", update_verification: null, version_anchor: null, update_history: null,
+  };
+}
+// A node.json for the chosen state, built by mutating the bundled sample (web/node.json) so every panel still has
+// realistic mempool/best/history data — only reachability, heights and peers change per state.
+function previewNodeJson() {
+  let base = {}; try { base = JSON.parse(fs.readFileSync(path.join(WEB_DIR, "node.json"), "utf8")); } catch (_) {}
+  const tip = base.headers || 957800, nowS = Math.floor(Date.now() / 1000);
+  const peers = Array.isArray(base.peers) ? base.peers : [];
+  if (PREVIEW === "starting") return { ts: nowS, reachable: false }; // node process not answering RPC yet
+  if (PREVIEW === "no-peers") return { ...base, reachable: true, headers: tip, blocks: tip - 6, initialblockdownload: true, verificationprogress: 0.9998, tip_time: nowS - 3600, peers: [] };
+  if (PREVIEW === "syncing") return { ...base, reachable: true, headers: tip, blocks: tip - 6, initialblockdownload: true, verificationprogress: 0.9998, tip_time: nowS - 3600, peers: peers.slice(0, 3).map((p, i) => ({ ...p, rate: i < 2 ? 3_000_000 : 0, downloading: i < 2 })) };
+  return base; // "at-tip" / default: the synced sample as-is
+}
+
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
 function startServer() {
   return new Promise((resolve, reject) => {
@@ -815,6 +845,7 @@ function startServer() {
       if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ ...managedState, log: managedLog.slice(-60) })); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
+        if (PREVIEW) { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(previewConfig())); return; }
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
         const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, update_available: pendingUpdateVer || "" } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
@@ -825,6 +856,7 @@ function startServer() {
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle
+        if (PREVIEW) { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(previewNodeJson())); return; }
         fs.readFile(NODE_JSON, (e, d) => { if (e) { res.writeHead(404, { "Content-Type": "application/json" }); res.end("{}"); } else { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } });
         return;
       }
@@ -889,7 +921,8 @@ async function createWindow() {
   // first run → wizard. Managed mode → setup screen too, so the install progress is visible
   // (the wizard redirects to the dashboard once the node is ready).
   let startPath = "/setup";
-  if (fs.existsSync(configPath())) { let c = {}; try { c = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {} startPath = c.node_mode === "managed" ? "/setup" : "/"; }
+  if (PREVIEW) startPath = "/"; // dev preview always lands on the dashboard
+  else if (fs.existsSync(configPath())) { let c = {}; try { c = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {} startPath = c.node_mode === "managed" ? "/setup" : "/"; }
   win.loadURL(`http://127.0.0.1:${port}${startPath}`);
 }
 
@@ -922,6 +955,7 @@ if (!app.requestSingleInstanceLock()) {
     NODE_JSON = path.join(DATA_DIR, "node.json");
     ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
     if (process.platform === "win32") ENGINE_ENV.PYTHONUTF8 = "1"; // belt-and-suspenders for DEV (real python3): engines print ₿/→ and a Windows pipe defaults to cp1252 → UnicodeEncodeError. NOTE: PyInstaller-frozen exes IGNORE this env var, so the packaged engines force UTF-8 in their own source (sys.std*.reconfigure).
+    if (PREVIEW) { console.log(`[notzero] PREVIEW mode: "${PREVIEW}" — dashboard only, no engines/node`); buildMenu(); createWindow(); startupComplete = true; return; } // dev preview: skip engines, node provisioning, update checks — just render the dashboard against the fixture
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     applyAutoStart(cfg); // keep the login item in sync with the setting on every launch
     if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up

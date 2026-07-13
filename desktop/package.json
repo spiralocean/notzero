@@ -6,6 +6,10 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
+    "preview": "NOTZERO_PREVIEW=at-tip electron .",
+    "preview:syncing": "NOTZERO_PREVIEW=syncing electron .",
+    "preview:no-peers": "NOTZERO_PREVIEW=no-peers electron .",
+    "preview:starting": "NOTZERO_PREVIEW=starting electron .",
     "build:engines": "bash build-engines.sh",
     "dist": "npm run build:engines && electron-builder",
     "dist:mac": "npm run build:engines && electron-builder --mac dir"
