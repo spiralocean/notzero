@@ -63,8 +63,9 @@ const WIZARD = path.join(__dirname, "wizard.html");
 // DEV-ONLY dashboard preview: `NOTZERO_PREVIEW=<state> npm start` renders the real desktop shell against the
 // working-tree web/, with a fixture node.json for a chosen node state — so the dashboard's startup/syncing/
 // no-peers/at-tip UX can be seen and verified without a live bitcoind or the python engines. Never active in a
-// packaged build. States: "starting" (node not answering yet), "syncing" (IBD, few peers), "no-peers"
-// (reachable, zero peers), "at-tip" (synced — the bundled sample). Any other value falls back to "at-tip".
+// packaged build. States: "downloading"/"snapshot"/"starting"/"error" (managed setup phases, node not up yet —
+// narrated from the /node-status feed), "syncing" (IBD, few peers), "no-peers" (reachable, zero peers), "at-tip"
+// (synced — the bundled sample). Any other value falls back to "at-tip".
 const PREVIEW = !app.isPackaged && process.env.NOTZERO_PREVIEW ? process.env.NOTZERO_PREVIEW.trim() : null;
 const MIME = {
   ".html": "text/html; charset=utf-8", ".js": "text/javascript; charset=utf-8", ".json": "application/json; charset=utf-8",
@@ -818,10 +819,20 @@ function previewNodeJson() {
   let base = {}; try { base = JSON.parse(fs.readFileSync(path.join(WEB_DIR, "node.json"), "utf8")); } catch (_) {}
   const tip = base.headers || 957800, nowS = Math.floor(Date.now() / 1000);
   const peers = Array.isArray(base.peers) ? base.peers : [];
-  if (PREVIEW === "starting") return { ts: nowS, reachable: false }; // node process not answering RPC yet
+  // pre-reachable managed-setup phases → node not answering RPC yet; the /node-status feed drives the narration
+  if (["starting", "downloading", "snapshot", "error"].includes(PREVIEW)) return { ts: nowS, reachable: false };
   if (PREVIEW === "no-peers") return { ...base, reachable: true, headers: tip, blocks: tip - 6, initialblockdownload: true, verificationprogress: 0.9998, tip_time: nowS - 3600, peers: [] };
   if (PREVIEW === "syncing") return { ...base, reachable: true, headers: tip, blocks: tip - 6, initialblockdownload: true, verificationprogress: 0.9998, tip_time: nowS - 3600, peers: peers.slice(0, 3).map((p, i) => ({ ...p, rate: i < 2 ? 3_000_000 : 0, downloading: i < 2 })) };
   return base; // "at-tip" / default: the synced sample as-is
+}
+// The managed-node provisioning feed (/node-status) for a preview state, so the dashboard narrates a real setup
+// phase (download → snapshot % → syncing → error). "ready" for states where the live node.json already drives it.
+function previewNodeStatus() {
+  if (PREVIEW === "downloading") return { state: "downloading-core", progress: 0.6, detail: null };
+  if (PREVIEW === "snapshot") return { state: "loading-snapshot", progress: 0.42, detail: "Loading the snapshot into your node — the heavy step, a few minutes. Please leave the app open." };
+  if (PREVIEW === "starting") return { state: "starting", progress: null, detail: null };
+  if (PREVIEW === "error") return { state: "error", progress: null, detail: "Couldn't reach the download server — check your internet and reopen the app to retry." };
+  return { state: "ready", progress: 1, detail: null };
 }
 
 // ---- static server: the dashboard, the wizard, the bridge's live node.json, and the setup POST ----
@@ -842,7 +853,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/node-retry") { retryManagedNode().finally(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); }); return; }
       if (urlPath === "/disk") { const free = freeBytes(DATA_DIR); res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ freeGB: free == null ? null : gb(free), requiredGB: gb(REQUIRED_FREE_BYTES), ok: free == null || free >= REQUIRED_FREE_BYTES })); return; }
       if (urlPath === "/detect-node") { detectExistingNode().then((r) => { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(r)); }).catch(() => { res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"found":false}'); }); return; }
-      if (urlPath === "/node-status") { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ ...managedState, log: managedLog.slice(-60) })); return; }
+      if (urlPath === "/node-status") { if (PREVIEW) { res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify(previewNodeStatus())); return; } res.writeHead(200, { "Content-Type": "application/json", "Cache-Control": "no-store" }); res.end(JSON.stringify({ ...managedState, log: managedLog.slice(-60) })); return; }
       if (urlPath === "/setup") { fs.readFile(WIZARD, (e, d) => { if (e) { res.writeHead(404); res.end(); } else { res.writeHead(200, { "Content-Type": "text/html; charset=utf-8", "Cache-Control": "no-store" }); res.end(d); } }); return; }
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         if (PREVIEW) { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(previewConfig())); return; }

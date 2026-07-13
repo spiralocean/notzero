@@ -10,6 +10,9 @@
     "preview:syncing": "NOTZERO_PREVIEW=syncing electron .",
     "preview:no-peers": "NOTZERO_PREVIEW=no-peers electron .",
     "preview:starting": "NOTZERO_PREVIEW=starting electron .",
+    "preview:downloading": "NOTZERO_PREVIEW=downloading electron .",
+    "preview:snapshot": "NOTZERO_PREVIEW=snapshot electron .",
+    "preview:error": "NOTZERO_PREVIEW=error electron .",
     "build:engines": "bash build-engines.sh",
     "dist": "npm run build:engines && electron-builder",
     "dist:mac": "npm run build:engines && electron-builder --mac dir"
