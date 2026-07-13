@@ -239,6 +239,25 @@ const model = { tipHeight: null, block: null, txCount: null, price: null, hashra
 // true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
 // you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
 function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
+// Turn the managed-node provisioning feed into a human phase for the dashboard to show. Returns null unless we're
+// in desktop managed mode AND the node is mid-setup (before it's a reachable, mineable node). {head, detail,
+// progress (0-1|null), isError}. `detail` prefers the app's own message so the wording stays in one place.
+function nodeSetupView() {
+  const s = nodeSetup;
+  if (!s || !isDesktop || nodeMode !== "managed") return null;
+  if (s.state === "ready" || s.state === "idle" || !s.state) return null; // node up (or nothing happening) → the live node.json drives the panel
+  const P = s.progress != null ? Math.max(0, Math.min(1, s.progress)) : null, pct = P != null ? ` ${Math.round(P * 100)}%` : "";
+  const M = {
+    "downloading-core": { head: "Downloading Bitcoin Core" + pct,      detail: "Fetching the node software — a one-time download." },
+    "extracting":       { head: "Unpacking Bitcoin Core",              detail: "Almost ready to start your node." },
+    "starting":         { head: "Starting your node",                  detail: "Bringing Bitcoin Core online…" },
+    "loading-snapshot": { head: "Loading the verified snapshot" + pct, detail: "The fast-start step — a few minutes. Please leave the app open." },
+    "syncing":          { head: "Syncing the blockchain" + pct,        detail: "Downloading and verifying blocks up to the current tip." },
+    "error":            { head: "Your node hit a snag",                detail: "Setup couldn't finish — open Settings to retry.", isError: true },
+  }[s.state];
+  if (!M) return null;
+  return { head: M.head, detail: s.detail || M.detail, progress: P, isError: !!M.isError };
+}
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
@@ -286,6 +305,9 @@ async function pollNode() {
     // remember the last moment the node was genuinely up + has chain data, so a brief drop (e.g. the engines
     // restarting when you save settings) can show "reconnecting…" instead of a scary "no node connected".
     if (model.node && model.node.reachable !== false && ((model.node.headers || 0) > 0 || (model.node.blocks || 0) > 0)) model.nodeLastOk = Date.now();
+    // desktop managed mode: poll the app's own provisioning feed so the dashboard can narrate the REAL setup phase
+    // (downloading Core, loading snapshot %, syncing…) and surface any error — not just a generic "starting".
+    if (isDesktop && nodeMode === "managed") { try { const sr = await fetch("./node-status", { cache: "no-store" }); nodeSetup = sr.ok ? await sr.json() : nodeSetup; } catch { /* keep the last known phase on a blip */ } }
     // the local node sees a new block within ~3s; if it's ahead of our last mempool fetch, refresh now
     // so the elapsed/countdown stays synced with current mining instead of lagging up to REFRESH_MS
     const n = model.node;
@@ -626,6 +648,7 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null;
+let nodeSetup = null; // desktop managed-node provisioning feed (/node-status): {state, progress, detail} — real setup phase for the dashboard to narrate
 let updPaused = false, updStep = 0, updPlayHit = null, updBackHit = null, updFwdHit = null, updStreams = {}; // VERIFIED UPDATES step-through transport + water-pipe stream state
 // per-step durations (ms) — step 2 (stamp: stream → hash → orange → store → blink) and step 5 (rebuild) need more room
 const UPD_DUR = [3200, 6200, 3200, 3200, 5200, 3800], UPD_CYC = UPD_DUR.reduce((a, b) => a + b, 0);
@@ -790,7 +813,7 @@ function summary(s) {
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "avalanche") { return "1 bit in → half the hash out · no aiming"; }
   if (s === "verify") { const v = model.verify; return v ? (v.merkleMatch == null ? "recomputing the proof-of-work…" : ((v.hashMatch && v.belowTarget && v.merkleMatch) ? "hash ✓ · below target ✓ · merkle ✓ — valid" : "check failed")) : "recompute a real block's hash yourself"; }
-  if (s === "broadcast") { const n = model.node, rdy = n && n.reachable !== false && !(n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)); return rdy ? "node ready · P2P armed" : "P2P armed · node syncing"; }
+  if (s === "broadcast") { const n = model.node, reachable = !!(n && n.reachable !== false), rdy = reachable && !(n.initialblockdownload || (n.headers || 0) > (n.blocks || 0)); return !reachable ? "P2P armed · node starting" : rdy ? "node ready · P2P armed" : "P2P armed · node syncing"; }
   if (s === "tickets") { const h = model.node?.miner?.history; if (!h || !h.length) return "—"; const span = h[0].h - h[h.length - 1].h + 1; const u = h.filter((e) => e.w && !e.s).length; return `${h.length} tickets · ${Math.max(0, span - h.length)} missed${u ? ` · ⚠ ${u}` : ""}`; }
   if (s === "merkle") { const n = Math.max(model.txCount || 0, 2); return `${n.toLocaleString()} transactions → one root · pair · concatenate · hash`; }
   if (s === "fold") { return "long message → 512-bit blocks · each output replaces the constants"; }
@@ -2726,9 +2749,22 @@ function drawSync(r) {
       text("the miner restarted (normal after saving settings) — this fills back in a moment", cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
       return;
     }
-    text(sym ? "practice mode — no Bitcoin node yet" : "no node connected", cx0, cy0 - 14, { size: 15, weight: 700, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+    const managed = nodeMode === "managed", dots = ".".repeat(1 + (Math.floor(clock * 1.5) % 3)); // animated ellipsis so a "starting/waiting" state never looks frozen
+    const setup = managed ? nodeSetupView() : null;
+    if (setup) { // narrate the REAL provisioning phase from the app (download → snapshot → sync), with a live progress bar
+      const col = setup.isError ? "rgba(255,120,110,0.95)" : "rgba(255,210,110,0.92)", hasBar = setup.progress != null;
+      text(setup.head + (setup.isError ? "" : dots), cx0, cy0 - (hasBar ? 26 : 14), { size: 15, weight: 700, color: col, align: "center", baseline: "middle" });
+      text(setup.detail, cx0, cy0 + (hasBar ? -4 : 12), { size: 12, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+      if (hasBar) { const bw2 = Math.min(360, r.w * 0.5), bx2 = cx0 - bw2 / 2, byy = cy0 + 18, bh2 = 6;
+        ctx.fillStyle = "rgba(255,255,255,0.12)"; roundRect(bx2, byy, bw2, bh2, 3); ctx.fill();
+        ctx.fillStyle = "rgba(255,210,110,0.85)"; roundRect(bx2, byy, bw2 * setup.progress, bh2, 3); ctx.fill(); }
+      return;
+    }
+    text(sym ? "practice mode — no Bitcoin node yet" : managed ? "starting your node" + dots : "waiting for your node" + dots,
+      cx0, cy0 - 14, { size: 15, weight: 700, color: sym ? "rgba(255,255,255,0.6)" : "rgba(255,210,110,0.9)", align: "center", baseline: "middle" });
     text(sym ? "set up a node (bitcoind) and this fills with the real chain syncing — then you mine for real"
-             : "start bitcoind and this shows the blockchain downloading + verifying, block by block",
+             : managed ? "Setting up your private Bitcoin node in the background — this can take a few minutes. Nothing for you to do; it fills in on its own."
+             : "This fills in automatically once your node is running and reachable — it downloads and verifies the chain, block by block.",
       cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     return;
   }
@@ -2863,7 +2899,7 @@ function drawSync(r) {
   for (let s = 0; s <= 48; s++) { const th = Math.PI * (s / 48), ax = cx + Rx * Math.cos(th), ay = archBaseY - Ry * Math.sin(th); s === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay); }
   ctx.stroke();
   if (peers.length === 0) {
-    text("no peers connected — start your node (bitcoind) to see them here", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
+    text(nodeMode === "managed" ? "connecting to the Bitcoin network…" : "connecting to peers — waiting for your node to find some", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   } else {
     text(`${peers.length} peers`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
     const shown = Math.min(peers.length, 12);
@@ -3368,7 +3404,7 @@ function drawBroadcast(r) {
     text(`${ok ? "✓" : "…"} ${label}`, bx + 10, by + 10, { size: 10, weight: 700, color: `rgba(${c},1)`, baseline: "middle" });
     text(sub, bx + 238, by + 10, { size: 9, color: "rgba(255,255,255,0.5)", align: "right", baseline: "middle" });
   };
-  badge(x0, nodeReady, nodeReady ? "Your node: ready" : (reachable ? "Your node: syncing" : "Your node: offline"), peerCount ? `${peerCount} peers` : "relays your block");
+  badge(x0, nodeReady, nodeReady ? "Your node: ready" : reachable ? "Your node: syncing" : nodeMode === "managed" ? "Your node: starting" : "Your node: offline", peerCount ? `${peerCount} peers` : "relays your block");
   badge(x0 + 258, true, "Direct P2P: armed", "~25 nodes on standby");
   text(burst ? "★ Block found — broadcasting to your peers and the wider network right now." : (nodeReady ? "If you win right now, your block goes out instantly — both paths, no manual step." : "Even while your node syncs, the direct P2P path is armed — a win still gets broadcast."),
     x0 + 520, r.y + r.h - 20, { size: 10, weight: 600, color: burst ? `rgba(${GLD},1)` : (nodeReady ? `rgba(${GRN},0.9)` : `rgba(${GLD},0.9)`), baseline: "middle" });
@@ -3574,7 +3610,7 @@ function drawMinerStatus() {
   const ageSec = haveTs ? (Date.now() - tMs) / 1000 : Infinity;
   const GREEN = "90,225,140", AMBER = "255,190,70", RED = "255,90,90";
   let dot, label, sub;
-  if (!reachable) { if (nodeReconnecting()) { dot = AMBER; label = "reconnecting"; sub = "miner restarting"; } else { dot = RED; label = "not submitting"; sub = "node offline"; } }
+  if (!reachable) { if (nodeReconnecting()) { dot = AMBER; label = "reconnecting"; sub = "miner restarting"; } else if (nodeMode === "managed") { const sv = nodeSetupView(); dot = sv && sv.isError ? RED : AMBER; label = sv && sv.isError ? "setup error" : "getting ready"; sub = sv ? sv.head.toLowerCase() : "node starting"; } else { dot = RED; label = "not submitting"; sub = "node offline"; } }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
   else if (!minerStalled(n, ageSec)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
@@ -3790,7 +3826,7 @@ function render(ts) {
   if (!node && nodeReconnecting()) { fmsg = `◌ reconnecting to your node… · ${ver}`; fcol = "rgba(255,200,90,0.95)"; }
   else if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
-  else if (!reachable) { fmsg = nodeReconnecting() ? `◌ reconnecting to your node… · ${ver}` : `○ node unreachable — check your node · ${ver}`; fcol = "rgba(255,150,80,0.95)"; }
+  else if (!reachable) { const sv = nodeMode === "managed" ? nodeSetupView() : null; fmsg = nodeReconnecting() ? `◌ reconnecting to your node… · ${ver}` : sv ? `${sv.isError ? "○" : "◌"} ${sv.head}${sv.isError ? "" : "…"} · ${ver}` : nodeMode === "managed" ? `◌ starting your node… · ${ver}` : `○ node unreachable — check your node · ${ver}`; fcol = sv && sv.isError ? "rgba(255,120,110,0.95)" : "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
