@@ -19,6 +19,18 @@ version number and bump `desktop/package.json`.
   are closed, so the click always has a visible effect.
 - **The "N peers" label no longer overlaps the sync warning.** While the node was catching up, the peer-arch label
   sat on top of the "your computer may warm up…" line. The arch now drops a row while syncing so the two are clear.
+- **Node-startup messaging reads as "working," not a to-do.** While your managed node was still starting, the
+  dashboard said "start your node (bitcoind)" and "no peers connected" — implying you had to do something, for a
+  node the app runs itself. It now shows "starting your node…" / "connecting to the Bitcoin network…" with an
+  animated indicator, so it's clearly working, not stalled. (Bring-your-own-node keeps a gentle "waiting for your
+  node" variant.)
+- **Node status is consistent across panels during startup.** BROADCAST, the miner pill and the footer no longer
+  say "node offline / not submitting / node syncing / check your node" while SYNC shows the node still starting —
+  in managed mode they all agree on "starting" until it's actually up.
+- **The dashboard now narrates what your node is actually doing.** Instead of a generic "starting," managed setup
+  shows the real phase from the node itself — "Downloading Bitcoin Core," "Loading the verified snapshot 42%" (with
+  a progress bar), "Syncing the blockchain" — and if setup fails, it says so ("Your node hit a snag") with the
+  reason, instead of looking stuck forever. The phase also shows in the top pill and footer.
 
 **Desktop**
 - **No more false "node offline?" after a reboot.** The on-chain update check ran the instant the app launched, so
