@@ -2858,7 +2858,7 @@ function drawSync(r) {
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
-  const archBaseY = r.y + 152, Rx = Math.min(r.w / 2 - 48, 340), Ry = 58;
+  const archBaseY = r.y + (behind > 0 ? 168 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // while syncing, the "warm up / fan" warning takes the row under the status — drop the arch so the "N peers" label clears it
   ctx.strokeStyle = `rgba(${ACCENT},0.12)`; ctx.lineWidth = 1; ctx.beginPath();
   for (let s = 0; s <= 48; s++) { const th = Math.PI * (s / 48), ax = cx + Rx * Math.cos(th), ay = archBaseY - Ry * Math.sin(th); s === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay); }
   ctx.stroke();
