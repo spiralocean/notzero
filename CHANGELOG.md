@@ -14,9 +14,13 @@ version number and bump `desktop/package.json`.
 - **The blockchain train shows the full block height again.** The blocks in the sync/conveyor view labelled their
   height mod 100000, so a tip of 957781 rendered as #57781 — looking like a stale chain 900000 blocks behind the
   real one. They now show the full height, matching the network number.
-- **"Preview a block" always shows something now.** The preview only animates inside the MEMPOOL/SYNC panels, so
-  clicking it with both collapsed looked dead. It now opens the MEMPOOL panel (the block-mined harvest) when both
-  are closed, so the click always has a visible effect.
+- **"Preview a block" always shows something now.** It only animated inside the MEMPOOL/SYNC panels — and the sync
+  half needs the node at the tip — so pressing it while scrolled away, with those panels closed, or mid-sync did
+  nothing. It now always opens the MEMPOOL panel and scrolls to it, so the block-mined harvest is visible wherever
+  you are.
+- **The fixed top controls no longer overlap panel text when scrolled.** "Preview a block / a win" (top-right) and
+  the motion / text-size controls (top-left) sat directly on top of whatever panel had scrolled up behind them.
+  They now have a scrim, like the footer, so they stay readable and clear of the content.
 - **The "N peers" label no longer overlaps the sync warning.** While the node was catching up, the peer-arch label
   sat on top of the "your computer may warm up…" line. The arch now drops a row while syncing so the two are clear.
 - **Node-startup messaging reads as "working," not a to-do.** While your managed node was still starting, the
