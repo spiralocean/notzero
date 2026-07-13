@@ -3899,7 +3899,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
   }
-  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; return; } // replay the block-mined animations
+  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; if (!expanded.has("mempool") && !expanded.has("sync")) { expanded.add("mempool"); saveExpanded(); } requestRender(); return; } // replay the block-mined animations — open a panel to show it if both are collapsed (otherwise the click looks dead)
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
     const cyc = e.offsetY + scrollY;
