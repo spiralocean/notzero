@@ -128,6 +128,18 @@
         <label>Coinbase tag <span style="opacity:.6">(optional)</span></label>
         <input id="coinbase_tag" type="text" maxlength="90" placeholder="/BitcoinLottery/0.1/getnotzero.com/ (default)" spellcheck="false" />
         <div class="hint" style="margin-top:6px">A short message stamped into the coinbase of any block you mine. Vanity only — it's permanent and public on-chain. Max ~90 bytes; the block height is added automatically.</div>
+        <details style="margin-top:16px">
+          <summary style="cursor:pointer; color:rgba(255,153,26,0.92); font-size:13px; font-weight:600; list-style:none">What notzero touches on your node ▸</summary>
+          <div class="reassure" style="margin-top:8px">
+            It's a read-only RPC client. The <b>only write is <code>submitblock</code></b> — and only if a ticket actually wins (~1 in 10<sup>23</sup> per block).<br/><br/>
+            ✓ <b>Reads only</b> for the ticket + dashboard: <code>getblocktemplate</code> and a handful of <code>get*</code> calls.<br/>
+            ✓ <b>No wallet, no keys.</b> Your payout is just a receive address you paste — it never touches your node's wallet.<br/>
+            ✓ <b>No changes</b> to your <code>bitcoin.conf</code>, mempool, peers, or ports.<br/>
+            ✓ <b>Coexists</b> with your own mining / wallet / Lightning — <code>getblocktemplate</code> is shared and read-only.<br/>
+            ✓ <b>Least privilege:</b> a scoped RPC user only needs <code>getblocktemplate</code> + <code>submitblock</code> + those reads.<br/><br/>
+            Walk away and the worst case is it pulls one template every ~10 min and hashes it once — nothing to clean up. Open source, so you can read every call: <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener" style="color:rgba(255,153,26,0.92)">the code ↗</a>
+          </div>
+        </details>
       </div>
     </div>
 

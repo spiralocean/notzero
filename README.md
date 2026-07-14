@@ -59,6 +59,19 @@ When people hear "Bitcoin miner," two fears come up: a machine screaming at 100%
 
 The one real cost is bitcoind's **first blockchain sync** (bandwidth + time, one time) — pruning keeps the disk footprint small. After that it's a quiet background hum, not a furnace.
 
+## For node operators — exactly what it touches
+
+notzero is built for non-technical users (it can set up a private pruned node for you), but if you already run `bitcoind` and want to point it at your own node, here's the complete RPC surface. It's a **read-only client except for one call that only fires on a win**:
+
+- **Reads only** — the ticket + the dashboard: `getblocktemplate`, `getblockchaininfo`, `getblockcount`, `getblockhash`, `getblock`, `getrawtransaction`, `getpeerinfo`, `getnodeaddresses`, `getnettotals`. None change node state.
+- **One write — `submitblock` — only if a ticket beats the target** (~1 in 10²³ per block). Submitting a valid block is what a node is *for*; it can't corrupt anything.
+- **No wallet, no keys.** It never opens or needs your wallet. The payout is a receive *address* you configure — notzero builds it into the coinbase of the block it *would* submit. (The optional balance readout queries that address's public balance from mempool.space, not your node.)
+- **No config / mempool / peer / network changes.** It doesn't edit `bitcoin.conf`, add peers, open ports, or touch your mempool or chainstate. One RPC connection; `getblocktemplate` once per block (bitcoind caches templates).
+- **Coexists with everything.** `getblocktemplate` is read-only and shared, so it runs cleanly alongside your own mining, wallet, or Lightning tooling — it builds a *different* candidate block (its own coinbase/payout) and never competes for your work.
+- **Least privilege.** Point it at a scoped RPC user needing only `getblocktemplate` + `submitblock` + the reads above (e.g. via `rpcwhitelist`). Cookie auth works too — leave user/pass blank.
+
+Walk away and the worst case is: it pulls a template every ~10 minutes and hashes it once. Nothing to clean up. Every call is in [`lottery_miner.py`](lottery_miner.py) and [`scripts/node_bridge.py`](scripts/node_bridge.py) — read them.
+
 ## How it's built
 
 ```
