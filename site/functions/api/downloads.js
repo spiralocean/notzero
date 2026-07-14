@@ -1,37 +1,48 @@
-// Cloudflare Pages Function — a download counter backed by KV (binding: STATS).
-//   GET  /api/downloads         → { count, mac, win, linux }   (count = total across all OSes)
-//   POST /api/downloads?os=mac  → increment the total + that OS, return the same shape
-// The client dedupes per browser (localStorage) so a refresh doesn't keep counting, and only the FIRST
-// download per browser is counted — so this is "unique downloaders," attributed to the OS of that click.
-// No personal data, no cookies — just integers, in keeping with the no-phone-home posture (opt-in social proof).
-// NOTE: KV increments are read-modify-write (not atomic), so concurrent clicks can occasionally lose a
-// count. That's fine for approximate social proof — don't treat these as billing-grade totals.
+// Cloudflare Pages Function — download counter backed by KV (binding: STATS).
+//   GET  /api/downloads          → { count, mac, win, linux }            (cheap: totals only)
+//   GET  /api/downloads?daily=1  → …plus { days: { "YYYY-MM-DD": {mac,win,linux,other} } }
+//   POST /api/downloads?os=mac   → increment total + that OS + today's per-day bucket
+// Dedupe is client-side (localStorage) so a refresh doesn't recount; only the first download per browser
+// counts. No cookies/PII — just integers (opt-in social proof).
+// NOTE: KV is read-modify-write (not atomic); concurrent clicks can rarely lose a count. Fine for a
+// low-volume social-proof counter — not billing-grade. Per-day tracking begins at deploy, so the summed
+// daily buckets can trail the all-time `count` by whatever was downloaded before this shipped.
 const TOTAL = "downloads";
+const DAILY = "downloads:daily";
 const OSES = ["mac", "win", "linux"];
 const osKey = (os) => "downloads:" + os;
 const headers = { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" };
 const num = (v) => parseInt(v || "0", 10);
+const today = () => new Date().toISOString().slice(0, 10); // UTC day
 
-async function readAll(kv) {
-  const [total, mac, win, linux] = await Promise.all([
-    kv.get(TOTAL), kv.get(osKey("mac")), kv.get(osKey("win")), kv.get(osKey("linux")),
-  ]);
-  return { count: num(total), mac: num(mac), win: num(win), linux: num(linux) };
+async function totals(kv) {
+  const [t, mac, win, linux] = await Promise.all([kv.get(TOTAL), kv.get(osKey("mac")), kv.get(osKey("win")), kv.get(osKey("linux"))]);
+  return { count: num(t), mac: num(mac), win: num(win), linux: num(linux) };
 }
 
 export async function onRequestGet(context) {
   const kv = context.env.STATS;
   if (!kv) return new Response(JSON.stringify({ count: null }), { headers });
-  return new Response(JSON.stringify(await readAll(kv)), { headers });
+  const out = await totals(kv);
+  if (new URL(context.request.url).searchParams.has("daily")) {
+    const raw = await kv.get(DAILY);
+    out.days = raw ? JSON.parse(raw) : {};
+  }
+  return new Response(JSON.stringify(out), { headers });
 }
 
 export async function onRequestPost(context) {
   const kv = context.env.STATS;
   if (!kv) return new Response(JSON.stringify({ count: null }), { headers });
-  // total always increments (also covers older clients that don't send ?os)
   await kv.put(TOTAL, String(num(await kv.get(TOTAL)) + 1));
-  // per-OS only for a recognised value, so a bogus ?os can't create arbitrary keys
   const os = new URL(context.request.url).searchParams.get("os");
-  if (OSES.includes(os)) { const k = osKey(os); await kv.put(k, String(num(await kv.get(k)) + 1)); }
-  return new Response(JSON.stringify(await readAll(kv)), { headers });
+  const bucket = OSES.includes(os) ? os : "other"; // unknown/old clients → "other"
+  if (bucket !== "other") { const k = osKey(bucket); await kv.put(k, String(num(await kv.get(k)) + 1)); }
+  // per-day buckets (UTC), split by OS, in a single JSON blob (tiny: ~15 bytes/day)
+  const days = JSON.parse((await kv.get(DAILY)) || "{}");
+  const d = today();
+  days[d] = days[d] || { mac: 0, win: 0, linux: 0, other: 0 };
+  days[d][bucket] = (days[d][bucket] || 0) + 1;
+  await kv.put(DAILY, JSON.stringify(days));
+  return new Response(JSON.stringify(await totals(kv)), { headers });
 }
