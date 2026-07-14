@@ -395,9 +395,10 @@
     fetch("/api/downloads").then((r) => r.json()).then((d) => {
       if (el && typeof d.count === "number" && d.count >= DL_MIN_SHOW) el.textContent = "↓ " + d.count.toLocaleString() + " downloads so far";
     }).catch(() => {});
-    const bump = () => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads"); } catch (_) {} };
-    ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(); }); });
-    document.querySelectorAll("#others a").forEach((a) => a.addEventListener("click", bump)); // count alternate-link clicks too (deduped per browser, same as the buttons)
+    const osFromHref = (h) => (h === WIN_URL ? "win" : h === LINUX_URL ? "linux" : h === MAC_URL ? "mac" : os); // alternate links carry their own OS; buttons use the detected one
+    const bump = (osName) => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads?os=" + encodeURIComponent(osName || os)); } catch (_) {} };
+    ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(os); }); });
+    document.querySelectorAll("#others a").forEach((a) => a.addEventListener("click", () => bump(osFromHref(a.getAttribute("href"))))); // count alternate-link clicks too, attributed to their OS (deduped per browser, same as the buttons)
   })();
   // show the current downloadable version next to the button (auto-pulled from the update feed)
   fetch("/api/version").then((r) => r.json()).then((d) => {
