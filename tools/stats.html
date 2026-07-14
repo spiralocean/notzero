@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>notzero · download stats</title>
+<style>
+  :root {
+    --surface: #1a1a19; --panel: #232320; --line: #35342f;
+    --ink: #ffffff; --ink-2: #c3c2b7; --ink-3: #86857b;
+    --mac: #3987e5; --win: #199e70; --linux: #c98500; --other: #7a7970;
+  }
+  @media (prefers-color-scheme: light) {
+    :root {
+      --surface: #fcfcfb; --panel: #ffffff; --line: #e6e5e0;
+      --ink: #0b0b0b; --ink-2: #52514e; --ink-3: #7d7c76;
+      --mac: #2a78d6; --win: #1baf7a; --linux: #eda100; --other: #8a897f;
+    }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--surface); color: var(--ink);
+    font: 14px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif; -webkit-font-smoothing: antialiased; }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 28px 20px 60px; }
+  header { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+  h1 { font-size: 18px; font-weight: 800; margin: 0; letter-spacing: .2px; }
+  h1 small { color: var(--ink-3); font-weight: 600; font-size: 12px; margin-left: 8px; }
+  button { font: inherit; font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--panel);
+    border: 1px solid var(--line); border-radius: 8px; padding: 6px 12px; cursor: pointer; }
+  button:hover { color: var(--ink); border-color: var(--ink-3); }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 12px; margin: 22px 0 26px; }
+  .tile { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+  .tile .k { font-size: 11px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
+  .tile .k .sw { width: 9px; height: 9px; border-radius: 2px; flex: none; }
+  .tile .v { font-size: 30px; font-weight: 800; margin-top: 6px; letter-spacing: -.5px; font-variant-numeric: tabular-nums; }
+  .tile.hero .v { font-size: 40px; }
+  .tile .sub { font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 18px 18px 12px; }
+  .card h2 { font-size: 13px; font-weight: 700; margin: 0 0 2px; }
+  .card .cap { font-size: 11px; color: var(--ink-3); margin: 0 0 14px; }
+  .legend { display: flex; gap: 16px; flex-wrap: wrap; margin: 0 0 6px; }
+  .legend span { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--ink-2); font-weight: 600; }
+  .legend .sw { width: 11px; height: 11px; border-radius: 3px; }
+  svg { display: block; width: 100%; height: auto; overflow: visible; }
+  .grid line { stroke: var(--line); }
+  .axis text { fill: var(--ink-3); font-size: 10px; }
+  .baseline { stroke: var(--ink-3); stroke-width: 1; opacity: .5; }
+  .bar { cursor: pointer; }
+  .bar rect { stroke: var(--panel); stroke-width: 2; } /* 2px surface gap between stacked segments */
+  .bar:hover rect { filter: brightness(1.12); }
+  .val { fill: var(--ink-2); font-size: 10px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .empty { color: var(--ink-3); text-align: center; padding: 48px 12px; font-size: 13px; }
+  .tip { position: fixed; pointer-events: none; z-index: 9; background: var(--panel); border: 1px solid var(--line);
+    border-radius: 9px; padding: 9px 11px; font-size: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.35); opacity: 0; transition: opacity .08s; min-width: 130px; }
+  .tip .d { font-weight: 700; margin-bottom: 5px; }
+  .tip .r { display: flex; align-items: center; justify-content: space-between; gap: 14px; color: var(--ink-2); }
+  .tip .r b { color: var(--ink); font-variant-numeric: tabular-nums; }
+  .tip .r .lab { display: inline-flex; align-items: center; gap: 6px; }
+  .tip .r .sw { width: 8px; height: 8px; border-radius: 2px; }
+  .tip .tot { border-top: 1px solid var(--line); margin-top: 6px; padding-top: 5px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; margin-top: 6px; }
+  th, td { text-align: right; padding: 6px 10px; border-bottom: 1px solid var(--line); font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--ink-3); font-weight: 700; }
+  .hide { display: none; }
+  .foot { color: var(--ink-3); font-size: 11px; margin-top: 18px; }
+  .err { color: #e66767; }
+</style>
+</head>
+<body data-palette="#3987e5,#199e70,#c98500">
+<div class="wrap">
+  <header>
+    <h1>notzero downloads <small id="src">getnotzero.com/api/downloads</small></h1>
+    <div>
+      <button id="table-toggle" aria-pressed="false">Table view</button>
+      <button id="refresh">↻ Refresh</button>
+    </div>
+  </header>
+
+  <div class="tiles" id="tiles"></div>
+
+  <div class="card">
+    <h2>Downloads per day</h2>
+    <p class="cap">By operating system · UTC days · hover a bar for the breakdown</p>
+    <div class="legend" id="legend"></div>
+    <div id="chart"></div>
+    <div id="table" class="hide"></div>
+  </div>
+
+  <p class="foot" id="foot"></p>
+</div>
+<div class="tip" id="tip"></div>
+
+<script>
+const OS = [
+  { key: "mac",   label: "macOS",   varc: "--mac" },
+  { key: "win",   label: "Windows", varc: "--win" },
+  { key: "linux", label: "Linux",   varc: "--linux" },
+  { key: "other", label: "Other",   varc: "--other" },
+];
+const API = "https://getnotzero.com/api/downloads?daily=1";
+const cvar = (v) => getComputedStyle(document.documentElement).getPropertyValue(v).trim();
+const fmt = (n) => (n == null ? "—" : n.toLocaleString());
+const $ = (id) => document.getElementById(id);
+let DATA = null, showTable = false;
+
+// allow ?sample to preview the chart shape with synthetic data (never touches the live counter)
+function sampleDays() {
+  const out = {}, base = new Date("2026-07-01T00:00:00Z");
+  for (let i = 0; i < 21; i++) {
+    const d = new Date(base.getTime() + i * 86400000).toISOString().slice(0, 10);
+    const mac = Math.round(2 + 6 * Math.abs(Math.sin(i / 3)));
+    out[d] = { mac, win: Math.round(mac * 0.5), linux: Math.round(mac * 0.25), other: i % 5 === 0 ? 1 : 0 };
+  }
+  return out;
+}
+
+async function load() {
+  $("foot").textContent = "Loading…"; $("foot").className = "foot";
+  try {
+    if (new URLSearchParams(location.search).has("sample")) {
+      const days = sampleDays(); let mac = 0, win = 0, linux = 0;
+      for (const d of Object.values(days)) { mac += d.mac; win += d.win; linux += d.linux; }
+      DATA = { count: mac + win + linux + 12, mac, win, linux, days, _sample: true };
+    } else {
+      const r = await fetch(API, { cache: "no-store" });
+      DATA = await r.json();
+    }
+    render();
+  } catch (e) {
+    $("foot").innerHTML = '<span class="err">Couldn\'t reach the stats API — is your connection up? ' +
+      'If opened as a file, serve the folder instead (python3 -m http.server) so the fetch is allowed.</span>';
+  }
+}
+
+function render() {
+  const d = DATA || {};
+  const days = Object.entries(d.days || {}).sort((a, b) => (a[0] < b[0] ? -1 : 1));
+  const dayTotal = (v) => OS.reduce((s, o) => s + (v[o.key] || 0), 0);
+  const tracked = days.reduce((s, [, v]) => s + dayTotal(v), 0);
+
+  // tiles: all-time total (hero) + per-OS
+  const tile = (cls, k, v, sub, sw) =>
+    `<div class="tile ${cls}"><div class="k">${sw ? `<span class="sw" style="background:${sw}"></span>` : ""}${k}</div>` +
+    `<div class="v">${fmt(v)}</div>${sub ? `<div class="sub">${sub}</div>` : ""}</div>`;
+  $("tiles").innerHTML =
+    tile("hero", "Total downloads", d.count, d._sample ? "sample data" : "all time", "") +
+    OS.slice(0, 3).map((o) => tile("", o.label, d[o.key], "all time", cvar(o.varc))).join("");
+
+  // legend
+  $("legend").innerHTML = OS.map((o) => `<span><span class="sw" style="background:${cvar(o.varc)}"></span>${o.label}</span>`).join("");
+
+  if (!days.length) {
+    $("chart").innerHTML = '<div class="empty">No daily data yet — downloads will appear here as they come in.' +
+      '<br>(Add <b>?sample</b> to the URL to preview the chart shape.)</div>';
+    $("table").innerHTML = "";
+  } else {
+    $("chart").innerHTML = showTable ? "" : svgChart(days, dayTotal);
+    $("table").innerHTML = showTable ? tableView(days, dayTotal) : "";
+    if (!showTable) wireHover(days, dayTotal);
+  }
+  $("chart").classList.toggle("hide", showTable);
+  $("table").classList.toggle("hide", !showTable);
+
+  const note = d._sample ? "Showing SAMPLE data (remove ?sample for live)." :
+    `${tracked.toLocaleString()} download(s) tracked by day since per-day logging began; ` +
+    `the ${fmt(d.count)} all-time total includes downloads from before that.`;
+  $("foot").textContent = note;
+}
+
+function svgChart(days, dayTotal) {
+  const W = 900, H = 300, mL = 34, mR = 12, mT = 14, mB = 30;
+  const iw = W - mL - mR, ih = H - mT - mB;
+  const max = Math.max(1, ...days.map(([, v]) => dayTotal(v)));
+  const niceMax = Math.max(1, Math.ceil(max / 4) * 4);
+  const n = days.length, bw = Math.min(38, iw / n * 0.66), step = iw / n;
+  const y = (val) => mT + ih - (val / niceMax) * ih;
+  const ticks = [0, niceMax / 4, niceMax / 2, (3 * niceMax) / 4, niceMax];
+
+  let g = "";
+  // gridlines + y axis
+  g += `<g class="grid">` + ticks.map((t) => `<line x1="${mL}" x2="${W - mR}" y1="${y(t)}" y2="${y(t)}"/>`).join("") + `</g>`;
+  g += `<g class="axis">` + ticks.map((t) => `<text x="${mL - 7}" y="${y(t) + 3}" text-anchor="end">${Math.round(t)}</text>`).join("") + `</g>`;
+  g += `<line class="baseline" x1="${mL}" x2="${W - mR}" y1="${y(0)}" y2="${y(0)}"/>`;
+
+  // bars: stacked mac→win→linux→other, 4px rounded top on the whole stack, 2px gaps
+  const labelStep = Math.ceil(n / 12);
+  days.forEach(([date, v], i) => {
+    const cx = mL + step * i + step / 2, x = cx - bw / 2, tot = dayTotal(v);
+    let yb = y(0), segs = "";
+    OS.forEach((o) => {
+      const val = v[o.key] || 0; if (!val) return;
+      const h = (val / niceMax) * ih; const yt = yb - h;
+      segs += `<rect x="${x}" y="${yt.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(0, h - 2).toFixed(1)}" rx="2" fill="${cvar(o.varc)}"/>`;
+      yb = yt;
+    });
+    g += `<g class="bar" data-i="${i}">${segs}` +
+      (tot ? `<text class="val" x="${cx}" y="${(y(tot) - 6).toFixed(1)}" text-anchor="middle">${tot}</text>` : "") +
+      `<rect x="${x}" y="${mT}" width="${bw}" height="${ih}" fill="transparent"/></g>`;
+    // x labels (thinned)
+    if (i % labelStep === 0 || i === n - 1) {
+      const md = date.slice(5); // MM-DD
+      g += `<text class="axis" x="${cx}" y="${H - 10}" text-anchor="middle" style="font-size:10px">${md}</text>`;
+    }
+  });
+  return `<svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Downloads per day by operating system">${g}</svg>`;
+}
+
+function wireHover(days, dayTotal) {
+  const tip = $("tip");
+  document.querySelectorAll("#chart .bar").forEach((el) => {
+    el.addEventListener("mousemove", (e) => {
+      const [date, v] = days[+el.dataset.i];
+      tip.innerHTML = `<div class="d">${date}</div>` +
+        OS.map((o) => `<div class="r"><span class="lab"><span class="sw" style="background:${cvar(o.varc)}"></span>${o.label}</span><b>${v[o.key] || 0}</b></div>`).join("") +
+        `<div class="r tot"><span class="lab">Total</span><b>${dayTotal(v)}</b></div>`;
+      tip.style.opacity = "1";
+      const pad = 14; let x = e.clientX + pad, ty = e.clientY + pad;
+      if (x + 170 > innerWidth) x = e.clientX - 170 - pad;
+      tip.style.left = x + "px"; tip.style.top = ty + "px";
+    });
+    el.addEventListener("mouseleave", () => (tip.style.opacity = "0"));
+  });
+}
+
+function tableView(days, dayTotal) {
+  const head = `<tr><th>Date</th>${OS.map((o) => `<th>${o.label}</th>`).join("")}<th>Total</th></tr>`;
+  const rows = days.map(([date, v]) =>
+    `<tr><td>${date}</td>${OS.map((o) => `<td>${v[o.key] || 0}</td>`).join("")}<td><b>${dayTotal(v)}</b></td></tr>`
+  ).join("");
+  return `<table><thead>${head}</thead><tbody>${rows}</tbody></table>`;
+}
+
+$("refresh").addEventListener("click", load);
+$("table-toggle").addEventListener("click", (e) => {
+  showTable = !showTable; e.target.setAttribute("aria-pressed", String(showTable));
+  e.target.textContent = showTable ? "Chart view" : "Table view"; render();
+});
+load();
+</script>
+</body>
+</html>
