@@ -307,6 +307,7 @@ def build(url, user, pw, cookie=""):
         "blocks": chain.get("blocks", 0),
         "headers": chain.get("headers", 0),
         "tip_time": chain.get("time", 0),  # tip block timestamp (epoch s) — lets the UI flag "behind" after sleep BEFORE headers refresh, when headers==blocks==stale tip
+        "bestblockhash": chain.get("bestblockhash", ""),  # tip block hash — the ambient view tints each coin by the real block hash
         "verificationprogress": chain.get("verificationprogress", 0.0),
         "initialblockdownload": chain.get("initialblockdownload", False),
         "size_on_disk": chain.get("size_on_disk", 0),

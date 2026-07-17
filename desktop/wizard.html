@@ -173,6 +173,31 @@
       </label>
     </div>
 
+    <div id="ambient-row" style="display:none; margin-top:4px">
+      <label style="display:flex; align-items:center; gap:8px; cursor:pointer">
+        <input id="ambient_enabled" type="checkbox" style="width:auto" />
+        <span>Show an ambient view when idle <span style="opacity:.6">— a slow visual of blocks being mined, from your own node</span></span>
+      </label>
+      <div id="ambient-opts" style="display:none; margin:6px 0 0 24px">
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:6px">
+          <span style="opacity:.85">Style</span>
+          <select id="ambient_style" style="width:auto">
+            <option value="breath">The Deep — swarm &amp; coin</option>
+            <option value="rain">Matrix rain — falling hashes</option>
+          </select>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px">
+          <span style="opacity:.85">After</span>
+          <input id="ambient_minutes" type="number" min="1" max="60" step="1" value="5" style="width:64px" />
+          <span style="opacity:.85">minutes idle</span>
+        </label>
+        <label style="display:flex; align-items:center; gap:8px; cursor:pointer; margin-top:6px">
+          <input id="ambient_lock" type="checkbox" style="width:auto" />
+          <span>Lock the screen when it wakes <span style="opacity:.6">— asks for your password to return. Only works while notzero is running; not a system lock.</span></span>
+        </label>
+      </div>
+    </div>
+
     <div class="actions">
       <button class="primary" id="start">Start mining</button>
       <button class="ghost" id="cancel" style="display:none">Cancel</button>
@@ -267,6 +292,19 @@
           $("whatsnew-row").style.display = "block";
           $("show_whats_new").checked = c.show_whats_new !== false;
           $("show_whats_new").onchange = () => { fetch("/whats-new", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("show_whats_new").checked }) }).catch(() => {}); };
+          // ambient view — off by default; the sub-options (idle minutes, lock-on-wake) show only when enabled
+          const amb = c.ambient || {};
+          const postAmbient = (patch) => { fetch("/ambient-config", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch) }).catch(() => {}); };
+          $("ambient-row").style.display = "block";
+          $("ambient_enabled").checked = amb.enabled === true;
+          $("ambient_minutes").value = Math.max(1, Math.round((Number(amb.idleSeconds) || 300) / 60));
+          $("ambient_lock").checked = amb.lockOnWake === true;
+          $("ambient-opts").style.display = $("ambient_enabled").checked ? "block" : "none";
+          $("ambient_style").value = amb.style === "rain" ? "rain" : "breath";
+          $("ambient_enabled").onchange = () => { $("ambient-opts").style.display = $("ambient_enabled").checked ? "block" : "none"; postAmbient({ enabled: $("ambient_enabled").checked }); };
+          $("ambient_style").onchange = () => { postAmbient({ style: $("ambient_style").value }); };
+          $("ambient_minutes").onchange = () => { const m = Math.max(1, Math.min(60, Math.round(Number($("ambient_minutes").value) || 5))); $("ambient_minutes").value = m; postAmbient({ idleSeconds: m * 60 }); };
+          $("ambient_lock").onchange = () => { postAmbient({ lockOnWake: $("ambient_lock").checked }); };
           if (c.node_mode === "managed") {
             // gear/settings entry → the managed-node settings (edit payout + remove node); the boot/install
             // entry (no flag) → the live install status, which auto-advances to the dashboard once ready.
