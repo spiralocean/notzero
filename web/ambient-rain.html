@@ -137,6 +137,7 @@
     requestAnimationFrame(drawRain);
   }
   resize();
+  [90, 300, 700, 1400].forEach(d => setTimeout(resize, d)); // re-measure after the window settles into fullscreen
   requestAnimationFrame(drawRain);
 
   // ---- exit hint ----

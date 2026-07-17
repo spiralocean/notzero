@@ -125,6 +125,7 @@
     cx = W/2; cy = H/2; base = Math.min(W,H);
   }
   window.addEventListener('resize', resize); resize();
+  [90, 300, 700, 1400].forEach(d => setTimeout(resize, d)); // re-measure after the window settles into fullscreen (per-platform / DPI timing)
 
   // the sphere wanders a central band — pure sines sweep evenly (no side bias); centred a touch high
   // so the coin's downward sink passes through the middle rather than always sitting low
@@ -435,6 +436,7 @@
     let scx, scy;
     if(mined){ scx=state.coinCx; scy=state.coinCy; }
     else { const sc=sphereCenter(t); scx=sc[0]; scy=sc[1]; }
+    const sm = base*0.30; scx = Math.max(sm, Math.min(W-sm, scx)); scy = Math.max(sm, Math.min(H-sm, scy)); // keep the whole sphere on-screen at any resolution/aspect
 
     // --- trail fade (warmed slightly by pressure) ---
     ctx.globalCompositeOperation='source-over';
