@@ -345,9 +345,15 @@
   const statusEl=document.getElementById('status');
   function setStatus(txt){ statusEl.textContent = txt || ''; statusEl.style.opacity = txt ? '1' : '0'; }
 
-  function onNewBlock(height, hashHex){ landBlock(performance.now(), height, hashHex); }
+  function onNewBlock(height, hashHex){
+    if(height === state.height) return;   // never solidify the same block twice (real & preview heights are always distinct)
+    landBlock(performance.now(), height, hashHex);
+  }
 
+  let polling = false;                                         // serialize polls: a slow fetch must not let two polls overlap
   async function pollNode(){
+    if(polling) return;                                        // …or both would see the same new height and land the block twice
+    polling = true;
     try {
       const j = await (await fetch('/node.json', { cache:'no-store' })).json();
       nodeMode = true; feedFails = 0;
@@ -373,6 +379,8 @@
       }
     } catch(_){
       if(++feedFails > 2){ nodeMode = false; setStatus(''); }   // no server (opened as a file) → preview cadence
+    } finally {
+      polling = false;
     }
   }
 

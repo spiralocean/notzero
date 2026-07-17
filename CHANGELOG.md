@@ -6,6 +6,11 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.41
 
+**Ambient view**
+- **Fixed a block occasionally solidifying twice** (two spheres condensing into the coin at once). The node poller is
+  `async` on a 4s timer; a slow fetch could let two polls overlap, both see the same new height, and land the block
+  twice. Polls are now serialized (no overlap) and a duplicate height can never solidify the same block again.
+
 ## 0.1.40
 
 **Ambient view**
