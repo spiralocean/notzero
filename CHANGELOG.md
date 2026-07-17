@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.40
 
+**Ambient view**
+- **Lock-on-wake no longer triggers a scary "wants to control System Events" prompt by default.** On macOS the lock
+  now simply sleeps the display (which locks if your Mac requires a password after sleep) — no permission prompt. A
+  new **"Force the lock screen"** option (off by default) uses the ⌃⌘Q shortcut for a guaranteed lock, and only that
+  asks for the one-time macOS permission. Windows and Linux are unchanged — they lock cleanly with no prompt.
+
 ## 0.1.39
 
 **Ambient view**

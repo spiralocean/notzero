@@ -140,20 +140,24 @@ function ambientCfg() {
     enabled: c.enabled === true,                                            // default OFF
     idleSeconds: Number(c.idleSeconds) > 0 ? Number(c.idleSeconds) : 300,   // 5 min
     lockOnWake: c.lockOnWake === true,                                      // default OFF — never lock by surprise
+    macHardLock: c.macHardLock === true,                                   // macOS only: force the lock screen via ⌃⌘Q (asks a one-time permission). default OFF → quiet display-sleep, no prompt
     style: c.style === "rain" ? "rain" : "breath",                         // which ambient view
   };
 }
 
-// App-triggered lock: a real lock (login-window password), but only as reliable
-// as the app running — worded as "tidy up when I step away", not a secure lock.
+// App-triggered lock: a real lock, but only as reliable as the app running — "tidy up when I step
+// away", not a secure lock. On macOS the DEFAULT is a quiet display-sleep (no permission prompt);
+// the ⌃⌘Q force-lock is opt-in (macHardLock) because it triggers a scary "control System Events" prompt.
 function lockScreen() {
   try {
-    if (process.platform === "darwin")
-      // ⌃⌘Q = macOS "Lock Screen" (needs Accessibility permission to send the keystroke); fall back to
-      // display sleep, which locks when "Require password after… the display is turned off" is set.
-      // (The old Menu Extras/CGSession path was removed in recent macOS.)
-      spawn("sh", ["-c", "osascript -e 'tell application \"System Events\" to keystroke \"q\" using {control down, command down}' || pmset displaysleepnow"], { stdio: "ignore" }).unref();
-    else if (process.platform === "win32")
+    if (process.platform === "darwin") {
+      if (ambientCfg().macHardLock)
+        // Force the lock screen via ⌃⌘Q — needs a one-time Automation/Accessibility grant; fall back to display sleep.
+        spawn("sh", ["-c", "osascript -e 'tell application \"System Events\" to keystroke \"q\" using {control down, command down}' || pmset displaysleepnow"], { stdio: "ignore" }).unref();
+      else
+        // Default: sleep the display — NO permission prompt; locks when "Require password after… the display is turned off" is set.
+        spawn("pmset", ["displaysleepnow"], { stdio: "ignore" }).unref();
+    } else if (process.platform === "win32")
       spawn("rundll32.exe", ["user32.dll,LockWorkStation"], { stdio: "ignore" }).unref();
     else
       spawn("sh", ["-c", "loginctl lock-session || xdg-screensaver lock || gnome-screensaver-command -l"], { stdio: "ignore" }).unref();
@@ -862,6 +866,7 @@ function handleAmbientConfig(req, res) {
     if ("enabled" in p) a.enabled = !!p.enabled;
     if ("idleSeconds" in p) a.idleSeconds = Math.max(10, Math.min(3600, Number(p.idleSeconds) || 300)); // clamp 10s–1h
     if ("lockOnWake" in p) a.lockOnWake = !!p.lockOnWake;
+    if ("macHardLock" in p) a.macHardLock = !!p.macHardLock;
     if ("style" in p) a.style = p.style === "rain" ? "rain" : "breath";
     cfg.ambient = a;
     try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
