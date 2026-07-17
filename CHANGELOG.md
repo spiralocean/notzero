@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.41
+## Unreleased — next: 0.1.42
+
+## 0.1.41
 
 **Ambient view**
 - **Really fixed the sphere off-screen on scaled displays.** The action-safe approach in 0.1.40 helped but didn't fully
