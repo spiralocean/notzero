@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.42
 
+**Dashboard**
+- **"Verified Updates" no longer looks empty right after an update.** The release list used to wait for your node to
+  finish booting before it populated — a couple of minutes staring at what looked like "nothing verified." Now it
+  shows a clear **"Checking recent releases against your node…"** message while it works, and populates immediately
+  from each release's published on-chain proof (upgrading to node-confirmed once your node is answering).
+
 ## 0.1.41
 
 **Ambient view**

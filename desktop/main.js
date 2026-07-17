@@ -355,9 +355,13 @@ async function refreshUpdateHistory() {
     for (const v of versions) {
       const ots = await fetchDl("SHA256SUMS-" + v + ".ots", true);
       if (!ots) { hist.push({ version: v, level: "none", current: v === cur }); continue; } // released before on-chain anchoring
-      let level = "unchecked", height, blockTime;
-      if (rpc) { const r = await verifyAgainstNode(ots, null, rpc); level = r.status === "verified" ? "onchain" : r.status === "pending" ? "pending" : r.status === "mismatch" ? "mismatch" : "unchecked"; height = r.height; blockTime = r.blockTime; }
-      else { try { const p = parseProof(ots); if (p.bitcoin.length) { level = "anchored"; height = p.bitcoin[0].height; } else level = "pending"; } catch (_) {} } // no node → show the proof's own block, not node-confirmed
+      let level = "unchecked", height, blockTime, r = null;
+      if (rpc) { try { r = await verifyAgainstNode(ots, null, rpc); } catch (_) {} }
+      if (r && (r.status === "verified" || r.status === "pending" || r.status === "mismatch")) {
+        level = r.status === "verified" ? "onchain" : r.status === "pending" ? "pending" : "mismatch"; height = r.height; blockTime = r.blockTime;
+      } else { // no node yet / inconclusive → show the proof's OWN anchored block now; upgrades to node-confirmed on the next refresh
+        try { const p = parseProof(ots); if (p.bitcoin.length) { level = "anchored"; height = p.bitcoin[0].height; } else level = "pending"; } catch (_) {}
+      }
       hist.push({ version: v, level, height, blockTime, current: v === cur });
     }
     updateHistory = hist;
@@ -1107,7 +1111,8 @@ if (!app.requestSingleInstanceLock()) {
     startAmbientWatch(); // idle-triggered ambient view — a no-op unless enabled in Settings
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
-    (async () => { await waitForNodeReachable(); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })(); // hold the first check until a just-rebooted node is answering RPC, so it isn't a false "offline"
+    refreshUpdateHistory(); // populate the dashboard list ASAP from the published proofs (seconds) — don't make users stare at an empty section while the node boots
+    (async () => { await waitForNodeReachable(); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })(); // then re-confirm each release against your just-booted node (upgrades "anchored" → node-verified)
     setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
     setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
     startNotifier(); // OS notifications for block won / new best / node sync changes

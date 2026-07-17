@@ -3333,6 +3333,10 @@ function drawUpdates(r) {
       if (h.current) text("◀ running now", x1 - 4, ry, { size: 9, weight: 700, color: "rgba(247,147,26,0.95)", align: "right", baseline: "middle" });
       ry += 15;
     });
+  } else if (isDesktop && updateHistory === null) {
+    // desktop, still fetching + confirming after launch/update — say so plainly, so an empty list never reads as "nothing verified"
+    text("Checking recent releases against your node…", x0 + 4, ry, { size: 10.5, weight: 700, color: "rgba(247,190,60,0.95)", baseline: "middle" });
+    text("This takes a moment after an update — each release is re-confirmed on-chain, then listed here.", x0 + 4, ry + 16, { size: 9.5, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else {
     text("In the app, every release you run is listed here — each re-confirmed against your own node.", x0 + 4, ry, { size: 10, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   }
