@@ -168,20 +168,21 @@ function lockScreen() {
 function openAmbient(manual) {
   if (ambientWindow) return;
   ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
-  const b = screen.getPrimaryDisplay().bounds; // cover the primary display
+  // Size to the display's LOGICAL bounds (main-process screen.* is reliably DIP) and DO NOT call the fullscreen
+  // methods. On scaled/HiDPI displays setSimpleFullScreen/setFullScreen were ballooning the page's canvas to larger
+  // than the visible screen (content anchors top-left → the sphere fell off the bottom-right; two prior fixes that
+  // tried to *detect* this from the renderer failed because Electron's window.screen mis-reports there). A plain
+  // window sized to the logical bounds simply cannot exceed the screen, so the renderer's innerWidth is the true
+  // visible width and the sphere centres correctly — on every display. Trade-off on macOS: the menu bar (and Dock,
+  // if not auto-hidden) stay visible as a thin strip rather than full-screen immersion.
+  const b = screen.getPrimaryDisplay().bounds; // cover the primary display (DIP)
   ambientWindow = new BrowserWindow({
-    x: b.x, y: b.y, width: b.width, height: b.height,
+    x: b.x, y: b.y, width: b.width, height: b.height, useContentSize: true, // content area == the logical display, exactly
     frame: false, backgroundColor: "#05070d", skipTaskbar: true,
     alwaysOnTop: true, // FLOATING level only (default) — deliberately NOT "screen-saver", so Force Quit / the app switcher / system UI can always appear above it
     webPreferences: { contextIsolation: true }, // self-contained page; no node integration
   });
   ambientWindow.setAlwaysOnTop(true, "floating");
-  // Full-screen presentation. On scaled/HiDPI displays this can hand the page a canvas LARGER than the visible screen
-  // (content anchors top-left, so the excess spills off the bottom-right). The ambient view compensates: it pins its
-  // "stage" to window.screen — analog-TV "action-safe" thinking — so the sphere is always drawn within the visible
-  // frame regardless of how the window was sized. (Set ambient.debug:true for an on-screen size readout.)
-  if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true); // cover the menu bar without a Space — and stay escapable
-  else ambientWindow.setFullScreen(true);
   ambientWindow.on("closed", () => { ambientWindow = null; });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
   ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock

@@ -7,6 +7,12 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.41
 
 **Ambient view**
+- **Really fixed the sphere off-screen on scaled displays.** The action-safe approach in 0.1.40 helped but didn't fully
+  land (Windows recentred toward the bottom-right; the Intel Mac still clipped) because Electron's renderer mis-reports
+  `window.screen` on those displays, so the view couldn't reliably detect the visible area. The ambient window now
+  skips the fullscreen call entirely and is sized to the display's logical bounds (which the main process reports
+  reliably) — a window that size simply cannot exceed the screen, so the sphere always centres. Trade-off on macOS:
+  the menu bar (and Dock, unless auto-hidden) stay visible as a thin strip instead of full-screen immersion.
 - **Fixed a block occasionally solidifying twice** (two spheres condensing into the coin at once). The node poller is
   `async` on a 4s timer; a slow fetch could let two polls overlap, both see the same new height, and land the block
   twice. Polls are now serialized (no overlap) and a duplicate height can never solidify the same block again.
