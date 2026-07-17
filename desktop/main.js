@@ -110,6 +110,8 @@ function buildMenu() {
       ...(!isMac ? [settingsItem, { type: "separator" }] : []),
       { label: "Dashboard", accelerator: isMac ? "Cmd+D" : "Ctrl+D", click: openDashboard },
       { label: "Ambient View", accelerator: isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A", click: () => openAmbient(true) },
+      { label: "Ambient View (Debug Numbers)", click: () => openAmbient(true, true) }, // opens with the on-screen size readout — no config edit needed
+
       { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
@@ -165,7 +167,7 @@ function lockScreen() {
   } catch (_) {}
 }
 
-function openAmbient(manual) {
+function openAmbient(manual, forceDebug) {
   if (ambientWindow) return;
   ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
   // Size to the display's LOGICAL bounds (main-process screen.* is reliably DIP) and DO NOT call the fullscreen
@@ -191,7 +193,7 @@ function openAmbient(manual) {
   ambientShownAt = Date.now();
   const cfg = ambientCfg();
   const page = cfg.style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
-  const q = cfg.debug ? "?debug=1" : ""; // config `ambient.debug: true` → on-screen readout of canvas W×H / dpr / screen size (for diagnosing scaled-display sizing)
+  const q = (cfg.debug || forceDebug) ? "?debug=1" : ""; // config `ambient.debug:true` OR the debug menu item → on-screen readout of canvas W×H / dpr / screen size (for diagnosing scaled-display sizing)
   const url = serverPort ? `http://127.0.0.1:${serverPort}/${page}${q}` : null;
   console.log(`[notzero] ambient view opening (${manual ? "manual" : "idle"}, ${page}${q}) → ${url || path.join(WEB_DIR, page)}`);
   if (url) ambientWindow.loadURL(url); // same origin → reads the node feed
