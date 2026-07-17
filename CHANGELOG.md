@@ -4,7 +4,21 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.38
+## Unreleased — next: 0.1.39
+
+## 0.1.38
+
+**Ambient view (new)**
+- **An idle screensaver, driven by your own node.** After a few minutes idle, notzero can show a full-screen
+  ambient view: **The Deep** — transactions rise from the mempool, gather into a block, and a coin (coloured by the
+  real block hash your node just verified) sinks into the deep — or a **Matrix rain** of the live tip hash. Turn it
+  on in Settings, with an idle delay, a style picker, and an optional "lock the screen when it wakes." Launch it
+  anytime from the dashboard button or ⌘⇧A; press Esc (or move the mouse) to exit.
+- Your best-ever near-miss shows as a faint second gathering off to the side — an honest picture of how close
+  you've come, without overselling it.
+
+**Node**
+- The node bridge now publishes the tip block hash (`bestblockhash`), used to colour each minted coin.
 
 ## 0.1.37
 
