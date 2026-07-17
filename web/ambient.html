@@ -1,3 +1,4 @@
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
   :root{
     --abyss:#05070d;
@@ -520,9 +521,12 @@
     // --- your best-ever near-miss: a weak, dim sphere that pulls a few tx but never gathers a full block ---
     if(attempt.P.length){
       const r = attempt.rad*base;
-      const ax = cx + Math.cos(attempt.ang)*r*1.6 + Math.sin(t*0.00012+attempt.bob)*base*0.02; // reach the dark left/right thirds on wide screens
-      const ay = cy + Math.sin(attempt.ang)*r*0.85 + Math.cos(t*0.00009+attempt.bob)*base*0.02;
       const AR = base*0.075;
+      const m = base*0.16; // keep the whole clump clear of every edge — any resolution / aspect ratio
+      let ax = cx + Math.cos(attempt.ang)*r*1.6 + Math.sin(t*0.00012+attempt.bob)*base*0.02; // reach the dark side thirds on wide screens
+      let ay = cy + Math.sin(attempt.ang)*r*0.85 + Math.cos(t*0.00009+attempt.bob)*base*0.02;
+      ax = Math.max(m, Math.min(W - m, ax));   // clamp so a narrow/laptop aspect can't push it off-screen
+      ay = Math.max(m, Math.min(H - m, ay));
       for(const q of attempt.P){
         q.oa += q.os*dt*0.7;
         const ca=Math.cos(q.oa), sa=Math.sin(q.oa);

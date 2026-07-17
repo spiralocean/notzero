@@ -543,7 +543,7 @@ const QUOTES = [
   "The lottery is hope with a timestamp.",
   "One in 2²⁵⁶ is still one.",
   "Every hash is a roll of the cosmic dice.",
-  "Feel the odds: flip a coin and count the heads in a row. Each leading zero is one more heads — a win needs about 79.",
+  "Feel the odds: every heads is a bit, every four in a row is one leading zero. A win: ~79 heads (about 20 zeros), no tails.",
   "Statistically improbable ≠ impossible.",
   "The hash doesn't know it's supposed to be impossible.",
   "Ten minutes to the next block. Ten minutes to glory.",

@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.39
 
+**Ambient view**
+- **Fixed low-res/fuzzy rendering with the sphere off-screen on some displays** (notably the native screensaver at
+  certain resolutions). A missing viewport tag let the canvas render at a smaller logical size than the display and
+  scale up — bigger, blurry sprites and mis-placed geometry. Now it renders at the display's true size, and the
+  "your attempt" cluster is clamped so a narrow/laptop aspect can't push it off-screen.
+
+**Dashboard**
+- **The "feel the odds" quote no longer conflates leading zeros with coin-flips.** A coin-flip is one hash *bit*;
+  each leading zero in the hex you see is *four* bits, so "count the zeros" and "~79 flips" were off by 4×. Reworded
+  to keep both layers straight: every heads is a bit, every four-in-a-row is one leading zero.
+
 ## 0.1.38
 
 **Ambient view (new)**
