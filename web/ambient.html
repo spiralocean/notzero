@@ -1,4 +1,5 @@
 <!DOCTYPE html>
+<meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <style>
   :root{
@@ -10,9 +11,11 @@
     --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
   }
   *{box-sizing:border-box}
-  html,body{height:100%;margin:0}
+  html,body{height:100%;margin:0;background:var(--abyss)}
   #app{
-    position:fixed;inset:0;background:var(--abyss);
+    /* Pinned top-left and sized in JS to the VISIBLE frame (window.screen), not the raw window — on scaled/HiDPI
+       fullscreen the window can be larger than the screen, so we anchor the stage to what's actually on-screen. */
+    position:fixed;top:0;left:0;width:100%;height:100%;background:var(--abyss);
     overflow:hidden;cursor:default;
     -webkit-user-select:none;user-select:none;
     font-family:var(--mono);color:var(--ink);
@@ -101,6 +104,7 @@
   <div id="status" style="position:absolute;left:0;right:0;top:26px;text-align:center;font-size:12px;letter-spacing:.28em;text-indent:.28em;color:#5c6a7e;opacity:0;transition:opacity .7s ease;pointer-events:none"></div>
 
   <div id="hint" class="live">PRESS ESC TO EXIT</div>
+  <div id="dbg" style="position:absolute;left:12px;bottom:12px;font:12px ui-monospace,monospace;color:#4fd08a;opacity:0;z-index:99;pointer-events:none;text-shadow:0 0 6px #000"></div>
 </div>
 
 <script>
@@ -110,19 +114,31 @@
   const c = document.getElementById('c');
   const ctx = c.getContext('2d');
   const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const DEBUG = new URLSearchParams(location.search).has('debug'); // ?debug=1 → show a size readout for diagnosing off-screen issues
+  const dbg = document.getElementById('dbg');
 
   // ---- master tunables ----
   const EXPOSURE = 0.86;                    // one knob for overall brightness (raised for dim/f.lux screens)
   const A = a => a * EXPOSURE;
+  const SCENE = 0.86;                        // shrink the whole composition a touch so it sits comfortably inside the safe area
+  const SAFE  = 0.93;                        // action-safe: the sphere/attempt stay within this fraction of the visible frame (analog-TV "action safe")
 
   // ---- geometry ----
+  // W,H are the VISIBLE frame — not necessarily the whole window. On scaled/HiDPI fullscreen the OS can hand us a
+  // canvas larger than the screen (it spills off the bottom-right); window.screen reports the real visible size, so
+  // we clamp to it and pin the stage there. `base` is the scale unit everything keys off, shrunk by SCENE.
   let W=0,H=0,cx=0,cy=0,base=0,dpr=1;
   function resize(){
     dpr = Math.min(window.devicePixelRatio||1, 2);
-    W = window.innerWidth; H = window.innerHeight;
+    const sw = (window.screen && window.screen.width)  || window.innerWidth;
+    const sh = (window.screen && window.screen.height) || window.innerHeight;
+    W = Math.min(window.innerWidth,  sw);   // visible width  (canvas CSS units — action-safe against overscan)
+    H = Math.min(window.innerHeight, sh);   // visible height
+    app.style.width = W+'px'; app.style.height = H+'px'; // pin the stage to the visible frame, top-left anchored
     c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
     ctx.setTransform(dpr,0,0,dpr,0,0);
-    cx = W/2; cy = H/2; base = Math.min(W,H);
+    cx = W/2; cy = H/2; base = Math.min(W,H) * SCENE;
+    if(DEBUG && dbg){ dbg.style.opacity='1'; dbg.textContent = `win ${window.innerWidth}×${window.innerHeight} → stage ${W}×${H}  dpr ${window.devicePixelRatio}(→${dpr})  ·  screen ${sw}×${sh}  avail ${screen.availWidth}×${screen.availHeight}`; }
   }
   window.addEventListener('resize', resize); resize();
   [90, 300, 700, 1400].forEach(d => setTimeout(resize, d)); // re-measure after the window settles into fullscreen (per-platform / DPI timing)
@@ -436,7 +452,10 @@
     let scx, scy;
     if(mined){ scx=state.coinCx; scy=state.coinCy; }
     else { const sc=sphereCenter(t); scx=sc[0]; scy=sc[1]; }
-    const sm = base*0.30; scx = Math.max(sm, Math.min(W-sm, scx)); scy = Math.max(sm, Math.min(H-sm, scy)); // keep the whole sphere on-screen at any resolution/aspect
+    // action-safe: keep the whole gathered sphere (centre ± its radius) inside SAFE% of the visible frame, any aspect.
+    // (The downward sink is added later at draw time, so the coin can still slip below as it fades into the deep.)
+    const smx = W*(1-SAFE)/2 + base*0.20, smy = H*(1-SAFE)/2 + base*0.20;
+    scx = Math.max(smx, Math.min(W-smx, scx)); scy = Math.max(smy, Math.min(H-smy, scy));
 
     // --- trail fade (warmed slightly by pressure) ---
     ctx.globalCompositeOperation='source-over';
@@ -526,11 +545,11 @@
     if(attempt.P.length){
       const r = attempt.rad*base;
       const AR = base*0.075;
-      const m = base*0.16; // keep the whole clump clear of every edge — any resolution / aspect ratio
+      const mx = W*(1-SAFE)/2 + base*0.14, my = H*(1-SAFE)/2 + base*0.14; // action-safe: keep the clump inside the visible frame, any aspect
       let ax = cx + Math.cos(attempt.ang)*r*1.6 + Math.sin(t*0.00012+attempt.bob)*base*0.02; // reach the dark side thirds on wide screens
       let ay = cy + Math.sin(attempt.ang)*r*0.85 + Math.cos(t*0.00009+attempt.bob)*base*0.02;
-      ax = Math.max(m, Math.min(W - m, ax));   // clamp so a narrow/laptop aspect can't push it off-screen
-      ay = Math.max(m, Math.min(H - m, ay));
+      ax = Math.max(mx, Math.min(W - mx, ax));   // clamp so a narrow/laptop aspect can't push it off-screen
+      ay = Math.max(my, Math.min(H - my, ay));
       for(const q of attempt.P){
         q.oa += q.os*dt*0.7;
         const ca=Math.cos(q.oa), sa=Math.sin(q.oa);

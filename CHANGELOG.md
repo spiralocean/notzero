@@ -4,9 +4,18 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.40
+## Unreleased — next: 0.1.41
+
+## 0.1.40
 
 **Ambient view**
+- **Fixed the sphere going off-screen on scaled displays** (Intel Mac at a scaled resolution, Windows at 150%). On a
+  scaled/HiDPI display, full-screen can hand the page a canvas *larger* than the visible screen — the drawing anchors
+  top-left, so the excess spills off the bottom-right and the sphere lands off-frame. The view now borrows the analog-
+  TV idea of an **"action-safe" area**: it pins its stage to the *visible* screen (`window.screen`), centres on that,
+  and keeps the sphere within a safe inset — so it can never be drawn past the edges, on any display or aspect. The
+  whole composition is also **scaled down** a touch to sit comfortably inside the frame. (Set `ambient.debug: true` in
+  config for an on-screen size readout if you ever need to diagnose a display.)
 - **Lock-on-wake no longer triggers a scary "wants to control System Events" prompt by default.** On macOS the lock
   now simply sleeps the display (which locks if your Mac requires a password after sleep) — no permission prompt. A
   new **"Force the lock screen"** option (off by default) uses the ⌃⌘Q shortcut for a guaranteed lock, and only that

@@ -142,6 +142,7 @@ function ambientCfg() {
     lockOnWake: c.lockOnWake === true,                                      // default OFF — never lock by surprise
     macHardLock: c.macHardLock === true,                                   // macOS only: force the lock screen via ⌃⌘Q (asks a one-time permission). default OFF → quiet display-sleep, no prompt
     style: c.style === "rain" ? "rain" : "breath",                         // which ambient view
+    debug: c.debug === true,                                                // default OFF — on-screen canvas/dpr/screen readout for diagnosing scaled-display sizing
   };
 }
 
@@ -167,26 +168,33 @@ function lockScreen() {
 function openAmbient(manual) {
   if (ambientWindow) return;
   ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
-  const b = screen.getPrimaryDisplay().bounds; // cover the primary display without the fullscreen-Space animation
+  const b = screen.getPrimaryDisplay().bounds; // cover the primary display
   ambientWindow = new BrowserWindow({
     x: b.x, y: b.y, width: b.width, height: b.height,
     frame: false, backgroundColor: "#05070d", skipTaskbar: true,
     alwaysOnTop: true, // FLOATING level only (default) — deliberately NOT "screen-saver", so Force Quit / the app switcher / system UI can always appear above it
     webPreferences: { contextIsolation: true }, // self-contained page; no node integration
   });
+  ambientWindow.setAlwaysOnTop(true, "floating");
+  // Full-screen presentation. On scaled/HiDPI displays this can hand the page a canvas LARGER than the visible screen
+  // (content anchors top-left, so the excess spills off the bottom-right). The ambient view compensates: it pins its
+  // "stage" to window.screen — analog-TV "action-safe" thinking — so the sphere is always drawn within the visible
+  // frame regardless of how the window was sized. (Set ambient.debug:true for an on-screen size readout.)
   if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true); // cover the menu bar without a Space — and stay escapable
   else ambientWindow.setFullScreen(true);
   ambientWindow.on("closed", () => { ambientWindow = null; });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
   ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock
-  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 400) dismissAmbient(true); });                          // focus loss (Cmd+Tab) → dismiss but never lock
+  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) dismissAmbient(true); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
   ambientWindow.webContents.on("did-fail-load", (_e, code, desc, url) => { console.error(`[notzero] ambient view failed to load: ${code} ${desc} ${url}`); });
   ambientShownAt = Date.now();
-  const page = ambientCfg().style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
-  const url = serverPort ? `http://127.0.0.1:${serverPort}/${page}` : null;
-  console.log(`[notzero] ambient view opening (${manual ? "manual" : "idle"}, ${page}) → ${url || path.join(WEB_DIR, page)}`);
+  const cfg = ambientCfg();
+  const page = cfg.style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
+  const q = cfg.debug ? "?debug=1" : ""; // config `ambient.debug: true` → on-screen readout of canvas W×H / dpr / screen size (for diagnosing scaled-display sizing)
+  const url = serverPort ? `http://127.0.0.1:${serverPort}/${page}${q}` : null;
+  console.log(`[notzero] ambient view opening (${manual ? "manual" : "idle"}, ${page}${q}) → ${url || path.join(WEB_DIR, page)}`);
   if (url) ambientWindow.loadURL(url); // same origin → reads the node feed
-  else ambientWindow.loadFile(path.join(WEB_DIR, page)).catch((err) => console.error("[notzero] ambient loadFile failed:", err));
+  else ambientWindow.loadFile(path.join(WEB_DIR, page), q ? { search: "debug=1" } : undefined).catch((err) => console.error("[notzero] ambient loadFile failed:", err));
 }
 
 function dismissAmbient(forceNoLock) {
