@@ -11,6 +11,8 @@ version number and bump `desktop/package.json`.
   certain resolutions). A missing viewport tag let the canvas render at a smaller logical size than the display and
   scale up — bigger, blurry sprites and mis-placed geometry. Now it renders at the display's true size, and the
   "your attempt" cluster is clamped so a narrow/laptop aspect can't push it off-screen.
+- **Sprites scale with the display** so the swarm holds a consistent apparent size, instead of looking oversized /
+  chunky on low-resolution or scaled displays.
 
 **Dashboard**
 - **The "feel the odds" quote no longer conflates leading zeros with coin-flips.** A coin-flip is one hash *bit*;

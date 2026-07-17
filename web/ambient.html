@@ -469,6 +469,7 @@
     const drift = reduce?0.4:1;
     const swarmSprite = p<0.4 ? SP_COOL : (p<0.75 ? SP_WARM : SP_HOT);
     const oceanF = 0.55 + 0.45*clamp(node.mempoolCount/60000);   // the sea is your mempool — fuller when it's busy
+    const RES = base/1100;   // scale sprite sizes with the display so their apparent size is resolution-independent (not oversized on low-res)
     for(let i=0;i<N;i++){
       const q=P[i];
 
@@ -498,7 +499,7 @@
         const settleK = mined?0.16:0.028;                // gentle glide onto the sphere; snaps tight only on the lock
         q.x+=(tx-q.x)*settleK*drift; q.y+=(ty-q.y)*settleK*drift;
         const depth=0.4+0.6*(zN*0.5+0.5);
-        const pr=q.size*6.5*(0.8+0.5*depth)*persp*(mined?1+0.7*cp:1);   // glows grow as they lock → overlap fills gaps
+        const pr=q.size*6.5*RES*(0.8+0.5*depth)*persp*(mined?1+0.7*cp:1);   // glows grow as they lock → overlap fills gaps
         if(mined){
           stamp(SP_COIN, q.x,q.y, pr, A((0.14+0.40*cp)*depth*(1-0.9*sp)));  // packs into a gapless solid coin
         } else {
@@ -516,7 +517,7 @@
         const ex=Math.min(1, q.x/(W*0.12), (W-q.x)/(W*0.12));
         const ey=Math.min(1, q.y/(H*0.12), (H-q.y)/(H*0.12));   // no surface line at the top
         const edge=Math.max(0, Math.min(ex,ey));
-        stamp(swarmSprite, q.x,q.y, q.size*6.5, A(0.15*q.life*edge*oceanF));   // same swarm as the sphere; density tracks the mempool
+        stamp(swarmSprite, q.x,q.y, q.size*6.5*RES, A(0.15*q.life*edge*oceanF));   // same swarm as the sphere; density tracks the mempool
       }
     }
     ctx.globalAlpha=1;
@@ -540,7 +541,7 @@
         const x = ax + X*AR*persp*loose;
         const y = ay + y1*AR*persp*loose;
         const depth = 0.4 + 0.6*(zN*0.5+0.5);
-        stamp(SP_ATTEMPT, x, y, q.size*5.5*persp, A(0.30*depth));  // yours: a small coherent clump in its own dark corner
+        stamp(SP_ATTEMPT, x, y, q.size*5.5*persp*RES, A(0.30*depth));  // yours: a small coherent clump in its own dark corner
       }
       ctx.globalAlpha=1;
     }
