@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog, powerMonitor, screen } = require("electron");
 const https = require("https");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
@@ -109,6 +109,7 @@ function buildMenu() {
     { label: "File", submenu: [
       ...(!isMac ? [settingsItem, { type: "separator" }] : []),
       { label: "Dashboard", accelerator: isMac ? "Cmd+D" : "Ctrl+D", click: openDashboard },
+      { label: "Ambient View", accelerator: isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A", click: () => openAmbient(true) },
       { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
@@ -124,6 +125,96 @@ function buildMenu() {
     ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+// ---- Ambient view ("The Deep" / Rain) + optional lock-on-wake -------------------
+// Idle-triggered full-screen canvas (web/ambient.html, served from WEB_DIR). No
+// .saver bundle: reuses the app's own window, so it behaves the same on
+// mac/win/linux and can reach the node over the local server origin. All opt-in.
+let ambientWindow = null, ambientPoll = null, ambientShownAt = 0, ambientManual = false;
+
+// config.json: { ambient: { enabled, idleSeconds, lockOnWake } }
+function ambientCfg() {
+  let c = {}; try { c = (JSON.parse(fs.readFileSync(configPath(), "utf8")).ambient) || {}; } catch (_) {}
+  return {
+    enabled: c.enabled === true,                                            // default OFF
+    idleSeconds: Number(c.idleSeconds) > 0 ? Number(c.idleSeconds) : 300,   // 5 min
+    lockOnWake: c.lockOnWake === true,                                      // default OFF — never lock by surprise
+    style: c.style === "rain" ? "rain" : "breath",                         // which ambient view
+  };
+}
+
+// App-triggered lock: a real lock (login-window password), but only as reliable
+// as the app running — worded as "tidy up when I step away", not a secure lock.
+function lockScreen() {
+  try {
+    if (process.platform === "darwin")
+      // ⌃⌘Q = macOS "Lock Screen" (needs Accessibility permission to send the keystroke); fall back to
+      // display sleep, which locks when "Require password after… the display is turned off" is set.
+      // (The old Menu Extras/CGSession path was removed in recent macOS.)
+      spawn("sh", ["-c", "osascript -e 'tell application \"System Events\" to keystroke \"q\" using {control down, command down}' || pmset displaysleepnow"], { stdio: "ignore" }).unref();
+    else if (process.platform === "win32")
+      spawn("rundll32.exe", ["user32.dll,LockWorkStation"], { stdio: "ignore" }).unref();
+    else
+      spawn("sh", ["-c", "loginctl lock-session || xdg-screensaver lock || gnome-screensaver-command -l"], { stdio: "ignore" }).unref();
+  } catch (_) {}
+}
+
+function openAmbient(manual) {
+  if (ambientWindow) return;
+  ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
+  const b = screen.getPrimaryDisplay().bounds; // cover the primary display without the fullscreen-Space animation
+  ambientWindow = new BrowserWindow({
+    x: b.x, y: b.y, width: b.width, height: b.height,
+    frame: false, backgroundColor: "#05070d", skipTaskbar: true,
+    alwaysOnTop: true, // FLOATING level only (default) — deliberately NOT "screen-saver", so Force Quit / the app switcher / system UI can always appear above it
+    webPreferences: { contextIsolation: true }, // self-contained page; no node integration
+  });
+  if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true); // cover the menu bar without a Space — and stay escapable
+  else ambientWindow.setFullScreen(true);
+  ambientWindow.on("closed", () => { ambientWindow = null; });
+  // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
+  ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock
+  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 400) dismissAmbient(true); });                          // focus loss (Cmd+Tab) → dismiss but never lock
+  ambientWindow.webContents.on("did-fail-load", (_e, code, desc, url) => { console.error(`[notzero] ambient view failed to load: ${code} ${desc} ${url}`); });
+  ambientShownAt = Date.now();
+  const page = ambientCfg().style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
+  const url = serverPort ? `http://127.0.0.1:${serverPort}/${page}` : null;
+  console.log(`[notzero] ambient view opening (${manual ? "manual" : "idle"}, ${page}) → ${url || path.join(WEB_DIR, page)}`);
+  if (url) ambientWindow.loadURL(url); // same origin → reads the node feed
+  else ambientWindow.loadFile(path.join(WEB_DIR, page)).catch((err) => console.error("[notzero] ambient loadFile failed:", err));
+}
+
+function dismissAmbient(forceNoLock) {
+  if (!ambientWindow) return;
+  const shouldLock = !forceNoLock && !ambientManual && ambientCfg().lockOnWake; // lock an idle-triggered wake (any input), never a manual preview
+  const w = ambientWindow; ambientWindow = null;
+  try { if (process.platform === "darwin" && w.isSimpleFullScreen && w.isSimpleFullScreen()) w.setSimpleFullScreen(false); } catch (_) {} // exit the fullscreen presentation FIRST so the menu bar/Dock return
+  try { w.close(); } catch (_) {}
+  if (shouldLock) { lockScreen(); return; }
+  // restore the menu bar/Dock: focus a normal window, or (background app with none) yield focus to the previous app
+  try {
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.focus();
+    else if (process.platform === "darwin") app.hide();
+  } catch (_) {}
+}
+
+// One poller drives everything: opens the ambient view after N idle seconds, and
+// dismisses it (optionally locking) the instant the user touches anything.
+// getSystemIdleTime() is system-wide, so showing the window doesn't reset it.
+function startAmbientWatch() {
+  if (ambientPoll) return;
+  ambientPoll = setInterval(() => {
+    const cfg = ambientCfg();
+    const idle = powerMonitor.getSystemIdleTime();
+    if (ambientWindow) {
+      // idle-opened: dismiss on any real input (screensaver behavior). manual preview stays until Esc/⌘W — never
+      // auto-dismisses on mouse move, so you can actually look at it.
+      if (!ambientManual && idle < 2 && Date.now() - ambientShownAt > 1200) dismissAmbient(); // wake → dismissAmbient decides on the lock
+    } else if (cfg.enabled && idle >= cfg.idleSeconds) {
+      openAmbient(false); // idle-triggered
+    }
+  }, 1000);
 }
 
 // Full-window overlay injected into the dashboard while an update installs, so the restart reads as an
@@ -758,6 +849,26 @@ function handleWhatsNewPref(req, res) {
   });
 }
 
+// Persist the ambient-view preferences. The idle poller reads config each tick, so changes take effect
+// within a second — enabling/disabling, retiming, or toggling lock-on-wake needs no restart.
+function handleAmbientConfig(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 10000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    const a = cfg.ambient || {};
+    if ("enabled" in p) a.enabled = !!p.enabled;
+    if ("idleSeconds" in p) a.idleSeconds = Math.max(10, Math.min(3600, Number(p.idleSeconds) || 300)); // clamp 10s–1h
+    if ("lockOnWake" in p) a.lockOnWake = !!p.lockOnWake;
+    if ("style" in p) a.style = p.style === "rain" ? "rain" : "breath";
+    cfg.ambient = a;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
+    json(200, { ok: true });
+  });
+}
+
 // Toggle the master notifications switch from the settings UI. The notifier reads config each tick, so
 // the change takes effect within seconds — no restart, nothing else to do here.
 function handleNotifications(req, res) {
@@ -847,6 +958,8 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
+      if (req.method === "POST" && urlPath === "/ambient-config") { handleAmbientConfig(req, res); return; }
+      if (req.method === "POST" && urlPath === "/ambient-open") { openAmbient(true); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the dashboard's ambient-view button
       if (req.method === "POST" && urlPath === "/update/check") { checkForUpdatesNow(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the in-app "update available" pill → show the what's-new / install choice
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
@@ -858,7 +971,7 @@ function startServer() {
       if (urlPath === "/config") { // current settings for the wizard to pre-fill (NEVER the password — only whether one is set)
         if (PREVIEW) { res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(previewConfig())); return; }
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
-        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, update_available: pendingUpdateVer || "" } : { exists: false };
+        const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, ambient: cfg.ambient || {}, update_available: pendingUpdateVer || "" } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.update_verification = lastUpdateVerification; // a downloaded update's verdict (or null) — VERIFIED UPDATES section
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
@@ -975,6 +1088,7 @@ if (!app.requestSingleInstanceLock()) {
     }
     buildMenu();
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
+    startAmbientWatch(); // idle-triggered ambient view — a no-op unless enabled in Settings
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
     (async () => { await waitForNodeReachable(); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })(); // hold the first check until a just-rebooted node is answering RPC, so it isn't a false "offline"

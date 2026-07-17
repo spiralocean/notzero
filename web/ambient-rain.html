@@ -1,0 +1,150 @@
+<style>
+  :root{ --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace; }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  #app{position:fixed;inset:0;background:#06040c;overflow:hidden;cursor:default;
+       -webkit-user-select:none;user-select:none;font-family:var(--mono);color:#e9eef5}
+  #app.hide-cursor{cursor:none}
+  #c{position:absolute;inset:0;display:block}
+  #status{position:absolute;left:0;right:0;top:26px;text-align:center;font-size:12px;
+          letter-spacing:.28em;text-indent:.28em;color:#5c6a7e;opacity:0;transition:opacity .7s ease;pointer-events:none}
+  #hint{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);
+        font-size:10.5px;letter-spacing:.16em;color:#3f4a5c;text-align:center;
+        opacity:0;transition:opacity .6s ease;pointer-events:none;white-space:nowrap}
+  #app.show-ui #hint{opacity:1}
+  :focus-visible{outline:2px solid #6fb7d6;outline-offset:3px}
+</style>
+
+<div id="app" class="show-ui">
+  <canvas id="c"></canvas>
+  <div id="status"></div>
+  <div id="hint">PRESS ESC TO EXIT</div>
+</div>
+
+<script>
+(() => {
+  "use strict";
+  const app = document.getElementById('app');
+  const c = document.getElementById('c');
+  const ctx = c.getContext('2d');
+  const reduce = matchMedia('(prefers-reduced-motion: reduce)').matches;
+  const SPEED = reduce ? 0.4 : 1;
+
+  // ---- canvas ----
+  let W=0,H=0,dpr=1,frame=0;
+  function resize(){
+    dpr = Math.min(window.devicePixelRatio||1, 2);
+    W = window.innerWidth; H = window.innerHeight;
+    c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    columns = []; // rebuild for the new width
+  }
+  window.addEventListener('resize', resize);
+
+  // ---- live feed: the rain falls with your node's real tip hash ----
+  const node = { hash:'', reachable:false, synced:false, syncPct:1 };
+  let nodeMode=false, feedFails=0;
+  const statusEl=document.getElementById('status');
+  function setStatus(t){ statusEl.textContent=t||''; statusEl.style.opacity=t?'1':'0'; }
+  async function pollNode(){
+    try{
+      const j = await (await fetch('/node.json',{cache:'no-store'})).json();
+      nodeMode=true; feedFails=0;
+      node.reachable=!!j.reachable;
+      node.syncPct = j.verificationprogress!=null ? j.verificationprogress : 1;
+      node.synced = node.reachable && !j.initialblockdownload && node.syncPct>0.9999;
+      if(j.bestblockhash) node.hash = j.bestblockhash;
+      if(!node.reachable) setStatus('CONNECTING TO YOUR NODE…');
+      else if(!node.synced) setStatus('SYNCING · '+Math.floor(node.syncPct*100)+'%');
+      else setStatus('');
+    }catch(_){ if(++feedFails>2){ nodeMode=false; setStatus(''); } } // no server (opened as a file) → default glyphs
+  }
+  if(location.protocol !== 'file:'){ pollNode(); setInterval(pollNode, 4000); } // served → live tip hash; file:// → default glyphs
+
+  // ---- matrix rain: encoder tips fall and generate the hash as they descend ----
+  const CYBER = "0123456789abcdefABCDEF#%&*<>/\\=+".split("");
+  const RAIN_SP = 18, RAIN_MAX = 30, SPACING = 20;   // tighter grid = more volume
+  const MONO = 'ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace';
+  let columns = [];
+  function rainPool(){
+    return node.hash ? [node.hash] : ["0123456789abcdef0123456789abcdef0123456789abcdef"];
+  }
+  function spawnColumn(x, pool, initial=false){
+    const z = Math.pow(Math.random(), 1.6);   // depth 0=far .. 1=near; biased far → more small background hashes
+    const sp = 10 + 10*z;                       // vertical glyph spacing scales with depth
+    return {
+      x, z, sp,
+      y: initial ? Math.random()*H : -sp*Math.random()*3, // fresh tips enter from the top — no mid-screen pops
+      speed: 0.6 + 2.4*z,                        // near falls faster → parallax
+      growth: 0.10 + 0.34*z,
+      hash: pool[Math.floor(Math.random()*pool.length)],
+      age: initial ? Math.floor(Math.random()*180) : 0,
+      delay: initial ? 0 : Math.floor(Math.random()*55),
+      genAt: Math.floor(Math.random()*130),      // frames the bare tip falls before it starts generating
+      tipF: '700 '+Math.round(11+11*z)+'px '+MONO,
+      hashF: Math.round(9+8*z)+'px '+MONO,
+      bright: 0.30 + 0.70*z,                      // far = dimmer, near = brighter
+    };
+  }
+  function ensureRain(){
+    const count = Math.ceil(W / SPACING);
+    const extra = Math.floor(count*1.2);         // extra background columns at random x → denser small-hash depth
+    const target = count + extra;
+    if(columns.length === target) return;
+    const pool = rainPool();
+    const arr = [];
+    for(let i=0;i<count;i++) arr.push(spawnColumn(i*SPACING + SPACING/2, pool, true));  // foreground on a grid
+    for(let i=0;i<extra;i++) arr.push(spawnColumn(Math.random()*W, pool, true));        // background fill
+    columns = arr;
+  }
+  function drawRain(){
+    frame++;
+    const g = ctx.createLinearGradient(0,0,0,H);
+    g.addColorStop(0,"#06040c"); g.addColorStop(1,"#0a0603");
+    ctx.fillStyle=g; ctx.fillRect(0,0,W,H);
+    ensureRain();
+    const pool = rainPool();
+    columns.sort((a,b) => a.z - b.z);   // draw far → near so the big foreground hashes sit over the small background
+    ctx.textAlign="center"; ctx.textBaseline="middle";
+    for(const col of columns){
+      if(col.delay>0){ col.delay--; continue; }
+      col.age++; col.y += col.speed*SPEED;
+      const genAge = col.age - col.genAt;
+      const tail = genAge<=0 ? 0 : Math.min(RAIN_MAX, Math.floor(genAge*col.growth));
+      if(col.y - tail*col.sp > H + col.sp){ Object.assign(col, spawnColumn(col.x, pool)); continue; }
+      for(let i=0;i<=tail;i++){
+        const yy = col.y - i*col.sp;
+        if(yy < -col.sp || yy > H + col.sp) continue;
+        let ch;
+        if(i===0){ // the encoding tip: scrambling generator glyph
+          ch = CYBER[(frame + Math.floor(col.x)) % CYBER.length];
+          ctx.font = col.tipF;
+          ctx.fillStyle = `rgba(255,190,70,${0.95*col.bright})`;
+        } else {      // the generated hash trailing behind the tip
+          ch = col.hash[(tail - i) % col.hash.length];
+          ctx.font = col.hashF;
+          ctx.fillStyle = `rgba(60,175,130,${Math.max(0.03, 0.62*(1 - i/RAIN_MAX))*col.bright})`;
+        }
+        ctx.fillText(ch, col.x, yy);
+      }
+    }
+    // soft mid-screen vignette for depth
+    const s = ctx.createLinearGradient(0, H*0.18, 0, H*0.82);
+    s.addColorStop(0,"rgba(5,4,10,0)"); s.addColorStop(0.5,"rgba(5,4,10,0.5)"); s.addColorStop(1,"rgba(5,4,10,0)");
+    ctx.fillStyle=s; ctx.fillRect(0,0,W,H);
+    requestAnimationFrame(drawRain);
+  }
+  resize();
+  requestAnimationFrame(drawRain);
+
+  // ---- exit hint ----
+  let uiTimer=0;
+  function poke(){
+    app.classList.add('show-ui'); app.classList.remove('hide-cursor');
+    clearTimeout(uiTimer);
+    uiTimer=setTimeout(()=>{ app.classList.remove('show-ui'); app.classList.add('hide-cursor'); }, 3000);
+  }
+  ['mousemove','pointerdown','keydown','touchstart'].forEach(ev => window.addEventListener(ev, poke, {passive:true}));
+  poke();
+})();
+</script>
