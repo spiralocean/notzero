@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog, powerMonitor, screen } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog, powerMonitor, screen, globalShortcut } = require("electron");
 const https = require("https");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
@@ -191,7 +191,10 @@ function openAmbient(manual, forceDebug) {
   // fullscreen. Escape hatches below (any key / blur / idle poller) still guarantee you can never get stuck.
   if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true);
   else ambientWindow.setFullScreen(true);
-  ambientWindow.on("closed", () => { ambientWindow = null; });
+  // A GLOBAL Escape while the view is open — so Esc dismisses even if the window lost keyboard focus (e.g. after an
+  // OS screensaver/lock cycle). Tied to the window lifecycle (unregistered on close) so it can never leak.
+  try { globalShortcut.register("Escape", () => dismissAmbient()); } catch (_) {}
+  ambientWindow.on("closed", () => { ambientWindow = null; try { globalShortcut.unregister("Escape"); } catch (_) {} });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
   ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock
   ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) dismissAmbient(true); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
@@ -210,8 +213,10 @@ function dismissAmbient(forceNoLock) {
   if (!ambientWindow) return;
   const shouldLock = !forceNoLock && !ambientManual && ambientCfg().lockOnWake; // lock an idle-triggered wake (any input), never a manual preview
   const w = ambientWindow; ambientWindow = null;
-  try { if (process.platform === "darwin" && w.isSimpleFullScreen && w.isSimpleFullScreen()) w.setSimpleFullScreen(false); } catch (_) {} // exit the fullscreen presentation FIRST so the menu bar/Dock return
+  try { w.setAlwaysOnTop(false); } catch (_) {} // drop the always-on-top level FIRST so it can never keep blocking Cmd+Tab / other apps
+  try { if (process.platform === "darwin" && w.isSimpleFullScreen && w.isSimpleFullScreen()) w.setSimpleFullScreen(false); } catch (_) {} // exit the fullscreen presentation so the menu bar/Dock return
   try { w.close(); } catch (_) {}
+  try { if (!w.isDestroyed()) w.destroy(); } catch (_) {} // force it gone even if close() was swallowed mid screensaver/lock — never leave a stuck window
   if (shouldLock) { lockScreen(); return; }
   // restore the menu bar/Dock: focus a normal window, or (background app with none) yield focus to the previous app
   try {
@@ -225,6 +230,13 @@ function dismissAmbient(forceNoLock) {
 // getSystemIdleTime() is system-wide, so showing the window doesn't reset it.
 function startAmbientWatch() {
   if (ambientPoll) return;
+  // The OS's OWN screensaver / password lock / sleep can engage on top of the ambient view (especially a manual one,
+  // which never auto-dismisses). blur doesn't fire reliably for those, so the always-on-top window could be left
+  // stuck after unlock — keyboard-unreachable, blocking Cmd+Tab. These power events DO fire reliably: dismiss on any
+  // of them so unlock/wake is always clean. forceNoLock — the OS already handled locking; we just get out of the way.
+  ["lock-screen", "unlock-screen", "suspend", "resume"].forEach((ev) => {
+    try { powerMonitor.on(ev, () => dismissAmbient(true)); } catch (_) {}
+  });
   ambientPoll = setInterval(() => {
     const cfg = ambientCfg();
     const idle = powerMonitor.getSystemIdleTime();

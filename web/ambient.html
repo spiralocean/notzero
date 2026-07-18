@@ -122,6 +122,14 @@
   const A = a => a * EXPOSURE;
   const SCENE = 0.86;                        // shrink the whole composition a touch so it sits comfortably inside the safe area
   const SAFE  = 0.93;                        // action-safe: the sphere/attempt stay within this fraction of the visible frame (analog-TV "action safe")
+  const DITHER = 0.6;                        // faint grain to break the ambient-glow radial BANDING (a visible "halo" ring on 8-bit displays); 0 = off
+
+  // a static speckle texture, tiled + added each frame — sub-LSB noise that dithers the smooth glow so it can't band into rings
+  const noiseTex = document.createElement('canvas'); noiseTex.width = noiseTex.height = 160;
+  { const nx = noiseTex.getContext('2d'), img = nx.createImageData(160,160), d = img.data;
+    for(let i=0;i<d.length;i+=4){ d[i]=d[i+1]=d[i+2]=255; d[i+3] = Math.random()*16|0; } // white, alpha 0..15
+    nx.putImageData(img,0,0); }
+  let noisePat = null;
 
   // ---- geometry ----
   // W,H are the VISIBLE frame — not necessarily the whole window. On scaled/HiDPI fullscreen the OS can hand us a
@@ -576,6 +584,16 @@
         const depth = 0.4 + 0.6*(zN*0.5+0.5);
         stamp(SP_ATTEMPT, x, y, q.size*5.5*persp*RES, A(0.30*depth));  // yours: a small coherent clump in its own dark corner
       }
+      ctx.globalAlpha=1;
+    }
+
+    // dither: faint tiled grain that breaks the ambient-glow radial BANDING (a "halo" ring on 8-bit displays)
+    if(DITHER>0){
+      if(!noisePat) noisePat = ctx.createPattern(noiseTex,'repeat');
+      ctx.globalCompositeOperation='lighter';
+      ctx.globalAlpha=DITHER;
+      ctx.fillStyle=noisePat;
+      ctx.fillRect(0,0,W,H);
       ctx.globalAlpha=1;
     }
 

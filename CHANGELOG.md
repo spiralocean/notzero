@@ -4,9 +4,19 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.45
+## Unreleased — next: 0.1.46
 
-## 0.1.44
+## 0.1.45
+
+**Ambient view**
+- **Fixed a trap when the OS screensaver/lock engaged over the ambient view.** If macOS's own screensaver or password
+  lock came on top of the (always-on-top, full-screen) ambient view, on unlock it could be left stuck — Esc didn't
+  reach it and it blocked ⌘-Tab. Now the view dismisses itself on any OS lock/unlock/sleep/wake event (which fire
+  reliably where window `blur` doesn't), tears the window down forcefully (drops always-on-top, destroys it), and a
+  **global Esc** dismisses it even if it has lost keyboard focus. It can no longer strand you.
+- **Fixed the "halo" ring around the sphere on some displays.** The soft ambient glow is a large, faint radial
+  gradient, which banded into visible concentric rings on 8-bit panels (notably the Intel Mac and 150% Windows). A
+  faint dither grain now breaks up the banding so the glow stays smooth.
 
 **Reliability**
 - **The miner now self-heals if it hangs.** Until now the app only restarted the miner engine if it fully *crashed*;
