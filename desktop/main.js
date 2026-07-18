@@ -1113,8 +1113,29 @@ async function createWindow() {
 const bootHidden = process.argv.includes("--hidden");
 function applyAutoStart(cfg) {
   const enabled = !cfg || cfg.auto_start !== false; // default ON
+  if (process.platform === "linux") { applyAutoStartLinux(enabled); return; } // Electron's setLoginItemSettings is a no-op on Linux — do it ourselves
   try { app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true, args: ["--hidden"] }); }
   catch (_) { /* best effort — unsupported platform just won't autostart */ }
+}
+// Linux has no login-item API in Electron, so write/remove a freedesktop autostart entry directly. Use $APPIMAGE
+// (the stable AppImage path) — process.execPath inside an AppImage points at a temp FUSE mount that changes each run.
+function applyAutoStartLinux(enabled) {
+  try {
+    const file = path.join(os.homedir(), ".config", "autostart", "notzero.desktop");
+    if (!enabled) { try { fs.unlinkSync(file); } catch (_) {} return; }
+    const exec = process.env.APPIMAGE || process.execPath;
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, [
+      "[Desktop Entry]",
+      "Type=Application",
+      "Name=Bitcoin Lottery",
+      "Comment=Resume mining on login",
+      `Exec="${exec}" --hidden`,
+      "Terminal=false",
+      "X-GNOME-Autostart-enabled=true",
+      "",
+    ].join("\n"));
+  } catch (_) { /* best effort */ }
 }
 
 // Single-instance lock: the app survives window-close in the tray (Windows + Linux), so a second launch must

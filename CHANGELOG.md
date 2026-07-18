@@ -4,7 +4,20 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.46
+## Unreleased — next: 0.1.47
+
+## 0.1.46
+
+**Linux**
+- **Fixed auto-start on Linux — it never actually worked.** The app relied on Electron's `setLoginItemSettings`, which
+  is a no-op on Linux, so it never registered itself to launch on login (a reboot or system update left it not
+  running). It now writes a proper freedesktop autostart entry (`~/.config/autostart`), using the AppImage's stable
+  path, so mining resumes on login. Turn it off with the existing auto-start setting.
+
+**Ambient view**
+- **Reworked the glow to fix the "halo" ring (and undo 0.1.45's washed-out blacks).** 0.1.45 tried to dither the glow
+  with additive grain, which lifted the black floor. That's removed. The ambient glow is now fainter and more diffuse
+  with a gentler falloff, so it no longer bands into a visible ring on 8-bit panels, and the deep stays deep.
 
 ## 0.1.45
 

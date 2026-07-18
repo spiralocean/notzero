@@ -122,14 +122,6 @@
   const A = a => a * EXPOSURE;
   const SCENE = 0.86;                        // shrink the whole composition a touch so it sits comfortably inside the safe area
   const SAFE  = 0.93;                        // action-safe: the sphere/attempt stay within this fraction of the visible frame (analog-TV "action safe")
-  const DITHER = 0.6;                        // faint grain to break the ambient-glow radial BANDING (a visible "halo" ring on 8-bit displays); 0 = off
-
-  // a static speckle texture, tiled + added each frame — sub-LSB noise that dithers the smooth glow so it can't band into rings
-  const noiseTex = document.createElement('canvas'); noiseTex.width = noiseTex.height = 160;
-  { const nx = noiseTex.getContext('2d'), img = nx.createImageData(160,160), d = img.data;
-    for(let i=0;i<d.length;i+=4){ d[i]=d[i+1]=d[i+2]=255; d[i+3] = Math.random()*16|0; } // white, alpha 0..15
-    nx.putImageData(img,0,0); }
-  let noisePat = null;
 
   // ---- geometry ----
   // W,H are the VISIBLE frame — not necessarily the whole window. On scaled/HiDPI fullscreen the OS can hand us a
@@ -487,13 +479,15 @@
     ctx.globalCompositeOperation='lighter';
 
     // --- ambient temperature glow (dim, soft-edged; centred on the drifting sphere) ---
-    const amb = base*(0.9 + 0.06*Math.sin(t/3000));
-    const aw = A(0.05 + 0.03*p);
+    const amb = base*(1.05 + 0.06*Math.sin(t/3000));   // larger & more diffuse — spreads the falloff so no single ring stands out
+    const aw = A(0.032 + 0.02*p);                       // fainter than before: the big soft glow was banding into a visible "halo" ring on 8-bit panels
     let g = ctx.createRadialGradient(scx,scy,0,scx,scy,amb);
-    g.addColorStop(0.0, rgba(col, aw));
-    g.addColorStop(0.35, rgba(col, aw*0.5));
-    g.addColorStop(0.65, rgba(col, aw*0.16));
-    g.addColorStop(1.0, rgba(col, 0));
+    g.addColorStop(0.00, rgba(col, aw));                // many gentle stops → the transitions are spread out, not one hard edge
+    g.addColorStop(0.16, rgba(col, aw*0.74));
+    g.addColorStop(0.33, rgba(col, aw*0.50));
+    g.addColorStop(0.52, rgba(col, aw*0.29));
+    g.addColorStop(0.74, rgba(col, aw*0.12));
+    g.addColorStop(1.00, rgba(col, 0));
     ctx.fillStyle=g; ctx.beginPath(); ctx.arc(scx,scy,amb,0,7); ctx.fill(); // arc centre now matches the gradient (was cx,cy → hard edge)
 
     // (your best-ever near-miss is drawn as the weak second sphere below, after the main swarm)
@@ -584,16 +578,6 @@
         const depth = 0.4 + 0.6*(zN*0.5+0.5);
         stamp(SP_ATTEMPT, x, y, q.size*5.5*persp*RES, A(0.30*depth));  // yours: a small coherent clump in its own dark corner
       }
-      ctx.globalAlpha=1;
-    }
-
-    // dither: faint tiled grain that breaks the ambient-glow radial BANDING (a "halo" ring on 8-bit displays)
-    if(DITHER>0){
-      if(!noisePat) noisePat = ctx.createPattern(noiseTex,'repeat');
-      ctx.globalCompositeOperation='lighter';
-      ctx.globalAlpha=DITHER;
-      ctx.fillStyle=noisePat;
-      ctx.fillRect(0,0,W,H);
       ctx.globalAlpha=1;
     }
 
