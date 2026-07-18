@@ -445,13 +445,14 @@
     const bloomAge = t - state.landedAt;
     // block lands → CONVERGE (whole swarm rushes in and gathers) → CONDENSE (locks into the coin) → SINK.
     // The converge phase guarantees you always SEE the swarm form the sphere, never a coin popping from nothing.
-    const CONVERGE_MS = reduce?700:900, CONDENSE_MS = reduce?1000:780, SINK_MS = reduce?1700:1500;
+    const CONVERGE_MS = reduce?700:900, CONDENSE_MS = reduce?1000:780, SINK_MS = reduce?4600:4000; // long, slow descent — the sealed block sinks into the deep and stays visible for a good while
     const active = bloomAge < CONVERGE_MS+CONDENSE_MS+SINK_MS; // a block is being formed (any of the three phases)
     const converging = active && bloomAge < CONVERGE_MS;      // swarm rushing inward — gathered but NOT yet locked
     const mined = active && bloomAge >= CONVERGE_MS;          // locked into the coin, then sinking
     const cp = clamp((bloomAge-CONVERGE_MS)/CONDENSE_MS);     // 0..1 locking into one solid mass (after the converge)
     const sp = clamp((bloomAge-CONVERGE_MS-CONDENSE_MS)/SINK_MS); // 0..1 sinking away
-    const sinkY = mined ? base*0.34*(sp*sp) : 0;             // weight sinks it — but ONLY once locked
+    const sinkY = mined ? base*0.72*(sp*sp*(3-2*sp)) : 0; // smoothstep — eases in from rest (no jerk at the lock→sink transition), steady descent, gentle settle deep in the dark
+    const sinkScale = Math.max(0, 1 - sp*1.08); // the coin stays SOLID and shrinks to a point as it sinks — fading additive sprites' alpha instead thins them and reveals gaps ("holes"). Reaches 0 just before the phase ends, so no pop.
     // once the coin has sunk, fresh transactions surface from the sea (one-shot)
     if(!active && !state.sinkDone && state.landedAt>0){
       for(let i=0;i<N;i++){ const q=P[i];
@@ -473,11 +474,23 @@
     const smx = W*(1-SAFE)/2 + base*0.20, smy = H*(1-SAFE)/2 + base*0.20;
     scx = Math.max(smx, Math.min(W-smx, scx)); scy = Math.max(smy, Math.min(H-smy, scy));
 
-    // --- trail fade: pure abyss, no temperature tint — the background must never take on the swarm's colour now
-    // that all light comes from the sprites; only they carry the cold→warm shift ---
+    // --- trail fade: pure abyss (no temperature tint). While a block is FILLING (converge+condense, before the sink),
+    // clear only WEAKLY inside the sphere so the sprites' motion leaves persistent tails that accumulate and FILL IT
+    // IN, while the ocean around it still clears normally (no whole-screen smear). The sink restores the full clear. ---
+    const filling = active && sp < 0.02;                    // block found, sprites still moving into place → let tails build
+    const normalFade = reduce?0.5:0.42;
     ctx.globalCompositeOperation='source-over';
-    ctx.fillStyle = rgba(ABYSS, reduce?0.5:0.42);   // clears faster → short tails, not long traces
-    ctx.fillRect(0,0,W,H);
+    if(filling){
+      // soft-edged accumulation: barely clear at the centre (tails build up & FILL the sphere), fading to the NORMAL
+      // clear by the rim. A soft boundary — not a hard circle — so nothing lingers as a halo ring when it collapses.
+      const rg = ctx.createRadialGradient(scx,scy,base*0.05, scx,scy,base*0.26);
+      rg.addColorStop(0.0, rgba(ABYSS, 0.07));
+      rg.addColorStop(0.6, rgba(ABYSS, 0.09));
+      rg.addColorStop(1.0, rgba(ABYSS, normalFade));
+      ctx.fillStyle = rg; ctx.fillRect(0,0,W,H);
+    } else {
+      ctx.fillStyle = rgba(ABYSS, normalFade); ctx.fillRect(0,0,W,H);
+    }
 
     ctx.globalCompositeOperation='lighter';
 
@@ -491,7 +504,7 @@
     const AX=0.42, cAX=Math.cos(AX), sAX=Math.sin(AX);
     const gatherR = base*0.17;
     let sphereR = gatherR;
-    if(mined){ sphereR = gatherR*(1-cp) + (base*0.072)*cp; sphereR *= (1 - 0.85*sp); }  // packs tighter
+    if(mined){ sphereR = gatherR*(1-cp) + (base*0.072)*cp; sphereR *= (0.4 + 0.6*sinkScale); }  // recedes to a small DISC (not a point), so it stays a coin that dims into the distance rather than a shrinking bright dot
     const hashCol = state.bloom ? hsl(state.bloom.hue,70,60) : [255,255,255];
 
     // --- ONE swarm: the whole field warms together; the sphere is just where it's gathered ---
@@ -531,7 +544,7 @@
         const depth=0.4+0.6*(zN*0.5+0.5);
         const pr=q.size*6.5*RES*(0.8+0.5*depth)*persp*(mined?1+0.7*cp:1);   // glows grow as they lock → overlap fills gaps
         if(mined){
-          stamp(SP_COIN, q.x,q.y, pr, A((0.14+0.40*cp)*depth*(1-0.9*sp)));  // packs into a gapless solid coin
+          stamp(SP_COIN, q.x,q.y, pr*(0.7+0.3*sinkScale), A((0.14+0.40*cp)*depth*sinkScale));  // sprites fuse into a solid bright coin
         } else {
           stamp(swarmSprite, q.x,q.y, pr, A(0.15*depth));                   // same sprite as the sea
         }

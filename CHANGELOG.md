@@ -4,9 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.49
+## Unreleased — next: 0.1.50
 
-## 0.1.48
+## 0.1.49
+
+**Ambient view**
+- **Reworked the block-found sequence.** When a block is found, the gathered transactions now *fuse* — their motion
+  leaves persistent tails that build up and fill the sphere into a solid coin — then it locks and sinks: a smooth,
+  eased descent (no jerk at the lock), travelling deeper and dimming as one solid disc as it recedes into the deep,
+  rather than shrinking to a dot or thinning into gaps. The fill is soft-edged so nothing lingers as a halo when it
+  collapses.
 
 **Ambient view**
 - **The OS's own screensaver no longer takes over the ambient view.** While the ambient view is showing, the app now
