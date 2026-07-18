@@ -136,6 +136,7 @@
     H = Math.min(window.innerHeight, sh);   // visible height
     app.style.width = W+'px'; app.style.height = H+'px'; // pin the stage to the visible frame, top-left anchored
     c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
+    c.style.width = W+'px'; c.style.height = H+'px'; // <canvas> is a REPLACED element: with only `inset:0` it renders at its BITMAP (dpr×) size → 2× too big on retina (sphere off the bottom-right). Pin the CSS size to the logical size.
     ctx.setTransform(dpr,0,0,dpr,0,0);
     cx = W/2; cy = H/2; base = Math.min(W,H) * SCENE;
     if(DEBUG && dbg){ dbg.style.opacity='1'; dbg.textContent = `win ${window.innerWidth}×${window.innerHeight} → stage ${W}×${H}  dpr ${window.devicePixelRatio}(→${dpr})  ·  screen ${sw}×${sh}  avail ${screen.availWidth}×${screen.availHeight}`; }

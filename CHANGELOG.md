@@ -4,9 +4,18 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.43
+## Unreleased — next: 0.1.44
 
-## 0.1.42
+## 0.1.43
+
+**Ambient view**
+- **Fixed the sphere drawing off-screen on Retina / HiDPI Macs (and the "bottom-right bias" on 150% Windows) — the
+  real root cause.** A `<canvas>` is a *replaced element*, so with only `inset:0` it renders at its full-resolution
+  bitmap size — 2× too big on a Retina display, 1.5× on 150% Windows — pushing the sphere off the bottom-right.
+  Pinning the canvas's CSS size to the logical size fixes it on every display. (This is what all the recent
+  window-sizing changes were chasing at the wrong layer.)
+- **Full-screen restored.** With the canvas bug gone, the ambient view goes back to true full-screen — covering the
+  menu bar / Dock / taskbar — and the sphere stays centred.
 
 **Ambient view**
 - **A block now always forms from a visible convergence, never a coin popping from nowhere.** When a block lands, the

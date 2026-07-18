@@ -38,6 +38,7 @@
     dpr = Math.min(window.devicePixelRatio||1, 2);
     W = window.innerWidth; H = window.innerHeight;
     c.width = Math.round(W*dpr); c.height = Math.round(H*dpr);
+    c.style.width = W+'px'; c.style.height = H+'px'; // pin the canvas CSS size to logical — else the replaced element renders at 2× (dpr) on retina
     ctx.setTransform(dpr,0,0,dpr,0,0);
     columns = []; // rebuild for the new width
   }
