@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.42
 
+**Ambient view**
+- **A block now always forms from a visible convergence, never a coin popping from nowhere.** When a block lands, the
+  whole swarm is recruited and rushes inward to gather into the sphere for ~0.9s *before* it locks into the coin — so
+  even a block found early (or right after the last one, when it's mostly open sea) shows the transactions coming
+  together first.
+
 **Dashboard**
 - **"Verified Updates" no longer looks empty right after an update.** The release list used to wait for your node to
   finish booting before it populated — a couple of minutes staring at what looked like "nothing verified." Now it

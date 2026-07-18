@@ -437,13 +437,17 @@
 
     // block lifecycle: the gathered swarm LOCKS into a coin, whose weight sinks it into the deep
     const bloomAge = t - state.landedAt;
-    const CONDENSE_MS = reduce?1000:780, SINK_MS = reduce?1700:1500;
-    const mined = bloomAge < CONDENSE_MS+SINK_MS;
-    const cp = clamp(bloomAge/CONDENSE_MS);               // 0..1 locking into one solid mass
-    const sp = clamp((bloomAge-CONDENSE_MS)/SINK_MS);     // 0..1 sinking away
-    const sinkY = mined ? base*0.34*(sp*sp) : 0;          // weight sinks it — but ONLY once mined
+    // block lands → CONVERGE (whole swarm rushes in and gathers) → CONDENSE (locks into the coin) → SINK.
+    // The converge phase guarantees you always SEE the swarm form the sphere, never a coin popping from nothing.
+    const CONVERGE_MS = reduce?700:900, CONDENSE_MS = reduce?1000:780, SINK_MS = reduce?1700:1500;
+    const active = bloomAge < CONVERGE_MS+CONDENSE_MS+SINK_MS; // a block is being formed (any of the three phases)
+    const converging = active && bloomAge < CONVERGE_MS;      // swarm rushing inward — gathered but NOT yet locked
+    const mined = active && bloomAge >= CONVERGE_MS;          // locked into the coin, then sinking
+    const cp = clamp((bloomAge-CONVERGE_MS)/CONDENSE_MS);     // 0..1 locking into one solid mass (after the converge)
+    const sp = clamp((bloomAge-CONVERGE_MS-CONDENSE_MS)/SINK_MS); // 0..1 sinking away
+    const sinkY = mined ? base*0.34*(sp*sp) : 0;             // weight sinks it — but ONLY once locked
     // once the coin has sunk, fresh transactions surface from the sea (one-shot)
-    if(!mined && !state.sinkDone && state.landedAt>0){
+    if(!active && !state.sinkDone && state.landedAt>0){
       for(let i=0;i<N;i++){ const q=P[i];
         if(q.role==='sphere'){                 // the coin's txs return to the sea — already lit, no fade-in
           q.role='ocean'; q.life=1;
@@ -458,7 +462,7 @@
 
     // where the sphere is right now: drifting while it gathers, frozen where it locked when mined
     let scx, scy;
-    if(mined){ scx=state.coinCx; scy=state.coinCy; }
+    if(active){ scx=state.coinCx; scy=state.coinCy; }   // freeze the gather point from the moment the block lands, through the sink
     else { const sc=sphereCenter(t); scx=sc[0]; scy=sc[1]; }
     // action-safe: keep the whole gathered sphere (centre ± its radius) inside SAFE% of the visible frame, any aspect.
     // (The downward sink is added later at draw time, so the coin can still slip below as it fades into the deep.)
@@ -500,8 +504,9 @@
     for(let i=0;i<N;i++){
       const q=P[i];
 
-      // pressure lifts a transaction from the sea onto its own great-circle orbit
-      if(q.role==='ocean' && p>q.thr){
+      // pressure lifts a transaction from the sea onto its own great-circle orbit;
+      // when a block lands, `converging` recruits the ENTIRE sea at once so the whole swarm rushes in to form the sphere
+      if(q.role==='ocean' && (p>q.thr || converging)){
         q.role='sphere';
         let wx=Math.random()*2-1, wy=Math.random()*2-1, wz=Math.random()*2-1;
         const wl=Math.hypot(wx,wy,wz)||1; wx/=wl; wy/=wl; wz/=wl;   // random orbit axis
@@ -523,7 +528,7 @@
         const persp=1/(1 - zN*0.38);                     // perspective: near spreads wider & larger
         const tx=scx + X*sphereR*persp;
         const ty=scy + y1*sphereR*persp + sinkY;
-        const settleK = mined?0.16:0.028;                // gentle glide onto the sphere; snaps tight only on the lock
+        const settleK = mined?0.16:(converging?0.06:0.028); // slow drift while gathering · brisk rush-in during converge · snap on lock
         q.x+=(tx-q.x)*settleK*drift; q.y+=(ty-q.y)*settleK*drift;
         const depth=0.4+0.6*(zN*0.5+0.5);
         const pr=q.size*6.5*RES*(0.8+0.5*depth)*persp*(mined?1+0.7*cp:1);   // glows grow as they lock → overlap fills gaps
