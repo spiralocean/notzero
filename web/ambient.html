@@ -184,14 +184,19 @@
   }
 
   // ---- glow sprites: the swarm makes the light — dense overlap sums to brightness ----
-  function makeSprite(rgb, a){
-    const S=96, oc=document.createElement('canvas'); oc.width=oc.height=S;
+  function makeSprite(rgb, a, dither, S){
+    S = S || 96; const oc=document.createElement('canvas'); oc.width=oc.height=S;
     const o=oc.getContext('2d');
     const g=o.createRadialGradient(S/2,S/2,0,S/2,S/2,S/2);
     g.addColorStop(0, rgba(rgb, a));
     g.addColorStop(0.4, rgba(rgb, a*0.32));
     g.addColorStop(1, rgba(rgb, 0));
     o.fillStyle=g; o.fillRect(0,0,S,S);
+    // Optional: jitter the alpha FALLOFF (baked in once) so dense additive overlap — the solidifying coin — can't band
+    // into a "halo" ring on 8-bit panels. Noise lives only where the glow is, so it never touches the black background.
+    if(dither){ const im=o.getImageData(0,0,S,S), d=im.data;
+      for(let i=3;i<d.length;i+=4){ if(d[i]>2 && d[i]<252) d[i]=Math.max(0,Math.min(255, d[i]+(Math.random()*2-1)*20)); }
+      o.putImageData(im,0,0); }
     return oc;
   }
   const SP_COOL = makeSprite([150,205,230], 0.74);   // the cool sea (lifted so f.lux doesn't kill it)
@@ -459,8 +464,6 @@
       state.sinkDone=true;
     }
 
-    const col = temp(p);
-
     // where the sphere is right now: drifting while it gathers, frozen where it locked when mined
     let scx, scy;
     if(active){ scx=state.coinCx; scy=state.coinCy; }   // freeze the gather point from the moment the block lands, through the sink
@@ -470,25 +473,17 @@
     const smx = W*(1-SAFE)/2 + base*0.20, smy = H*(1-SAFE)/2 + base*0.20;
     scx = Math.max(smx, Math.min(W-smx, scx)); scy = Math.max(smy, Math.min(H-smy, scy));
 
-    // --- trail fade (warmed slightly by pressure) ---
+    // --- trail fade: pure abyss, no temperature tint — the background must never take on the swarm's colour now
+    // that all light comes from the sprites; only they carry the cold→warm shift ---
     ctx.globalCompositeOperation='source-over';
-    const fade = mix(ABYSS, col, 0.04*p);
-    ctx.fillStyle = rgba(fade, reduce?0.5:0.42);   // clears faster → short tails, not long traces
+    ctx.fillStyle = rgba(ABYSS, reduce?0.5:0.42);   // clears faster → short tails, not long traces
     ctx.fillRect(0,0,W,H);
 
     ctx.globalCompositeOperation='lighter';
 
-    // --- ambient temperature glow (dim, soft-edged; centred on the drifting sphere) ---
-    const amb = base*(1.05 + 0.06*Math.sin(t/3000));   // larger & more diffuse — spreads the falloff so no single ring stands out
-    const aw = A(0.032 + 0.02*p);                       // fainter than before: the big soft glow was banding into a visible "halo" ring on 8-bit panels
-    let g = ctx.createRadialGradient(scx,scy,0,scx,scy,amb);
-    g.addColorStop(0.00, rgba(col, aw));                // many gentle stops → the transitions are spread out, not one hard edge
-    g.addColorStop(0.16, rgba(col, aw*0.74));
-    g.addColorStop(0.33, rgba(col, aw*0.50));
-    g.addColorStop(0.52, rgba(col, aw*0.29));
-    g.addColorStop(0.74, rgba(col, aw*0.12));
-    g.addColorStop(1.00, rgba(col, 0));
-    ctx.fillStyle=g; ctx.beginPath(); ctx.arc(scx,scy,amb,0,7); ctx.fill(); // arc centre now matches the gradient (was cx,cy → hard edge)
+    // No separate ambient glow: ANY full-screen glow (gradient or sprite) tints the corners, which reads as banding /
+    // washed blacks on 8-bit panels. The swarm's own additive sprites are localized, so the light comes from them and
+    // the black between them stays truly black.
 
     // (your best-ever near-miss is drawn as the weak second sphere below, after the main swarm)
 

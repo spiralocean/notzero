@@ -4,9 +4,17 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.47
+## Unreleased — next: 0.1.48
 
-## 0.1.46
+## 0.1.47
+
+**Ambient view**
+- **Removed the full-screen ambient glow — the "halo" is gone for good.** A soft screen-spanning glow (whether a
+  gradient or a sprite) always bands into a ring and tints the corners on 8-bit panels, no matter how it's dithered.
+  So it's gone: all light and color now come from the swarm's own localized sprites, and the black between them stays
+  truly black on every display.
+- **The background no longer shifts temperature with the swarm.** The trail-fade was tinting the whole abyss toward the
+  swarm color as pressure built; now it's pure abyss, so only the sprites carry the cold→warm shift.
 
 **Linux**
 - **Fixed auto-start on Linux — it never actually worked.** The app relied on Electron's `setLoginItemSettings`, which
