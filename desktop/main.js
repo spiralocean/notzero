@@ -111,6 +111,7 @@ function buildMenu() {
       { label: "Dashboard", accelerator: isMac ? "Cmd+D" : "Ctrl+D", click: openDashboard },
       { label: "Ambient View", accelerator: isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A", click: () => openAmbient(true) },
       { label: "Ambient View (Debug Numbers)", click: () => openAmbient(true, true) }, // opens with the on-screen size readout — no config edit needed
+      { label: "Ambient View (Immersive test)", click: () => openAmbient(true, true, true) }, // covers menu bar/Dock via window level (no fullscreen); shows the readout so we can confirm it stays correctly sized
 
       { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
     ] },
@@ -167,7 +168,7 @@ function lockScreen() {
   } catch (_) {}
 }
 
-function openAmbient(manual, forceDebug) {
+function openAmbient(manual, forceDebug, immersive) {
   if (ambientWindow) return;
   ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
   // Size to the display's LOGICAL bounds (main-process screen.* is reliably DIP) and DO NOT call the fullscreen
@@ -185,6 +186,16 @@ function openAmbient(manual, forceDebug) {
     webPreferences: { contextIsolation: true }, // self-contained page; no node integration
   });
   ambientWindow.setAlwaysOnTop(true, "floating");
+  if (immersive) {
+    // IMMERSION TEST — cover the menu bar + Dock WITHOUT the fullscreen call (which over-sizes on scaled displays).
+    // Raising the window level lifts macOS's work-area constraint so the frame can fill the WHOLE display; this only
+    // changes stacking, never the size, so it physically cannot reintroduce the off-screen bug. Safety: Esc/any key,
+    // Cmd+Tab (blur), and a hard auto-close below all dismiss it — it can never trap you.
+    ambientWindow.setAlwaysOnTop(true, "screen-saver");
+    ambientWindow.setBounds({ x: b.x, y: b.y, width: b.width, height: b.height });
+    const w = ambientWindow;
+    setTimeout(() => { if (ambientWindow === w) dismissAmbient(true); }, 120000); // fail-safe: never leave a test window up > 2 min
+  }
   ambientWindow.on("closed", () => { ambientWindow = null; });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
   ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock
@@ -193,7 +204,7 @@ function openAmbient(manual, forceDebug) {
   ambientShownAt = Date.now();
   const cfg = ambientCfg();
   const page = cfg.style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
-  const q = (cfg.debug || forceDebug) ? "?debug=1" : ""; // config `ambient.debug:true` OR the debug menu item → on-screen readout of canvas W×H / dpr / screen size (for diagnosing scaled-display sizing)
+  const q = (cfg.debug || forceDebug || immersive) ? "?debug=1" : ""; // config `ambient.debug:true`, the debug menu item, or the immersion test → on-screen readout of canvas W×H / dpr / screen size
   const url = serverPort ? `http://127.0.0.1:${serverPort}/${page}${q}` : null;
   console.log(`[notzero] ambient view opening (${manual ? "manual" : "idle"}, ${page}${q}) → ${url || path.join(WEB_DIR, page)}`);
   if (url) ambientWindow.loadURL(url); // same origin → reads the node feed

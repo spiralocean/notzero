@@ -32,6 +32,9 @@ version number and bump `desktop/package.json`.
   twice. Polls are now serialized (no overlap) and a duplicate height can never solidify the same block again.
 - Added a **tray menu → "Ambient View (Debug Numbers)"** item that opens the view with an on-screen size readout —
   a one-click way to diagnose a display, no config editing.
+- Added a **tray menu → "Ambient View (Immersive test)"** item — a candidate way to hide the menu bar / Dock without
+  the fullscreen call that over-sized scaled displays (it raises the window level instead, which can't change the
+  size). Opens with the size readout so the sizing can be confirmed; Esc, ⌘-Tab, and a 2-minute auto-close all exit.
 
 ## 0.1.40
 
