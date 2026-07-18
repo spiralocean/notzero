@@ -578,6 +578,16 @@
       ctx.globalAlpha=1;
     }
 
+    if(DEBUG){ // sizing check: MAGENTA cross = where the sphere centres · GREEN dots = the four canvas corners
+      ctx.globalCompositeOperation='source-over';
+      ctx.fillStyle='#ff2bd6';
+      ctx.beginPath(); ctx.arc(cx,cy,9,0,7); ctx.fill();
+      ctx.strokeStyle='#ff2bd6'; ctx.lineWidth=2;
+      ctx.beginPath(); ctx.moveTo(cx-34,cy); ctx.lineTo(cx+34,cy); ctx.moveTo(cx,cy-34); ctx.lineTo(cx,cy+34); ctx.stroke();
+      ctx.fillStyle='#22ff88';
+      for(const m of [[22,22],[W-22,22],[22,H-22],[W-22,H-22]]){ ctx.beginPath(); ctx.arc(m[0],m[1],9,0,7); ctx.fill(); }
+    }
+
     // (the coin is formed entirely by the packed swarm above — no drawn sphere body)
   }
   requestAnimationFrame(frame);
