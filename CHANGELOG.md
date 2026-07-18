@@ -4,7 +4,21 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.51
+## Unreleased — next: 0.1.52
+
+## 0.1.51
+
+**Ambient view**
+- **The deep feels alive and has depth now.** Overall brightness is up a notch, and the sea has real depth: near
+  transactions sit steady and bright while far ones recede and slowly **breathe in and out of the dark**, so the water
+  reads as deep rather than flat.
+- **The sea stays populated when a block is found.** About **45% of the sea is now permanent background** that never
+  gets pulled into a block, so the deep no longer empties out the moment a block forms.
+- **Blocks form organically.** Instead of the whole sea flipping into the sphere on a single frame, the swarm now
+  **streams in gradually** over the gather — you watch transactions join the block rather than blink into it.
+- **Transactions resurface naturally.** After the sealed block sinks, fresh transactions return from **both the sides
+  and the depths**, fading in on a slow, wide, randomized stagger — no more horizontal line of sprites popping in at
+  the bottom.
 
 ## 0.1.50
 

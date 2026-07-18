@@ -118,7 +118,7 @@
   const dbg = document.getElementById('dbg');
 
   // ---- master tunables ----
-  const EXPOSURE = 0.86;                    // one knob for overall brightness (raised for dim/f.lux screens)
+  const EXPOSURE = 0.98;                    // one knob for overall brightness (raised for dim/f.lux screens)
   const A = a => a * EXPOSURE;
   const SCENE = 0.86;                        // shrink the whole composition a touch so it sits comfortably inside the safe area
   const SAFE  = 0.93;                        // action-safe: the sphere/attempt stay within this fraction of the visible frame (analog-TV "action safe")
@@ -304,6 +304,7 @@
     P[i] = {
       x: Math.random()*W, y: Math.random()*H,
       role:'ocean',
+      bg: Math.random() < 0.45,            // ~45% stay permanent background sea — never recruited into a block, so the deep stays well populated when one is found
       thr: 0.15 + Math.random()*1.15,      // pressure at which this tx joins the sphere
       ringAng: Math.random()*Math.PI*2,
       ringSpin:(Math.random()*0.4+0.2)*(Math.random()<.5?-1:1),
@@ -451,14 +452,21 @@
     const mined = active && bloomAge >= CONVERGE_MS;          // locked into the coin, then sinking
     const cp = clamp((bloomAge-CONVERGE_MS)/CONDENSE_MS);     // 0..1 locking into one solid mass (after the converge)
     const sp = clamp((bloomAge-CONVERGE_MS-CONDENSE_MS)/SINK_MS); // 0..1 sinking away
+    const convF = clamp(bloomAge/CONVERGE_MS); // 0..1 over the converge — recruits sprites GRADUALLY (per-sprite seed gate) so the swarm streams into the block instead of the whole sea flipping at once
     const sinkY = mined ? base*0.72*(sp*sp*(3-2*sp)) : 0; // smoothstep — eases in from rest (no jerk at the lock→sink transition), steady descent, gentle settle deep in the dark
     const sinkScale = Math.max(0, 1 - sp*1.08); // the coin stays SOLID and shrinks to a point as it sinks — fading additive sprites' alpha instead thins them and reveals gaps ("holes"). Reaches 0 just before the phase ends, so no pop.
     // once the coin has sunk, fresh transactions surface from the sea (one-shot)
     if(!active && !state.sinkDone && state.landedAt>0){
       for(let i=0;i<N;i++){ const q=P[i];
-        if(q.role==='sphere'){                 // the coin's txs return to the sea — already lit, no fade-in
-          q.role='ocean'; q.life=1;
-          q.x=Math.random()*W; q.y=cy + base*0.28 + Math.random()*base*0.6;   // rise from the deep below
+        if(q.role==='sphere'){                 // the coin's txs disperse back into the sea
+          q.role='ocean';
+          q.life = -0.3 - Math.random()*Math.random()*7;              // negative → FADE-IN; random² → most return soon with a long organic tail, never all at once
+          if(Math.random()<0.5){                                      // ~half drift in from the SIDES — spawn inside a side edge; the edge-fade makes them emerge softly
+            q.x = Math.random()<0.5 ? Math.random()*W*0.05 : W - Math.random()*W*0.05;
+            q.y = Math.random()*H;
+          } else {                                                    // ~half rise from the DEPTHS — scattered across the sea, fade in in place
+            q.x = Math.random()*W; q.y = Math.random()*H;
+          }
         }
         q.thr=0.15+Math.random()*1.15;     // reshuffle the WHOLE sea's thresholds — nothing gets retired
       }
@@ -516,8 +524,8 @@
       const q=P[i];
 
       // pressure lifts a transaction from the sea onto its own great-circle orbit;
-      // when a block lands, `converging` recruits the ENTIRE sea at once so the whole swarm rushes in to form the sphere
-      if(q.role==='ocean' && (p>q.thr || converging)){
+      // when a block lands, sprites are recruited GRADUALLY over the converge (convF passes each sprite's seed) — they stream in, the sea doesn't vanish in one frame
+      if(q.role==='ocean' && !q.bg && (p>q.thr || (active && convF>q.seed))){   // background sprites (!bg gate) never join → the sea stays visible through the block
         q.role='sphere';
         let wx=Math.random()*2-1, wy=Math.random()*2-1, wz=Math.random()*2-1;
         const wl=Math.hypot(wx,wy,wz)||1; wx/=wl; wy/=wl; wz/=wl;   // random orbit axis
@@ -546,7 +554,7 @@
         if(mined){
           stamp(SP_COIN, q.x,q.y, pr*(0.7+0.3*sinkScale), A((0.14+0.40*cp)*depth*sinkScale));  // sprites fuse into a solid bright coin
         } else {
-          stamp(swarmSprite, q.x,q.y, pr, A(0.15*depth));                   // same sprite as the sea
+          stamp(swarmSprite, q.x,q.y, pr, A(0.22*depth));                   // same sprite as the sea
         }
       } else {
         // ocean drift — an edgeless deep: wrap with no walls, fade into the dark at the borders
@@ -556,11 +564,14 @@
         q.y+=Math.sin(ang)*0.02*dt*drift*q.spd;
         if(q.x<-30)q.x=W+30; else if(q.x>W+30)q.x=-30;
         if(q.y<-30)q.y=H+30; else if(q.y>H+30)q.y=-30;
-        if(q.life<1) q.life=Math.min(1,q.life+dt*0.0009);
+        if(q.life<1) q.life=Math.min(1,q.life+dt*0.00055);   // gentle fade-in — slower so surfacing sprites ease in from the deep rather than snapping on
         const ex=Math.min(1, q.x/(W*0.12), (W-q.x)/(W*0.12));
         const ey=Math.min(1, q.y/(H*0.12), (H-q.y)/(H*0.12));   // no surface line at the top
         const edge=Math.max(0, Math.min(ex,ey));
-        stamp(swarmSprite, q.x,q.y, q.size*6.5*RES, A(0.15*q.life*edge*oceanF));   // same swarm as the sphere; density tracks the mempool
+        const dof = (q.size-0.6)/1.5;                              // 0 far … 1 near (from the sprite's own size) → DEPTH
+        const tw  = 0.5 + 0.5*Math.sin(t*0.0005 + q.seed*97.3);    // slow breathing, per-sprite phase
+        const fade = dof + (1-dof)*tw;                             // near sprites steady & bright · deep-background (far) fade IN and OUT
+        stamp(swarmSprite, q.x,q.y, q.size*6.5*RES, A((0.16+0.40*dof)*fade*q.life*edge*oceanF));   // big/near pop, small/far recede and drift in & out of the deep
       }
     }
     ctx.globalAlpha=1;
