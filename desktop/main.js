@@ -508,6 +508,10 @@ let syncCand = null;     // {synced, since} — a candidate sync state still wai
 // A node can briefly drop and regain sync; a blip that recovers within a block doesn't threaten "one hash
 // per block", so sync notifications only fire once the new state has HELD for this long (flaps are ignored).
 const SYNC_NOTIFY_DELAY_MS = 5 * 60 * 1000;
+// Miner liveness watchdog: the engine's exit-handler only respawns a CRASHED miner; a HUNG one (alive but no longer
+// logging tickets) would sit stalled forever. Restart it if it's been silent too long while the node is synced.
+let lastMinerKick = 0;
+const MINER_KICK_COOLDOWN_MS = 5 * 60 * 1000; // after a restart, give it time to spin up + log a ticket before considering another
 function notify(title, body) {
   try { if (Notification.isSupported()) new Notification({ title, body }).show(); } catch (_) {}
 }
@@ -557,6 +561,20 @@ function startNotifier() {
           else if (!synced && cfg.notify_node_out_of_sync !== false) notify("⚠️ Node out of sync", "Your node has been behind for a while. Mining resumes once it's caught up.");
         }
         syncNotified = synced; syncCand = null;                                  // advance even if master-off (no backlog)
+      }
+    }
+
+    // --- miner liveness watchdog: restart a HUNG miner (same staleness test the dashboard's pill uses) ---
+    // Only when synced and we have a real ticket timestamp; a missing timestamp is "first moments", not a stall.
+    const at = m && m.attempt ? Date.parse(m.attempt.attempted_at || "") : NaN;
+    if (synced && isFinite(at)) {
+      const ageSec = (Date.now() - at) / 1000;
+      const tipAge = tipTime ? Date.now() / 1000 - tipTime : Infinity;
+      const stalled = ageSec > 1200 && ageSec > tipAge + 600; // >20 min old AND >10 min older than the tip → blocks moved on but the miner didn't
+      if (stalled && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
+        lastMinerKick = Date.now();
+        console.warn(`[notzero] miner stalled (last ticket ${Math.round(ageSec / 60)}m ago, node synced) — restarting the miner engine`);
+        try { if (procs.miner) procs.miner.kill(); } catch (_) {} // exit handler respawns it (~2s) with current config; no-op if it already crashed/respawned
       }
     }
   };

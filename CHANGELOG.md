@@ -4,7 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.44
+## Unreleased — next: 0.1.45
+
+## 0.1.44
+
+**Reliability**
+- **The miner now self-heals if it hangs.** Until now the app only restarted the miner engine if it fully *crashed*;
+  a hung miner (alive but no longer submitting tickets) would sit stalled until you noticed the "not submitting"
+  warning and restarted the app yourself. A watchdog now restarts the miner automatically if it's been silent for
+  too long while your node is synced — the same staleness check the dashboard's liveness pill already uses.
 
 ## 0.1.43
 
