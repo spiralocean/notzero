@@ -8,6 +8,10 @@
       "Bash(rclone lsf *)",
       "Bash(rclone ls *)",
       "Bash(rclone cat *)",
+      "Bash(curl -s *)",
+      "Bash(/usr/bin/log show *)",
+      "Bash(log show *)",
+      "Bash(defaults read *)",
       "PowerShell(Get-Process*)",
       "PowerShell(Get-ChildItem*)",
       "PowerShell(Get-Command*)",
@@ -15,7 +19,11 @@
       "PowerShell(Test-Path*)",
       "PowerShell(rclone lsf*)",
       "mcp__mempalace__mempalace_status",
-      "mcp__claude-in-chrome__tabs_context_mcp"
+      "mcp__mempalace__mempalace_search",
+      "mcp__claude-in-chrome__tabs_context_mcp",
+      "mcp__claude-in-chrome__read_console_messages",
+      "mcp__claude-in-chrome__read_network_requests",
+      "mcp__claude-in-chrome__find"
     ]
   }
 }
