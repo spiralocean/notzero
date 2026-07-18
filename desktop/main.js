@@ -280,6 +280,7 @@ function updatingOverlayJs(version) {
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
 function verifyUpdatesOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).verify_updates !== false; } catch (_) { return true; } } // default ON — only ever BLOCKS on a definitive mismatch
 let updateAvailableVer = null, updateManual = false, notifiedVer = null, pendingUpdateVer = null;
+let updateDownloading = false, updateDownloadPct = 0; // live download state → the dashboard turns the pill into a "Downloading… X%" status
 let lastUpdateVerification = null, currentVersionAnchor = null, updateHistory = null; // surfaced on the dashboard's VERIFIED UPDATES section
 
 // Build a JSON-RPC caller bound to the saved node credentials (null if we can't). Used to verify update proofs.
@@ -450,12 +451,13 @@ function markVersionSeen(v) { if (!v) return; try { const c = JSON.parse(fs.read
 function promptUpdateDialog(info) {
   const target = (info && info.version) || updateAvailableVer || "", cur = app.getVersion();
   whatsNewDialog({ fromVer: cur, toVer: target, title: `notzero ${target} is available` + (cur ? `  (you're on ${cur})` : ""), buttons: ["Update Now", "See Full Notes", "Later"], extraDetail: "Update now? notzero downloads it, restarts, and resumes mining automatically." })
-    .then((r) => { if (r === 0) { markVersionSeen(target); autoUpdater.downloadUpdate().catch(() => {}); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // notes shown here → skip the post-update recap for this version
+    .then((r) => { if (r === 0) { markVersionSeen(target); updateDownloading = true; updateDownloadPct = 0; autoUpdater.downloadUpdate().catch(() => { updateDownloading = false; }); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // Update Now → start the download and flip the pill to a "Downloading…" status
 }
 function initAutoUpdate() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = autoUpdateOn();
-  autoUpdater.on("error", () => {}); // a failed update check must never bother the user
+  autoUpdater.on("error", () => { updateDownloading = false; }); // a failed update check must never bother the user (but clear the "downloading" status)
+  autoUpdater.on("download-progress", (p) => { updateDownloading = true; updateDownloadPct = Math.max(0, Math.min(100, Math.floor((p && p.percent) || 0))); }); // drives the in-app "Downloading… X%" status
   autoUpdater.on("update-available", (info) => {
     updateAvailableVer = info && info.version ? info.version : "";
     pendingUpdateVer = updateAvailableVer;                      // drives the persistent in-app "update available" pill
@@ -472,6 +474,7 @@ function initAutoUpdate() {
   });
   autoUpdater.on("update-not-available", () => { pendingUpdateVer = null; if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
   autoUpdater.on("update-downloaded", async (info) => {
+    updateDownloading = false; updateDownloadPct = 100; // download done — the "installing/restarting" overlay takes over from here
     const ver = info && info.version ? info.version : "";
     // Verify the download against the anchored SHA256SUMS + your node before installing. This does NOT wait for the
     // on-chain proof to confirm (that can take hours) — it installs on a checksum match and shows on-chain status
@@ -1034,6 +1037,7 @@ function startServer() {
         let cfg = null; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
         const out = cfg ? { exists: true, payout_address: cfg.payout_address || "", rpc_url: cfg.rpc_url || "http://127.0.0.1:8332", rpc_user: cfg.rpc_user || "", rpc_datadir: cfg.rpc_datadir || "", coinbase_tag: cfg.coinbase_tag || "", node_mode: cfg.node_mode || "external", has_rpc_pass: !!cfg.rpc_pass, uses_cookie: !!cfg.rpc_cookie, auto_start: cfg.auto_start !== false, notifications_enabled: cfg.notifications_enabled !== false, auto_update: cfg.auto_update !== false, show_whats_new: cfg.show_whats_new !== false, ambient: cfg.ambient || {}, update_available: pendingUpdateVer || "" } : { exists: false };
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
+        out.update_download = updateDownloading ? { percent: updateDownloadPct } : null; // live download progress → the pill shows "Downloading… X%" instead of a clickable "Update available"
         out.update_verification = lastUpdateVerification; // a downloaded update's verdict (or null) — VERIFIED UPDATES section
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
         out.update_history = updateHistory; // recent releases + their on-chain verification (newest first) — VERIFIED UPDATES list

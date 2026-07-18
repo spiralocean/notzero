@@ -4,9 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.50
+## Unreleased — next: 0.1.51
 
-## 0.1.49
+## 0.1.50
+
+**Updates**
+- **The update now shows it's working.** After you choose "Update Now" (or click the update pill), the download used to
+  be silent — the dialog closed and the pill just sat there, so it looked like nothing was happening and you might
+  click it again. Now the pill turns into a live **"Downloading update… X%"** status with a progress fill, and it's
+  **not clickable while downloading** so a stray click can't re-trigger it. It still installs and restarts
+  automatically when the download finishes.
 
 **Ambient view**
 - **Reworked the block-found sequence.** When a block is found, the gathered transactions now *fuse* — their motion

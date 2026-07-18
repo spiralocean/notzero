@@ -647,21 +647,26 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null;
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
 let nodeSetup = null; // desktop managed-node provisioning feed (/node-status): {state, progress, detail} — real setup phase for the dashboard to narrate
 let updPaused = false, updStep = 0, updPlayHit = null, updBackHit = null, updFwdHit = null, updStreams = {}; // VERIFIED UPDATES step-through transport + water-pipe stream state
 // per-step durations (ms) — step 2 (stamp: stream → hash → orange → store → blink) and step 5 (rebuild) need more room
 const UPD_DUR = [3200, 6200, 3200, 3200, 5200, 3800], UPD_CYC = UPD_DUR.reduce((a, b) => a + b, 0);
 const updAutoStep = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DUR.length; i++) { if (tt < UPD_DUR[i]) return i; tt -= UPD_DUR[i]; } return UPD_DUR.length - 1; };
 const updAutoSub = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DUR.length; i++) { if (tt < UPD_DUR[i]) return tt / UPD_DUR[i]; tt -= UPD_DUR[i]; } return 1; };
+let configTimer = null;
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; requestRender(); }
-  }).catch(() => {});
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; updateDownload = c.update_download || null; requestRender(); }
+  }).catch(() => {}).finally(() => {
+    // poll fast while an update is available or downloading (so "Downloading… X%" stays live), otherwise relaxed
+    const fast = isDesktop && (updateDownload || updatePendingVer);
+    clearTimeout(configTimer); try { configTimer = setTimeout(pollConfig, fast ? 2500 : 90000); } catch (_) {}
+  });
 }
 pollConfig();
-try { setInterval(pollConfig, 90000); } catch (_) {} // re-poll so a newly-available update shows without a restart
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
+try { const fd = new URLSearchParams(location.search).get("fakedl"); if (fd) { isDesktop = true; updateDownload = { percent: +fd }; } } catch (_) {} // local "downloading" pill preview
 try { const fv = new URLSearchParams(location.search).get("fakeverify"); if (fv) { const [lvl, ver, h] = fv.split(":"); isDesktop = true; updateVerification = { level: lvl, version: ver || updatePendingVer || "0.1.30", height: h ? +h : undefined }; } } catch (_) {} // VERIFIED UPDATES status preview
 try { if (new URLSearchParams(location.search).get("fakehistory")) { isDesktop = true; updateHistory = [ { version: "0.1.30", level: "pending", current: true }, { version: "0.1.29", level: "onchain", height: 957017, current: false }, { version: "0.1.28", level: "onchain", height: 955210, current: false }, { version: "0.1.27", level: "none", current: false } ]; } } catch (_) {} // VERIFIED UPDATES history preview
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
@@ -3525,16 +3530,28 @@ function drawPreviewTrigger() {
 // missable OS notification. Click → ask the app to check and show the what's-new / install choice.
 function drawUpdatePill() {
   updatePillHit = null;
-  if (!isDesktop || !updatePendingVer) return;
-  const label = `⬆ Update available · v${updatePendingVer}`;
+  const downloading = isDesktop && !!updateDownload;
+  if (!isDesktop || (!downloading && !updatePendingVer)) return;
+  const pct = downloading ? Math.max(0, Math.min(100, Math.round((updateDownload && updateDownload.percent) || 0))) : 0;
+  const label = downloading ? `⬇ Downloading update… ${pct}%` : `⬆ Update available · v${updatePendingVer}`;
+  const col = downloading ? "120,200,255" : "255,205,110"; // blue while working, amber when it's a call to action
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
-  const tw = ctx.measureText(label).width, pw = tw + 26, ph = 24, px = W - PAD - pw, py = 40;
+  const tw = ctx.measureText(label).width, pw = Math.max(tw + 26, 172), ph = 24, px = W - PAD - pw, py = 40;
   const pulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 2.4));
-  ctx.fillStyle = `rgba(255,205,110,${0.14 + 0.06 * pulse})`; roundRect(px, py, pw, ph, 12); ctx.fill();
-  ctx.strokeStyle = `rgba(255,205,110,${0.55 + 0.4 * pulse})`; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 12); ctx.stroke();
-  text(label, px + pw / 2, py + ph / 2, { size: 12, weight: 700, color: "rgba(255,218,130,1)", align: "center", baseline: "middle" });
-  text("click to update", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
-  updatePillHit = { x: px, y: py, w: pw, h: ph };
+  ctx.fillStyle = `rgba(${col},${0.14 + 0.06 * pulse})`; roundRect(px, py, pw, ph, 12); ctx.fill();
+  if (downloading) { // progress fill along the pill so you can SEE it working
+    ctx.save(); roundRect(px, py, pw, ph, 12); ctx.clip();
+    ctx.fillStyle = `rgba(${col},0.26)`; ctx.fillRect(px, py, pw * (pct / 100), ph); ctx.restore();
+  }
+  ctx.strokeStyle = `rgba(${col},${0.55 + 0.4 * pulse})`; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 12); ctx.stroke();
+  text(label, px + pw / 2, py + ph / 2, { size: 12, weight: 700, color: downloading ? "rgba(200,230,255,1)" : "rgba(255,218,130,1)", align: "center", baseline: "middle" });
+  if (downloading) {
+    text("installs & restarts automatically when ready", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: `rgba(${col},0.72)`, align: "center", baseline: "middle" });
+    // deliberately NOT clickable while downloading (updatePillHit stays null) → a stray click can't re-trigger it
+  } else {
+    text("click to update", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
+    updatePillHit = { x: px, y: py, w: pw, h: ph };
+  }
 }
 // desktop-only settings gear (top-right corner) → opens the settings screen (/setup). Drawn as a small
 // ring of teeth so it stays crisp/monochrome rather than a colour emoji.
