@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.42
+## Unreleased — next: 0.1.43
+
+## 0.1.42
 
 **Ambient view**
 - **A block now always forms from a visible convergence, never a coin popping from nowhere.** When a block lands, the
