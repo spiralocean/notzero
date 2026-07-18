@@ -4,9 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.48
+## Unreleased — next: 0.1.49
 
-## 0.1.47
+## 0.1.48
+
+**Ambient view**
+- **The OS's own screensaver no longer takes over the ambient view.** While the ambient view is showing, the app now
+  tells the system the display is in use (`prevent-display-sleep`), so macOS's screensaver / display-sleep won't fire
+  on top of it. Released the moment the view is dismissed. (Trade-off: the display won't auto-sleep while the ambient
+  view is up — it *is* the screen activity.)
 
 **Ambient view**
 - **Removed the full-screen ambient glow — the "halo" is gone for good.** A soft screen-spanning glow (whether a

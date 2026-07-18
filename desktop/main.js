@@ -8,7 +8,7 @@
 // The engine runs as standalone PyInstaller binaries when packaged (no Python on the user's machine),
 // or via python3 in dev. The dashboard (../web) is reused unchanged, served over a loopback HTTP server.
 
-const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog, powerMonitor, screen, globalShortcut } = require("electron");
+const { app, BrowserWindow, Menu, Tray, nativeImage, shell, Notification, dialog, powerMonitor, screen, globalShortcut, powerSaveBlocker } = require("electron");
 const https = require("https");
 const { spawn } = require("node:child_process");
 const http = require("node:http");
@@ -133,7 +133,7 @@ function buildMenu() {
 // Idle-triggered full-screen canvas (web/ambient.html, served from WEB_DIR). No
 // .saver bundle: reuses the app's own window, so it behaves the same on
 // mac/win/linux and can reach the node over the local server origin. All opt-in.
-let ambientWindow = null, ambientPoll = null, ambientShownAt = 0, ambientManual = false;
+let ambientWindow = null, ambientPoll = null, ambientShownAt = 0, ambientManual = false, ambientBlockerId = null;
 
 // config.json: { ambient: { enabled, idleSeconds, lockOnWake } }
 function ambientCfg() {
@@ -185,6 +185,9 @@ function openAmbient(manual, forceDebug) {
     webPreferences: { contextIsolation: true }, // self-contained page; no node integration
   });
   ambientWindow.setAlwaysOnTop(true, "floating");
+  // Tell the OS the display is in use, so its OWN screensaver / display-sleep doesn't fire on top of ours (that
+  // stacking is what let the system screensaver take over the view). Released in dismissAmbient.
+  try { if (ambientBlockerId === null) ambientBlockerId = powerSaveBlocker.start("prevent-display-sleep"); } catch (_) {}
   // Full-screen presentation — covers the menu bar / Dock (macOS) and the taskbar (Windows) for a true screensaver.
   // The earlier off-screen sphere was NOT the window size: it was a retina canvas bug (a <canvas> with only inset:0
   // renders at its dpr× bitmap size — 2× too big). That's fixed in the renderer now, so the sphere centres in
@@ -213,6 +216,8 @@ function dismissAmbient(forceNoLock) {
   if (!ambientWindow) return;
   const shouldLock = !forceNoLock && !ambientManual && ambientCfg().lockOnWake; // lock an idle-triggered wake (any input), never a manual preview
   const w = ambientWindow; ambientWindow = null;
+  try { if (ambientBlockerId !== null && powerSaveBlocker.isStarted(ambientBlockerId)) powerSaveBlocker.stop(ambientBlockerId); } catch (_) {} // let the OS screensaver/display-sleep resume normally
+  ambientBlockerId = null;
   try { w.setAlwaysOnTop(false); } catch (_) {} // drop the always-on-top level FIRST so it can never keep blocking Cmd+Tab / other apps
   try { if (process.platform === "darwin" && w.isSimpleFullScreen && w.isSimpleFullScreen()) w.setSimpleFullScreen(false); } catch (_) {} // exit the fullscreen presentation so the menu bar/Dock return
   try { w.close(); } catch (_) {}
