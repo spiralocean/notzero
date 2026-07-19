@@ -667,6 +667,11 @@ function pollConfig() {
   });
 }
 pollConfig();
+// main → renderer push hooks (via webContents.executeJavaScript) so update feedback is INSTANT, not gated on the
+// next /config poll. __notzeroPokeConfig: refresh now (engages the fast cadence). __notzeroUpdateStarting: the
+// user just pressed "Update Now" — show an active pill this instant, before the first byte downloads.
+window.__notzeroPokeConfig = () => { try { pollConfig(); } catch (_) {} };
+window.__notzeroUpdateStarting = () => { isDesktop = true; if (!updateDownload) updateDownload = { percent: 0, preparing: true }; requestRender(); try { pollConfig(); } catch (_) {} };
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
 try { const fd = new URLSearchParams(location.search).get("fakedl"); if (fd) { isDesktop = true; updateDownload = { percent: +fd }; } } catch (_) {} // local "downloading" pill preview
 try { const fw = new URLSearchParams(location.search).get("fakewarn"); if (fw) { isDesktop = true; fakeWarn = fw === "1" ? "Unknown new rules activated (versionbit 4)" : fw; } } catch (_) {} // local consensus-banner preview
@@ -3560,7 +3565,8 @@ function drawUpdatePill() {
   const downloading = isDesktop && !!updateDownload;
   if (!isDesktop || (!downloading && !updatePendingVer)) return;
   const pct = downloading ? Math.max(0, Math.min(100, Math.round((updateDownload && updateDownload.percent) || 0))) : 0;
-  const label = downloading ? `⬇ Downloading update… ${pct}%` : `⬆ Update available · v${updatePendingVer}`;
+  // before the first byte arrives (pct 0 / optimistic "preparing"), say "Preparing update…" so it never looks stuck at 0%
+  const label = downloading ? (pct > 0 ? `⬇ Downloading update… ${pct}%` : "⬇ Preparing update…") : `⬆ Update available · v${updatePendingVer}`;
   const col = downloading ? "120,200,255" : "255,205,110"; // blue while working, amber when it's a call to action
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
   const tw = ctx.measureText(label).width, pw = Math.max(tw + 26, 172), ph = 24, px = W - PAD - pw, py = 40;

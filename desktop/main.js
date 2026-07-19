@@ -448,10 +448,15 @@ function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
 function markVersionSeen(v) { if (!v) return; try { const c = JSON.parse(fs.readFileSync(configPath(), "utf8")); c.last_seen_version = v; fs.writeFileSync(configPath(), JSON.stringify(c, null, 2), { mode: 0o600 }); } catch (_) {} }
 // Pre-install "what's new" + explicit Update/Later choice. Shown ONLY on an explicit action (Check for Updates, or
 // clicking the in-app "update available" pill) — never unsolicited; the pill is the passive notice.
+// Push a signal straight into the dashboard so update feedback is INSTANT instead of waiting for its next
+// /config poll (which can be up to 90s away before it observes any update state). Safe no-op if the window
+// is gone or the hook isn't defined yet.
+function pokeUpdateUI(fn) { try { if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.executeJavaScript(`window.${fn} && window.${fn}()`).catch(() => {}); } catch (_) {} }
+
 function promptUpdateDialog(info) {
   const target = (info && info.version) || updateAvailableVer || "", cur = app.getVersion();
   whatsNewDialog({ fromVer: cur, toVer: target, title: `notzero ${target} is available` + (cur ? `  (you're on ${cur})` : ""), buttons: ["Update Now", "See Full Notes", "Later"], extraDetail: "Update now? notzero downloads it, restarts, and resumes mining automatically." })
-    .then((r) => { if (r === 0) { markVersionSeen(target); updateDownloading = true; updateDownloadPct = 0; autoUpdater.downloadUpdate().catch(() => { updateDownloading = false; }); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // Update Now → start the download and flip the pill to a "Downloading…" status
+    .then((r) => { if (r === 0) { markVersionSeen(target); updateDownloading = true; updateDownloadPct = 0; pokeUpdateUI("__notzeroUpdateStarting"); autoUpdater.downloadUpdate().catch(() => { updateDownloading = false; }); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // Update Now → flip the pill to a "Preparing/Downloading…" status IMMEDIATELY, then start the download
 }
 function initAutoUpdate() {
   if (!app.isPackaged) return;
@@ -462,7 +467,7 @@ function initAutoUpdate() {
     updateAvailableVer = info && info.version ? info.version : "";
     pendingUpdateVer = updateAvailableVer;                      // drives the persistent in-app "update available" pill
     const wasManual = updateManual; updateManual = false;
-    if (wasManual) { promptUpdateDialog(info); return; }        // explicit "Check for Updates" / pill click → what's new + Update/Later choice
+    if (wasManual) { pokeUpdateUI("__notzeroPokeConfig"); promptUpdateDialog(info); return; } // explicit "Check for Updates" / pill click → what's new + Update/Later choice (poke so the dashboard fast-polls right away)
     if (autoUpdateOn()) return;                                 // auto mode background: autoDownload installs on quit
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) return; // app OPEN → the in-app "update available" pill IS the notice; never pop an unsolicited dialog
     // app closed / in the tray → one OS notification per version (persisted, so no every-2-hours nag), pointing at the pill

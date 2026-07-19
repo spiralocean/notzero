@@ -4,7 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.53
+## Unreleased — next: 0.1.54
+
+## 0.1.53
+
+**Updates**
+- **"Update Now" reacts instantly.** After choosing "Update Now," the dashboard used to sit still for up to a minute
+  before the download status appeared — it only noticed once its next background refresh came around. Now the app
+  pushes the status through immediately: the pill flips to **"Preparing update…"** the moment you press the button,
+  then to **"Downloading update… X%"** once the download is underway. No more wondering whether the click registered.
 
 ## 0.1.52
 
