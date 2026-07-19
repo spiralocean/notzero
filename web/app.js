@@ -648,6 +648,8 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
+let consensusHit = null; // hit region for the "network rule change" banner (Core's `warnings` canary) → click checks for an update
+let fakeWarn = ""; // ?fakewarn= preview override for the consensus banner (so the UI can be seen without a real fork)
 let nodeSetup = null; // desktop managed-node provisioning feed (/node-status): {state, progress, detail} — real setup phase for the dashboard to narrate
 let updPaused = false, updStep = 0, updPlayHit = null, updBackHit = null, updFwdHit = null, updStreams = {}; // VERIFIED UPDATES step-through transport + water-pipe stream state
 // per-step durations (ms) — step 2 (stamp: stream → hash → orange → store → blink) and step 5 (rebuild) need more room
@@ -667,6 +669,7 @@ function pollConfig() {
 pollConfig();
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
 try { const fd = new URLSearchParams(location.search).get("fakedl"); if (fd) { isDesktop = true; updateDownload = { percent: +fd }; } } catch (_) {} // local "downloading" pill preview
+try { const fw = new URLSearchParams(location.search).get("fakewarn"); if (fw) { isDesktop = true; fakeWarn = fw === "1" ? "Unknown new rules activated (versionbit 4)" : fw; } } catch (_) {} // local consensus-banner preview
 try { const fv = new URLSearchParams(location.search).get("fakeverify"); if (fv) { const [lvl, ver, h] = fv.split(":"); isDesktop = true; updateVerification = { level: lvl, version: ver || updatePendingVer || "0.1.30", height: h ? +h : undefined }; } } catch (_) {} // VERIFIED UPDATES status preview
 try { if (new URLSearchParams(location.search).get("fakehistory")) { isDesktop = true; updateHistory = [ { version: "0.1.30", level: "pending", current: true }, { version: "0.1.29", level: "onchain", height: 957017, current: false }, { version: "0.1.28", level: "onchain", height: 955210, current: false }, { version: "0.1.27", level: "none", current: false } ]; } } catch (_) {} // VERIFIED UPDATES history preview
 const dismissedLost = new Set(); // heights whose 'lost the race' notice the user has dismissed
@@ -795,6 +798,30 @@ function drawSyncedBanner() {
   text(label, W / 2, py + 17, { size: 14, weight: 700, color: "rgb(120,245,170)", align: "center", baseline: "middle" });
   text(sub, W / 2, py + 33, { size: 11, weight: 600, color: "rgba(120,245,170,0.7)", align: "center", baseline: "middle" });
   ctx.restore();
+}
+
+// A persistent top-center banner when the bridge's `consensus_alert` is non-empty — set ONLY when an unknown
+// consensus rule has LOCKED IN / ACTIVATED on the network (Core's "unknown new rules activated"; mere
+// pre-activation signalling is filtered out in node_bridge.py). This is the generic "a fork the node doesn't
+// understand actually happened, you likely need to update" signal — no per-BIP logic. Desktop click → check for update.
+function drawConsensusBanner() {
+  consensusHit = null;
+  const warn = fakeWarn || (model.node && (model.node.consensus_alert || "").trim());
+  if (!warn) return;
+  const col = "245,140,70"; // warm orange-red — distinct from the amber update pill; rarer and more serious
+  const label = "⚠ Network rule change detected";
+  const sub = warn.length > 70 ? warn.slice(0, 68) + "…" : warn; // Core's own words, truncated
+  const hint = isDesktop ? "click to check for an update" : "your node software may need updating";
+  ctx.font = "700 13px -apple-system, system-ui, sans-serif";
+  const tw = Math.max(ctx.measureText(label).width, ctx.measureText(sub).width * 0.82);
+  const pw = Math.min(W - PAD * 2, Math.max(tw + 40, 320)), ph = 44, px = W / 2 - pw / 2, py = 66;
+  const pulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 2.2));
+  ctx.fillStyle = "rgba(30,16,8,0.96)"; roundRect(px, py, pw, ph, 10); ctx.fill();
+  ctx.strokeStyle = `rgba(${col},${0.55 + 0.4 * pulse})`; ctx.lineWidth = 1.4; roundRect(px, py, pw, ph, 10); ctx.stroke();
+  text(label, W / 2, py + 15, { size: 13, weight: 700, color: `rgb(${col})`, align: "center", baseline: "middle" });
+  text(sub, W / 2, py + 31, { size: 10.5, weight: 600, color: `rgba(${col},0.72)`, align: "center", baseline: "middle" });
+  text(hint, W / 2, py + ph + 9, { size: 8.5, weight: 600, color: `rgba(${col},0.7)`, align: "center", baseline: "middle" });
+  if (isDesktop) consensusHit = { x: px, y: py, w: pw, h: ph }; // clickable only where the app can act on it
 }
 
 function layoutSections() {
@@ -3895,6 +3922,7 @@ function render(ts) {
   if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
+  drawConsensusBanner(); // persistent "network rule change detected" banner when the node flags unknown consensus rules
   drawHoverTooltip(); // hover details for ticket bars / the "you" marker — on top of everything
 
   clock += 0.02; if (!reduceMotion) frame = (frame + 1) % 3000000; // wrap (mult. of 32/4/3) so frame-derived phases never drift over a multi-day session; frozen under reduced-motion to still all glyph churn/sweeps
@@ -3955,6 +3983,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   if (inHit(zoomInHit, e.offsetX, e.offsetY)) { setUserScale(userScale + 0.1); return; } // text size +
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
   if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
+  if (inHit(consensusHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "network rule change" banner → check for an update that handles the new rules
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
@@ -3996,7 +4025,7 @@ canvas.addEventListener("mousemove", (ev) => { const e = ptr(ev);
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
   const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc)), updBtn = expanded.has("updates") && (inHit(updPlayHit, e.offsetX, cyc) || inHit(updBackHit, e.offsetX, cyc) || inHit(updFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(zoomOutHit, e.offsetX, e.offsetY) || inHit(zoomInHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(zoomOutHit, e.offsetX, e.offsetY) || inHit(zoomInHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY) || inHit(consensusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (ev) => { const e = ptr(ev);
   if (maxScroll <= 0) return;

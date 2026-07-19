@@ -525,6 +525,7 @@ function maybeShowWhatsNew() {
 let notifyState = null;  // {winHeight, bestBits} baseline for one-shot events — null until first read
 let syncNotified = null; // the synced state we last notified about (null = baseline not set yet)
 let syncCand = null;     // {synced, since} — a candidate sync state still waiting out the debounce
+let warnNotified = null; // last node warning text we notified about (null = baseline not set yet) — one-shot on change
 // A node can briefly drop and regain sync; a blip that recovers within a block doesn't threaten "one hash
 // per block", so sync notifications only fire once the new state has HELD for this long (flaps are ignored).
 const SYNC_NOTIFY_DELAY_MS = 5 * 60 * 1000;
@@ -581,6 +582,19 @@ function startNotifier() {
           else if (!synced && cfg.notify_node_out_of_sync !== false) notify("⚠️ Node out of sync", "Your node has been behind for a while. Mining resumes once it's caught up.");
         }
         syncNotified = synced; syncCand = null;                                  // advance even if master-off (no backlog)
+      }
+    }
+
+    // --- consensus canary: the bridge sets `consensus_alert` only when an unknown rule has LOCKED IN / ACTIVATED
+    // (Core's "unknown new rules activated"; signalling-only noise is already filtered out) → the network adopted
+    // rules this node doesn't understand, so an app update is likely needed. One-shot on change (a persistent
+    // alert must not re-fire every 5s). ---
+    const warn = (node.consensus_alert || "").trim();
+    if (warnNotified === null) { warnNotified = warn; }        // baseline on first read — don't notify for a pre-existing warning at launch
+    else if (warn !== warnNotified) {
+      warnNotified = warn;
+      if (warn && on && cfg.notify_consensus_change !== false) {
+        notify("⚠️ Your node flagged a network change", "Bitcoin Core reports rules it doesn't recognize — an app update may be needed. Open notzero to check.");
       }
     }
 

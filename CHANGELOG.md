@@ -4,7 +4,17 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.52
+## Unreleased — next: 0.1.53
+
+## 0.1.52
+
+**Node**
+- **Your node now warns you if the network changes rules under it.** If Bitcoin Core detects that an unknown
+  consensus rule has **locked in or activated** — a soft fork your current version doesn't understand — the
+  dashboard shows a **"Network rule change detected"** banner and you get a one-time notification, so you know to
+  update rather than silently mining under outdated rules. It reads Core's own signal (no per-proposal logic), and
+  it deliberately ignores mere miner *signaling* that may never activate — it only speaks up on a real lock-in/
+  activation. On desktop, clicking the banner checks for an update.
 
 ## 0.1.51
 

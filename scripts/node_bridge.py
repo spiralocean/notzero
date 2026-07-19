@@ -175,6 +175,29 @@ def win_status(url, user, pw, st, tip_height):
     return {"height": height, "hash": our_hash, "status": "pending", "confirmations": confs, "needs": WIN_CONFIRMATIONS}  # in the chain, still settling
 
 
+def consensus_alert(w):
+    """From Bitcoin Core's node warnings (a plain string in older Core, a list of strings in Core 29+), keep ONLY
+    the messages meaning an unknown consensus rule has actually LOCKED IN / ACTIVATED — Core's
+    "unknown new rules activated (versionbit N)". That warning is set only once a bit clears its signalling
+    threshold (locked-in), so it IS the locked-in/active signal.
+
+    We deliberately DROP the pre-activation "N of the last 100 blocks have unexpected version" message: that's
+    miners merely signalling a bit that may never activate, and it shouldn't raise an "update needed" alarm.
+
+    Unknown activations are only visible here — getdeploymentinfo enumerates the deployments this node already
+    KNOWS about, so it can't see a rule the node doesn't understand, which is exactly the case we care about."""
+    items = w if isinstance(w, (list, tuple)) else [w]
+    keep = []
+    for it in items:
+        s = str(it or "").strip()
+        low = s.lower()
+        if not s or "unexpected version" in low:          # signalling noise, not a lock-in/activation → ignore
+            continue
+        if "activated" in low or "new rules" in low:       # "unknown new rules activated (versionbit N)" → locked in / active
+            keep.append(s)
+    return " · ".join(keep)
+
+
 def build(url, user, pw, cookie=""):
     # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
     # poll, since the cookie rotates on each bitcoind restart).
@@ -310,6 +333,7 @@ def build(url, user, pw, cookie=""):
         "bestblockhash": chain.get("bestblockhash", ""),  # tip block hash — the ambient view tints each coin by the real block hash
         "verificationprogress": chain.get("verificationprogress", 0.0),
         "initialblockdownload": chain.get("initialblockdownload", False),
+        "consensus_alert": consensus_alert(chain.get("warnings")),  # non-empty ONLY when an unknown rule has locked in / activated (not mere signalling) → update likely needed
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),
         "mempool": mempool,
