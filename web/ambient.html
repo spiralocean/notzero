@@ -554,7 +554,7 @@
         if(mined){
           stamp(SP_COIN, q.x,q.y, pr*(0.7+0.3*sinkScale), A((0.14+0.40*cp)*depth*sinkScale));  // sprites fuse into a solid bright coin
         } else {
-          stamp(swarmSprite, q.x,q.y, pr, A(0.22*depth));                   // same sprite as the sea
+          stamp(swarmSprite, q.x,q.y, pr, A((0.16+0.40*depth)*oceanF));     // match the sea's brightness law (minus its breathing) so capture doesn't dim a sprite
         }
       } else {
         // ocean drift — an edgeless deep: wrap with no walls, fade into the dark at the borders

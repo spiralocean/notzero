@@ -4,7 +4,14 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.54
+## Unreleased — next: 0.1.55
+
+## 0.1.54
+
+**Ambient view**
+- **Captured transactions no longer dim.** A transaction pulled into the sphere used to draw at about half the
+  brightness of the surrounding sea, so it visibly darkened the moment it was caught. Captured sprites now hold the
+  sea's brightness, so they stay bright through the gather instead of fading as they join.
 
 ## 0.1.53
 
