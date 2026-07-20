@@ -4,7 +4,17 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.55
+## Unreleased — next: 0.1.56
+
+## 0.1.55
+
+**Ambient view**
+- **The sea changes color gently now.** As a block ages the swarm warms from cool blue toward ember, and after a
+  block it eases back to cool. That shift used to happen in hard steps that recolored the whole field at once —
+  now it glides through a continuous range, and it eases (instead of snapping) when a new block resets it.
+- **Each transaction warms on its own schedule.** Rather than the whole field turning color in unison, every sprite
+  now shifts at a slightly different time — some quicker, some slower — so the change ripples across the sea as a
+  natural scatter instead of a single flip.
 
 ## 0.1.54
 

@@ -199,9 +199,13 @@
       o.putImageData(im,0,0); }
     return oc;
   }
-  const SP_COOL = makeSprite([150,205,230], 0.74);   // the cool sea (lifted so f.lux doesn't kill it)
-  const SP_WARM = makeSprite([255,210,140], 0.76);   // a warming transaction
-  const SP_HOT  = makeSprite([255,130, 80], 0.78);   // near-mine ember
+  // The swarm warms as a block ages — cool sea → warming → near-mine ember. Baked as a CONTINUOUS 32-step ramp
+  // instead of three hard sprites the whole field snapped between (that snap read as an abrupt color shift).
+  // swarmTemp() holds cool for a while, then eases through warm to ember — same anchors as the old thresholds,
+  // without the hard steps.
+  const SWARM_TEMP = [[0.00,[150,205,230]],[0.42,[150,205,230]],[0.60,[255,210,140]],[0.78,[255,210,140]],[1.00,[255,130,80]]];
+  const swarmTemp = p => { p=clamp(p); for(let i=1;i<SWARM_TEMP.length;i++){ if(p<=SWARM_TEMP[i][0]){ const a=SWARM_TEMP[i-1],b=SWARM_TEMP[i]; return mix(a[1],b[1],(p-a[0])/(b[0]-a[0])); } } return SWARM_TEMP[SWARM_TEMP.length-1][1].slice(); };
+  const SWARM_RAMP = Array.from({length:32}, (_,i) => makeSprite(swarmTemp(i/31), 0.76));
   let   SP_COIN = makeSprite([255,242,224], 0.82);   // regenerated per block from its hash hue
   const SP_ATTEMPT = makeSprite([150,165,210], 0.55); // cold periwinkle — "yours"; never caught fire, distinct from the warm gathering
   function stamp(sprite,x,y,r,a){
@@ -310,6 +314,8 @@
       ringSpin:(Math.random()*0.4+0.2)*(Math.random()<.5?-1:1),
       size:0.6+Math.random()*1.5,
       seed:Math.random(),
+      wr: 0.72 + Math.random()*0.7,        // per-sprite warming RATE — some catch the heat quicker than others
+      wo: (Math.random()-0.5)*0.18,        // per-sprite warming OFFSET — some lead, some lag, so the field never recolors in unison
       spd:0.6+Math.random()*0.9,
       wobs:0.5+Math.random()*1.2,
       life:Math.random(),
@@ -436,11 +442,14 @@
 
   // ---- render ----
   let last=performance.now();
+  let pView = -1;   // eased "warmth" the swarm colour follows — glides a block reset instead of snapping p to 0
   function frame(t){
     const dt = Math.min(50, t-last); last=t;
     requestAnimationFrame(frame);
 
     let p = clamp(pressure());   // real warmth from the node feed: time since the last block toward ~10 min
+    if(pView<0) pView = p;                       // first frame: start where we are, no warm-in flash
+    pView += (p - pView) * clamp(dt*0.0006);     // ease the underlying warmth so a block reset glides over seconds, never snaps
 
     // block lifecycle: the gathered swarm LOCKS into a coin, whose weight sinks it into the deep
     const bloomAge = t - state.landedAt;
@@ -517,11 +526,11 @@
 
     // --- ONE swarm: the whole field warms together; the sphere is just where it's gathered ---
     const drift = reduce?0.4:1;
-    const swarmSprite = p<0.4 ? SP_COOL : (p<0.75 ? SP_WARM : SP_HOT);
     const oceanF = 0.55 + 0.45*clamp(node.mempoolCount/60000);   // the sea is your mempool — fuller when it's busy
     const RES = base/1100;   // scale sprite sizes with the display so their apparent size is resolution-independent (not oversized on low-res)
     for(let i=0;i<N;i++){
       const q=P[i];
+      const swarmSprite = SWARM_RAMP[(clamp(pView*q.wr + q.wo)*31 + 0.5)|0]; // this tx's OWN warmth (per-sprite rate + offset) → the field shifts colour in a staggered, organic way instead of all at once
 
       // pressure lifts a transaction from the sea onto its own great-circle orbit;
       // when a block lands, sprites are recruited GRADUALLY over the converge (convF passes each sprite's seed) — they stream in, the sea doesn't vanish in one frame
