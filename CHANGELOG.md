@@ -4,7 +4,21 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.56
+## Unreleased — next: 0.1.57
+
+## 0.1.56
+
+**Ambient view**
+- **The heat now belongs to the block, not the whole screen.** Instead of the entire sea changing color as a block
+  approaches, only the gathered sphere — the block being built — warms toward ember. The surrounding sea stays a
+  calm cool blue, so the color actually means something and the forming block becomes the focal point.
+- **Warmth bleeds into the nearby sea.** Transactions closest to the sphere pick up its warmth and fade back to
+  cool as they drift into the deep — so a sprite gently warms as it nears the block and cools as it moves away,
+  rather than the sea being uniformly cold.
+
+**Dashboard**
+- **The version no longer hides behind the ambient button.** The status line's version now clears the round
+  ambient-view button in the bottom-right corner instead of sitting underneath it.
 
 ## 0.1.55
 

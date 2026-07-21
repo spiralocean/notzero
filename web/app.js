@@ -648,6 +648,8 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
+// the ambient-view FAB (index.html) is pinned bottom-right on localhost only; reserve room so the footer's version doesn't sit under it
+const HAS_AMBIENT_BTN = location.hostname === "127.0.0.1" || location.hostname === "localhost";
 let consensusHit = null; // hit region for the "network rule change" banner (Core's `warnings` canary) → click checks for an update
 let fakeWarn = ""; // ?fakewarn= preview override for the consensus banner (so the UI can be seen without a real fork)
 let nodeSetup = null; // desktop managed-node provisioning feed (/node-status): {state, progress, detail} — real setup phase for the dashboard to narrate
@@ -3886,7 +3888,7 @@ function render(ts) {
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
-  text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" });
+  text(fmsg, W - PAD - (HAS_AMBIENT_BTN ? 30 : 0), H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // clear the ambient FAB (bottom-right) so the version isn't hidden behind it
   if (syncDemo) {
     text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
   } else if (!node) {

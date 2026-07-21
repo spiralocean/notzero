@@ -530,7 +530,7 @@
     const RES = base/1100;   // scale sprite sizes with the display so their apparent size is resolution-independent (not oversized on low-res)
     for(let i=0;i<N;i++){
       const q=P[i];
-      const swarmSprite = SWARM_RAMP[(clamp(pView*q.wr + q.wo)*31 + 0.5)|0]; // this tx's OWN warmth (per-sprite rate + offset) → the field shifts colour in a staggered, organic way instead of all at once
+      const swarmSprite = SWARM_RAMP[(clamp(pView*q.wr + q.wo)*31 + 0.5)|0]; // the gathered sphere's warmth at full strength (per-sprite rate + offset → staggered); the sea takes a distance-attenuated share of this same warmth
 
       // pressure lifts a transaction from the sea onto its own great-circle orbit;
       // when a block lands, sprites are recruited GRADUALLY over the converge (convF passes each sprite's seed) — they stream in, the sea doesn't vanish in one frame
@@ -580,7 +580,9 @@
         const dof = (q.size-0.6)/1.5;                              // 0 far … 1 near (from the sprite's own size) → DEPTH
         const tw  = 0.5 + 0.5*Math.sin(t*0.0005 + q.seed*97.3);    // slow breathing, per-sprite phase
         const fade = dof + (1-dof)*tw;                             // near sprites steady & bright · deep-background (far) fade IN and OUT
-        stamp(swarmSprite, q.x,q.y, q.size*6.5*RES, A((0.16+0.40*dof)*fade*q.life*edge*oceanF));   // big/near pop, small/far recede and drift in & out of the deep
+        const seaProx = clamp(1 - (Math.hypot(q.x-scx, q.y-scy) - gatherR)/(base*0.42)); // 1 at/inside the sphere → 0 out in the deep: warmth bleeds into the near-sea and fades with distance
+        const seaSprite = SWARM_RAMP[(clamp((pView*q.wr + q.wo)*seaProx)*31 + 0.5)|0];   // a sea sprite warms as it nears the sphere and cools as it drifts away (same per-sprite warmth, attenuated by distance)
+        stamp(seaSprite, q.x,q.y, q.size*6.5*RES, A((0.16+0.40*dof)*fade*q.life*edge*oceanF));   // big/near pop, small/far recede and drift in & out of the deep
       }
     }
     ctx.globalAlpha=1;
