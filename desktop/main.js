@@ -654,6 +654,31 @@ function reapStaleEngines() {
     }
   } catch (_) {}
 }
+// Linux/AppImage only: an in-place auto-update relaunches the NEW AppImage, but the OLD Electron process can linger
+// on its now-deleted binary — one orphan per update. They pile up (idle shells holding a deleted FUSE mount) and trip
+// Ubuntu's needrestart "obsolete binaries / relogin required" notice. On startup, reap any process still running a
+// DELETED copy of OUR AppImage: the "(deleted)" exe cleanly identifies orphans and never the live instance (it runs the
+// on-disk file) nor the engines (separate binaries). A /proc scan (not pkill) so we can match the deleted exe exactly.
+function reapStaleAppInstances() {
+  if (process.platform !== "linux" || !app.isPackaged) return;
+  const self = String(process.pid);
+  const appImage = process.env.APPIMAGE || ""; // stable on-disk path of THIS AppImage
+  const SUFFIX = " (deleted)";
+  let pids;
+  try { pids = fs.readdirSync("/proc").filter((n) => /^\d+$/.test(n)); } catch (_) { return; }
+  const killed = [];
+  for (const pid of pids) {
+    if (pid === self) continue;
+    let exe;
+    try { exe = fs.readlinkSync(`/proc/${pid}/exe`); } catch (_) { continue; } // not ours / gone / no perm
+    if (!exe.endsWith(SUFFIX)) continue;                          // only obsolete (replaced) binaries
+    const bin = exe.slice(0, -SUFFIX.length);
+    const ours = appImage ? bin === appImage : /notzero-linux\.AppImage$/.test(bin);
+    if (!ours) continue;                                         // never touch other apps
+    try { process.kill(Number(pid), "SIGTERM"); killed.push(Number(pid)); } catch (_) {} // idle shell → exits cleanly
+  }
+  if (killed.length) setTimeout(() => { for (const p of killed) { try { process.kill(p, "SIGKILL"); } catch (_) {} } }, 4000); // force any that ignored SIGTERM
+}
 function startEngines() { if (enginesStarted) return; enginesStarted = true; reapStaleEngines(); startEngine("miner"); startEngine("bridge"); }
 function restartEngines() { for (const n of Object.keys(procs)) { try { procs[n].kill(); } catch (_) {} } } // exit handlers respawn with new config
 function stopEngines() { stopping = true; for (const p of Object.values(procs)) { try { p.kill(); } catch (_) {} } }
@@ -1185,6 +1210,7 @@ if (!app.requestSingleInstanceLock()) {
     ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
     if (process.platform === "win32") ENGINE_ENV.PYTHONUTF8 = "1"; // belt-and-suspenders for DEV (real python3): engines print ₿/→ and a Windows pipe defaults to cp1252 → UnicodeEncodeError. NOTE: PyInstaller-frozen exes IGNORE this env var, so the packaged engines force UTF-8 in their own source (sys.std*.reconfigure).
     if (PREVIEW) { console.log(`[notzero] PREVIEW mode: "${PREVIEW}" — dashboard only, no engines/node`); buildMenu(); createWindow(); startupComplete = true; return; } // dev preview: skip engines, node provisioning, update checks — just render the dashboard against the fixture
+    reapStaleAppInstances(); // Linux: clear orphaned Electron shells left by prior in-place auto-updates, before engines/node
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     applyAutoStart(cfg); // keep the login item in sync with the setting on every launch
     if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up

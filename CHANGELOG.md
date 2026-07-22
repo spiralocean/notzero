@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.57
+## Unreleased — next: 0.1.58
+
+## 0.1.57
+
+**Linux**
+- **No more old copies piling up after updates.** On Linux, each in-place auto-update could leave the previous
+  version's background process running — over many updates these idle leftovers accumulated and tripped Ubuntu's
+  "obsolete binaries / relogin required" notice. On startup notzero now cleans up any leftover process from a
+  prior version (identified precisely by its replaced binary — never the running app, node, or miner), so exactly
+  one copy runs and the notice stays clear.
 
 ## 0.1.56
 
