@@ -22,6 +22,10 @@
 // You don't have to remember to look: .github/workflows/core-watch.yml checks weekly and opens an issue
 // when a newer Core ships (or when these pins stop verifying). It only ever reports — the bump is by hand,
 // because nothing in CI proves a new Core still works with scripts/node_bridge.py.
+// That watcher also runs scripts/check-assumeutxo.cjs, which is the safety net for the ASSUMEUTXO block
+// below: it asserts the height we host is still in the pinned release's m_assumeutxo_data (if a Core bump
+// drops it, loadtxoutset refuses our file and first-run breaks for NEW USERS ONLY — invisible in normal use
+// and in the smoke test), and tells you when Core bakes in a height closer to the tip.
 // ---------------------------------------------------------------------------
 "use strict";
 const fs = require("fs");

@@ -5,11 +5,16 @@
 # fixes. Nothing in the app surfaces this (the managed node is headless bitcoind; the dashboard's banners
 # are about notzero's own updates and consensus rule changes), so this job is the signal.
 #
-# It does two things weekly and opens an issue for either:
+# It does three things weekly and opens an issue for any of them:
 #   1. RE-VERIFIES the existing pins against Core's PGP-signed SHA256SUMS. release.yml already gates on this
 #      (scripts/verify-core-pins.cjs) but only when a release is being cut — so a bad or rotated pin would
 #      surface mid-release. Here it surfaces early, on a quiet Monday.
 #   2. CHECKS for a newer release than CORE_VERSION (scripts/check-core-latest.cjs).
+#   3. CHECKS THE HOSTED ASSUMEUTXO SNAPSHOT (scripts/check-assumeutxo.cjs) — both that the height we host is
+#      still baked into the Core we pin (if it isn't, loadtxoutset refuses it and first-run setup breaks for
+#      NEW USERS ONLY, which normal use would never surface), and whether Core now bakes in a height closer to
+#      the tip. A hosted snapshot doesn't break as it ages, it just silently costs every new user more hours
+#      and more bandwidth before they can mine — drift nobody notices without being told.
 #
 # It never bumps anything. Adopting a release means re-pinning hashes, re-checking ASSUMEUTXO against the
 # new chainparams.cpp, and testing a real first-run sync — nothing here proves a new Core still works with
@@ -62,9 +67,29 @@ jobs:
           echo "ok=false" >> "$GITHUB_OUTPUT"
           exit 1
 
+      # Same fail-closed retry reasoning as the pins step: one dropped fetch shouldn't look like a broken pin.
+      - name: Check the hosted assumeutxo snapshot against the pinned Core
+        id: au
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            if node scripts/check-assumeutxo.cjs; then exit 0; fi
+            echo "::warning::assumeutxo check attempt $i failed; retrying in 20s"
+            sleep 20
+          done
+          exit 1
+
       - name: Open an issue for anything that needs a human
         uses: actions/github-script@v7
         env:
+          AU_VALID: ${{ steps.au.outputs.valid }}
+          AU_REASON: ${{ steps.au.outputs.reason }}
+          AU_HOSTED: ${{ steps.au.outputs.hosted }}
+          AU_BEST: ${{ steps.au.outputs.best }}
+          AU_BEST_HASH: ${{ steps.au.outputs.bestHash }}
+          AU_HIGHER: ${{ steps.au.outputs.higher }}
+          AU_CLOSER: ${{ steps.au.outputs.blocksCloser }}
+          AU_CORE: ${{ steps.au.outputs.coreVersion }}
           PINS_OK: ${{ steps.pins.outputs.ok }}
           NEWER: ${{ steps.latest.outputs.newer }}
           LATEST: ${{ steps.latest.outputs.latest }}
@@ -75,13 +100,15 @@ jobs:
           script: |
             const { owner, repo } = context.repo;
             const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "open", per_page: 100 });
-            // dedupe by exact title — a weekly cron must not reopen the same reminder every Monday
-            const ensure = async (title, body) => {
-              if (open.some((i) => i.title === title)) return core.info(`already open, skipping: ${title}`);
+            // Dedupe by exact title, or by a hidden marker anywhere in an open issue's body. The marker lets a
+            // hand-written issue about the same thing suppress the automated duplicate — paste the marker into
+            // it and this stays quiet.
+            const ensure = async (title, body, marker) => {
+              if (open.some((i) => i.title === title || (marker && (i.body || "").includes(marker)))) return core.info(`already tracked, skipping: ${title}`);
               // Assign AND @-mention the repo owner. Watching a repo only notifies you about bot-created issues
               // if your setting is "All Activity"; assignment and mentions both notify under "Participating and
               // @mentions" too. A reminder nobody sees is the exact failure this whole workflow exists to prevent.
-              const withPing = `${body}\n\ncc @${owner}`;
+              const withPing = `${marker ? marker + "\n\n" : ""}${body}\n\ncc @${owner}`;
               for (const payload of [
                 { title, body: withPing, labels: ["bitcoin-core"], assignees: [owner] },
                 { title, body: withPing }, // labels/assignees can fail (missing perms, org rules) — the issue still must land
@@ -92,7 +119,8 @@ jobs:
               core.setFailed(`could not open issue: ${title}`);
             };
 
-            const { PINS_OK, NEWER, LATEST, PINNED, KIND, RUN_URL } = process.env;
+            const { PINS_OK, NEWER, LATEST, PINNED, KIND, RUN_URL,
+                    AU_VALID, AU_REASON, AU_HOSTED, AU_BEST, AU_BEST_HASH, AU_HIGHER, AU_CLOSER, AU_CORE } = process.env;
 
             if (PINS_OK === "false") {
               await ensure(
@@ -135,12 +163,66 @@ jobs:
               );
             }
 
-            if (PINS_OK !== "false" && NEWER !== "true") core.info("Pins verify and the pinned release is current — nothing to do.");
+            // The urgent one: our hosted snapshot would be REFUSED by the Core we ship. Only new users ever call
+            // loadtxoutset, so nothing in normal use would reveal this — it ships silently and breaks setup.
+            if (AU_VALID === "false") {
+              await ensure(
+                `Hosted assumeutxo snapshot is not valid for Core ${AU_CORE}`,
+                [
+                  `\`scripts/check-assumeutxo.cjs\` says the snapshot we host is **not usable** by the Core version we pin:`,
+                  ``,
+                  `> ${AU_REASON || "(see the workflow log)"}`,
+                  ``,
+                  `**Impact: first-run setup is broken for NEW USERS ONLY.** \`loadtxoutset\` refuses a snapshot whose base block`,
+                  `isn't in that release's \`m_assumeutxo_data\`. Existing installs already have a chainstate and never call it`,
+                  `again, so this would not show up in any normal use, in the dashboard, or in a smoke test.`,
+                  ``,
+                  `**Do not cut a release until this is resolved.**`,
+                  ``,
+                  `Fix by either pointing \`ASSUMEUTXO\` in \`desktop/node-provision.js\` at a height the pinned Core does bake in`,
+                  `(and hosting that file), or pinning a Core release that still includes the height we host.`,
+                  ``,
+                  `[Workflow run](${RUN_URL})`,
+                ].join("\n"),
+              );
+            }
 
-      # a genuine pin mismatch is a supply-chain alarm, not routine news — let the run go red so it also
-      # lands in the Actions failure notification, not just an issue.
-      - name: Fail if the pins did not verify
-        if: steps.pins.outputs.ok == 'false'
+            // The slow-decay one: still valid, but Core now bakes in a height closer to the tip. Every block
+            // between our snapshot and the tip is one a first-time user downloads and validates before mining.
+            if (AU_VALID === "true" && AU_HIGHER === "true") {
+              const closer = Number(AU_CLOSER || 0);
+              await ensure(
+                `A closer assumeutxo snapshot is available: ${AU_BEST} (we host ${AU_HOSTED})`,
+                [
+                  `Core ${AU_CORE} bakes in height **${AU_BEST}** — ${closer.toLocaleString()} blocks closer to the tip than the **${AU_HOSTED}** snapshot we host.`,
+                  ``,
+                  `Our snapshot still works; it's just costing every new user time and bandwidth. Each block between the`,
+                  `snapshot height and the tip has to be downloaded and validated before they can mine. Measured on an M1 at`,
+                  `~52 blocks/min, that gap was ~25 hours and ~134 GB at height 880000 — so ${closer.toLocaleString()} blocks is worth real hours.`,
+                  ``,
+                  `Base blockhash for ${AU_BEST} (what \`ASSUMEUTXO.blockhash\` would become):`,
+                  ``,
+                  `    ${AU_BEST_HASH}`,
+                  ``,
+                  `Note that \`scripts/make-snapshot.sh\` **cannot generate this from a pruned node** — rolling the chainstate`,
+                  `back needs those blocks' undo data. The practical route is re-hosting a published \`utxo-${AU_BEST}.dat\` and`,
+                  `proving it with \`scripts/verify-snapshot.sh\` first; Core verifies the file against its own baked-in`,
+                  `commitment on load, so the source doesn't need to be trusted, only correct.`,
+                  ``,
+                  `[Workflow run](${RUN_URL})`,
+                ].join("\n"),
+                `<!-- notzero-watch:assumeutxo-height:${AU_BEST} -->`,
+              );
+            }
+
+            if (PINS_OK !== "false" && NEWER !== "true" && AU_VALID !== "false" && AU_HIGHER !== "true") core.info("Pins verify, the pinned release is current, and the hosted snapshot is both valid and the closest available — nothing to do.");
+
+      # A pin mismatch is a supply-chain alarm and an unusable snapshot silently breaks every new install —
+      # neither is routine news. Let the run go red so it also lands in the Actions failure notification,
+      # not just an issue. A merely-stale (still valid) snapshot stays green; it's a nudge, not a fault.
+      - name: Fail if the pins did not verify or the hosted snapshot is unusable
+        if: steps.pins.outputs.ok == 'false' || steps.au.outputs.valid == 'false'
         run: |
-          echo "::error::Pinned Bitcoin Core hashes failed verification — see the issue opened above."
+          [ "${{ steps.pins.outputs.ok }}" = "false" ] && echo "::error::Pinned Bitcoin Core hashes failed verification — see the issue opened above."
+          [ "${{ steps.au.outputs.valid }}" = "false" ] && echo "::error::The hosted assumeutxo snapshot is not valid for the pinned Core — first-run setup would break for new users."
           exit 1
