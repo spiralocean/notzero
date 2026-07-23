@@ -7,6 +7,13 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.59
 
 **Dashboard**
+- **Lighter touch on the public mempool.space API.** Slow-moving figures — the bitcoin price, the 3-day average
+  hashrate, and the next-difficulty estimate — were being refetched every 30 seconds even though they barely
+  change minute to minute. They now update on the existing 5-minute cycle instead, cutting roughly a quarter of
+  the requests the dashboard makes while it's open, with no visible difference. Live data (the chain tip and the
+  mempool) still refreshes every 30 seconds.
+
+**Dashboard**
 - **Gentler on the public mempool.space API when it's under strain.** If mempool.space starts rate-limiting or
   erroring, the dashboard now backs off — waiting well beyond its normal 30-second cadence, and honouring the
   server's own "try again in N seconds" — instead of retrying every few seconds. (A regression from 0.1.58's

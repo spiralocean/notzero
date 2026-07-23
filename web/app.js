@@ -261,6 +261,7 @@ function nodeSetupView() {
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
 async function loadHistory() {
+  refreshSlow(); // fire the spot price / hashrate / difficulty aggregates first so they don't wait behind the two history awaits below (matters at boot — the header shows a price immediately)
   try {
     const hr = await (await fetch(`${API}/v1/mining/hashrate/1m`)).json();
     if (hr?.hashrates) {
@@ -276,6 +277,14 @@ async function loadHistory() {
     const pr = await (await fetch(`${API}/v1/historical-price?currency=USD`)).json();
     if (pr?.prices) model.priceHistory = pr.prices.slice().sort((a, b) => a.time - b.time).map((p) => p.USD).slice(-168);
   } catch {}
+}
+// Slow-moving aggregates — spot price, 3-day average hashrate, next-difficulty estimate. None of these changes
+// visibly over 30s, so they ride the 300s history cadence rather than the 30s tip/mempool one. Fire-and-forget
+// (each with its own catch, like every optional sub-fetch) so they never touch model.error or gate the loop.
+function refreshSlow() {
+  fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
+  fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
+  fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { if (d && d.remainingBlocks != null) model.diffAdjust = d; }).catch(() => {}); // next-difficulty estimate + timing
 }
 
 // Recent inter-block intervals (minutes) for the NEXT BLOCK distribution. Bitcoin block times are a Poisson
@@ -393,9 +402,10 @@ async function refresh(fromRetry = false) {
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
       if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name, lottery: coinbaseHasLotteryTag(b.extras?.coinbaseRaw) }));
     }).catch(() => {});
-    fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
-    fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
-    fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { if (d && d.remainingBlocks != null) model.diffAdjust = d; }).catch(() => {}); // #2: next-difficulty estimate + timing
+    // NOTE: price, 3-day hashrate and difficulty-adjustment used to be fetched here every 30s. They barely move
+    // — a 5-min cadence is visually identical — so they now ride loadHistory()'s 300s timer instead, cutting 3
+    // of every 10 calls this loop made. Only genuinely time-varying data (the tip + the mempool group below,
+    // which feeds the live tx-flow viz) stays on the 30s cadence. See refreshSlow().
     // mempool: the pending-tx pool the next block is packed from — count, fee distribution, and the
     // projected upcoming blocks (mempool.space's mempool-blocks). Feeds the live tx-flow viz.
     Promise.all([
