@@ -49,21 +49,23 @@ const CORE_ARTIFACTS = {
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
 // height/hash baked into the release, so the CDN host need not be trusted.
-// Core 31.x bakes in FOUR mainnet heights: 840000, 880000, 910000 and 935000. We use 880000 only because
-// that's the snapshot file we host — not because it's the best choice. 935000 would cut ~55k blocks off
-// every first run (the tip is ~959k as of July 2026), but moving costs a `dumptxoutset` on a synced node
-// plus an ~11 GB upload to the CDN, so it's its own piece of work rather than a version-bump side effect.
-// The file is the canonical one published with Core PR #31969 (Sjors), SHA256 43b3b1ad…5f89de4 — re-hosted
-// on our CDN. Whichever height we use must stay in the running release's m_assumeutxo_data or loadtxoutset
-// rejects it, which breaks first-run setup for NEW users only.
+// Core 31.x bakes in FOUR mainnet heights: 840000, 880000, 910000 and 935000. We host 935000 — the highest,
+// so a first-time user syncs the fewest blocks from the snapshot to the tip. (We moved up from 880000: at a
+// ~959k tip that cut the first run from ~134 GB / ~25 h of blocks to ~41 GB / ~8 h.) The file is the one
+// published at bitcoin-snapshots.jaonoctus.dev, verified locally with scripts/verify-snapshot.sh — Core
+// accepted it against its baked-in hash_serialized commitment, which is why the download source need not be
+// trusted. Whichever height we host MUST stay in the running release's m_assumeutxo_data or loadtxoutset
+// rejects it, which breaks first-run setup for NEW users only — the assumeutxo watcher (check-assumeutxo.cjs)
+// guards exactly that. Keep the previous file (utxo-880000.dat) hosted: installs on older versions have its
+// URL baked in and fetch it on first run.
 const ASSUMEUTXO = {
-  height: 880000,
-  blockhash: "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880", // block 880000
+  height: 935000,
+  blockhash: "0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee", // block 935000
   // our CDN URL for the loadtxoutset snapshot file (utxo-<height>.dat); null → full IBD fallback.
-  snapshotUrl: "https://dl.getnotzero.com/utxo-880000.dat",
-  // exact byte size of that file — a fail-fast check for a truncated/incomplete download before we hand 10 GB
+  snapshotUrl: "https://dl.getnotzero.com/utxo-935000.dat",
+  // exact byte size of that file — a fail-fast check for a truncated/incomplete download before we hand ~9 GB
   // to loadtxoutset (Core still crypto-verifies the contents; this just makes a dropped download obvious).
-  bytes: 10449923529,
+  bytes: 9387990306,
 };
 
 const PRUNE_MIB = 10000; // ~10 GB of recent blocks; min allowed is 550. Chainstate (~snapshot) is on top.
