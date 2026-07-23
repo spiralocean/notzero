@@ -45,9 +45,13 @@ test("mempool.space offline: the dashboard stays up", async ({ page }) => {
   await page.addInitScript(() => { Math.random = () => 0.4; });
   await installMocks(page);
   await page.goto("/");
-  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 8000 });
+  // Wait for the app to SETTLE, not merely to paint. visibleSections() returns just ["sync","network"] until
+  // model.node lands, so sampling at the first painted frame can catch that transient 2-panel state and then
+  // compare it against the settled 9 — a race that widens under parallel test load.
+  await page.waitForFunction(() => window.__model && window.__model.node && window.__model.tipHeight && window.__drawn > 2, null, { timeout: 8000 });
+  await page.waitForTimeout(300);
   const before = await page.evaluate(() => ({ drawn: window.__drawn, tip: window.__model.tipHeight }));
-  expect(before.drawn).toBeGreaterThan(0);
+  expect(before.drawn).toBeGreaterThan(2); // the settled set, not the syncing-only subset
 
   // now the host goes away entirely, and force an immediate refetch rather than waiting out the interval
   await page.route("https://mempool.space/**", (r) => r.abort());
