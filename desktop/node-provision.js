@@ -31,23 +31,27 @@ const https = require("https");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
-const CORE_VERSION = "31.0";
+const CORE_VERSION = "31.1";
 const CORE_BASE_URL = `https://bitcoincore.org/bin/bitcoin-core-${CORE_VERSION}`;
 
 // SHA-256 of each official artifact (from the release SHA256SUMS). Verified-or-refuse.
 const CORE_ARTIFACTS = {
-  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "a2d7a13b4da53d4a3e4c517f3a0269e2429813417bb320d3b268993cfdc545d0", kind: "targz" },
-  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "56824dd705bc2a3b22d42e8aa02ed53498d491ff7c2c8aa96831333871887ead", kind: "targz" },
-  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "d3e4c58a35b1d0a97a457462c94f55501ad167c660c245cb1ffa565641c65074", kind: "targz" },
-  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "4de1d568dedd48604f75132421bc0abeca432639589b49a3909c81db3a813112", kind: "targz" },
-  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "82fd2c504a0f20a31d4d13bd407783d6fc7bf17622d0ce85228a9b92694e03f0", kind: "zip" },
+  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "16a097c09fbd7eb78b240ce1dae123663ea2e5e377cfd6a951e71e227e23cf2f", kind: "targz" },
+  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "bc506958d0f387c1ea770bdc7c7192a505fa645ff62cabcc7761fa7eb89e867e", kind: "targz" },
+  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e", kind: "targz" },
+  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "dcf1873f2208ba4f962f3398d47e154c39c0084be8f4553e05c940d0ace3d004", kind: "targz" },
+  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "c99ef173471c58e6766d9eebd12e6c35349082eeed3939bc99eed58ef57db587", kind: "zip" },
 };
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
 // height/hash baked into the release, so the CDN host need not be trusted.
-// Core 31 has both 840000 and 880000 baked in; we use 880000 — fewer blocks to sync
-// from the snapshot to the tip. The file is the canonical one published with Core PR
-// #31969 (Sjors), SHA256 43b3b1ad…5f89de4 — re-hosted on our CDN.
+// Core 31.x bakes in FOUR mainnet heights: 840000, 880000, 910000 and 935000. We use 880000 only because
+// that's the snapshot file we host — not because it's the best choice. 935000 would cut ~55k blocks off
+// every first run (the tip is ~959k as of July 2026), but moving costs a `dumptxoutset` on a synced node
+// plus an ~11 GB upload to the CDN, so it's its own piece of work rather than a version-bump side effect.
+// The file is the canonical one published with Core PR #31969 (Sjors), SHA256 43b3b1ad…5f89de4 — re-hosted
+// on our CDN. Whichever height we use must stay in the running release's m_assumeutxo_data or loadtxoutset
+// rejects it, which breaks first-run setup for NEW users only.
 const ASSUMEUTXO = {
   height: 880000,
   blockhash: "000000000000000000010b17283c3c400507969a9c2afd1dcf2082ec5cca2880", // block 880000

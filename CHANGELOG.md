@@ -6,6 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.58
 
+**Node**
+- **Your node now runs Bitcoin Core 31.1.** A maintenance release from the Bitcoin Core project — bug and security
+  fixes on top of 31.0, no new behaviour. If notzero manages your node, it picks up the new node software by itself
+  the next time it starts: **your blockchain data is untouched and nothing re-syncs**, so it costs one short
+  download and you carry on mining. Every downloaded copy is checked against a hash pinned inside the signed app,
+  so a tampered or corrupted download is refused rather than run.
+
 ## 0.1.57
 
 **Linux**
