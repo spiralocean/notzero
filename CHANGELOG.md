@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.58
+## Unreleased — next: 0.1.59
+
+## 0.1.58
 
 **Node**
 - **Your node now runs Bitcoin Core 31.1.** A maintenance release from the Bitcoin Core project — bug and security
