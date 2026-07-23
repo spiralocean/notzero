@@ -1,0 +1,146 @@
+# Watch Bitcoin Core so a pinned release can't quietly go stale.
+#
+# desktop/node-provision.js pins ONE Core version and users run whatever we pin, so our bump cadence is
+# their update cadence — drifting onto an EOL Core means shipping a build that no longer gets security
+# fixes. Nothing in the app surfaces this (the managed node is headless bitcoind; the dashboard's banners
+# are about notzero's own updates and consensus rule changes), so this job is the signal.
+#
+# It does two things weekly and opens an issue for either:
+#   1. RE-VERIFIES the existing pins against Core's PGP-signed SHA256SUMS. release.yml already gates on this
+#      (scripts/verify-core-pins.cjs) but only when a release is being cut — so a bad or rotated pin would
+#      surface mid-release. Here it surfaces early, on a quiet Monday.
+#   2. CHECKS for a newer release than CORE_VERSION (scripts/check-core-latest.cjs).
+#
+# It never bumps anything. Adopting a release means re-pinning hashes, re-checking ASSUMEUTXO against the
+# new chainparams.cpp, and testing a real first-run sync — nothing here proves a new Core still works with
+# scripts/node_bridge.py, and the pins are the app's trust root (see node-provision.js), so the merge stays
+# a human decision.
+
+name: Watch Bitcoin Core
+
+on:
+  schedule:
+    - cron: "23 7 * * 1" # Mondays 07:23 UTC (offset off the hour so it isn't in the scheduler's rush)
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: core-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Check for a newer Bitcoin Core release
+        id: latest
+        continue-on-error: true # a scrape failure shouldn't hide the pin-verification result below
+        run: node scripts/check-core-latest.cjs
+
+      # verify-core-pins.cjs is fail-closed: a network blip looks identical to a bad hash. Retry before
+      # believing it, so a dropped connection can't raise a false supply-chain alarm.
+      - name: Re-verify the pinned Bitcoin Core hashes
+        id: pins
+        continue-on-error: true
+        run: |
+          for i in 1 2 3; do
+            if node scripts/verify-core-pins.cjs; then
+              echo "ok=true" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "::warning::pin verification attempt $i failed; retrying in 30s"
+            sleep 30
+          done
+          echo "ok=false" >> "$GITHUB_OUTPUT"
+          exit 1
+
+      - name: Open an issue for anything that needs a human
+        uses: actions/github-script@v7
+        env:
+          PINS_OK: ${{ steps.pins.outputs.ok }}
+          NEWER: ${{ steps.latest.outputs.newer }}
+          LATEST: ${{ steps.latest.outputs.latest }}
+          PINNED: ${{ steps.latest.outputs.pinned }}
+          KIND: ${{ steps.latest.outputs.kind }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const open = await github.paginate(github.rest.issues.listForRepo, { owner, repo, state: "open", per_page: 100 });
+            // dedupe by exact title — a weekly cron must not reopen the same reminder every Monday
+            const ensure = async (title, body) => {
+              if (open.some((i) => i.title === title)) return core.info(`already open, skipping: ${title}`);
+              // Assign AND @-mention the repo owner. Watching a repo only notifies you about bot-created issues
+              // if your setting is "All Activity"; assignment and mentions both notify under "Participating and
+              // @mentions" too. A reminder nobody sees is the exact failure this whole workflow exists to prevent.
+              const withPing = `${body}\n\ncc @${owner}`;
+              for (const payload of [
+                { title, body: withPing, labels: ["bitcoin-core"], assignees: [owner] },
+                { title, body: withPing }, // labels/assignees can fail (missing perms, org rules) — the issue still must land
+              ]) {
+                try { await github.rest.issues.create({ owner, repo, ...payload }); core.notice(`opened: ${title}`); return; }
+                catch (e) { core.warning(`issue create failed (${e.message})`); }
+              }
+              core.setFailed(`could not open issue: ${title}`);
+            };
+
+            const { PINS_OK, NEWER, LATEST, PINNED, KIND, RUN_URL } = process.env;
+
+            if (PINS_OK === "false") {
+              await ensure(
+                `Pinned Bitcoin Core hashes failed verification (${PINNED || "current pin"})`,
+                [
+                  `\`scripts/verify-core-pins.cjs\` failed **3 times in a row** against Core's PGP-signed \`SHA256SUMS\`.`,
+                  ``,
+                  `[Workflow run](${RUN_URL})`,
+                  ``,
+                  `Most likely a sustained network/upstream problem — but it is also exactly what a wrong or tampered pin`,
+                  `looks like, so treat it as real until the log says otherwise. **Releases are blocked either way**:`,
+                  `\`release.yml\` gates on this same script.`,
+                  ``,
+                  `Check the log first — a signature/hash mismatch reads very differently from a fetch error.`,
+                ].join("\n"),
+              );
+            }
+
+            if (NEWER === "true") {
+              const soon = KIND === "maintenance"
+                ? `**Maintenance release — ship promptly.** Bug/security fixes only, drop-in, no re-sync for users.`
+                : `**New major — wait for \`${LATEST.split(".")[0]}.1\` before adopting.** Majors can change RPC output that \`scripts/node_bridge.py\` parses and can move the assumeutxo height.`;
+              await ensure(
+                `Bitcoin Core ${LATEST} is available (we pin ${PINNED})`,
+                [
+                  soon,
+                  ``,
+                  `Users run whatever \`CORE_VERSION\` says, so this only reaches them in a notzero release.`,
+                  `The datadir is version-independent (\`managedPaths\`), so a bump costs users a ~50 MB re-download and **no re-sync**.`,
+                  ``,
+                  `To adopt:`,
+                  `- [ ] Bump \`CORE_VERSION\` + every \`CORE_ARTIFACTS\` hash in \`desktop/node-provision.js\` from https://bitcoincore.org/bin/bitcoin-core-${LATEST}/SHA256SUMS`,
+                  `- [ ] Re-check \`ASSUMEUTXO\` against \`m_assumeutxo_data\` in that release's \`src/kernel/chainparams.cpp\` — a height Core no longer recognizes fails \`loadtxoutset\`, which breaks first-run setup for **new users only** (easy to miss)`,
+                  `- [ ] \`node scripts/verify-core-pins.cjs\``,
+                  `- [ ] Test a real first-run: fresh datadir → snapshot load → tip, with the dashboard connected`,
+                  `- [ ] CHANGELOG entry + cut a release`,
+                  ``,
+                  `[Release notes](https://bitcoincore.org/en/releases/${LATEST}/) · [Workflow run](${RUN_URL})`,
+                ].join("\n"),
+              );
+            }
+
+            if (PINS_OK !== "false" && NEWER !== "true") core.info("Pins verify and the pinned release is current — nothing to do.");
+
+      # a genuine pin mismatch is a supply-chain alarm, not routine news — let the run go red so it also
+      # lands in the Actions failure notification, not just an issue.
+      - name: Fail if the pins did not verify
+        if: steps.pins.outputs.ok == 'false'
+        run: |
+          echo "::error::Pinned Bitcoin Core hashes failed verification — see the issue opened above."
+          exit 1
