@@ -6,12 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.59
 
-**Dashboard**
-- **Lighter touch on the public mempool.space API.** Slow-moving figures — the bitcoin price, the 3-day average
-  hashrate, and the next-difficulty estimate — were being refetched every 30 seconds even though they barely
-  change minute to minute. They now update on the existing 5-minute cycle instead, cutting roughly a quarter of
-  the requests the dashboard makes while it's open, with no visible difference. Live data (the chain tip and the
-  mempool) still refreshes every 30 seconds.
+**Node**
+- **New nodes reach the point where they can mine much faster.** notzero's managed node fast-starts from a
+  verified UTXO snapshot; that snapshot moved from block 880,000 to 935,000 — 55,000 blocks closer to the tip.
+  For someone setting up for the first time that's roughly **8 hours instead of 25, and ~41 GB of block data
+  instead of ~134** before mining begins (and the snapshot file itself is a touch smaller too). No change for
+  anyone already set up. Existing installs on older versions keep working — the previous snapshot stays hosted.
 
 **Dashboard**
 - **Gentler on the public mempool.space API when it's under strain.** If mempool.space starts rate-limiting or
@@ -19,8 +19,11 @@ version number and bump `desktop/package.json`.
   server's own "try again in N seconds" — instead of retrying every few seconds. (A regression from 0.1.58's
   faster-recovery change, which correctly sped up retries for a dropped connection but wrongly applied the same
   speed-up when the server was explicitly asking for less.) A genuinely unreachable host still recovers fast.
-
-**Dashboard**
+- **Lighter touch on the public mempool.space API.** Slow-moving figures — the bitcoin price, the 3-day average
+  hashrate, and the next-difficulty estimate — were being refetched every 30 seconds even though they barely
+  change minute to minute. They now update on the existing 5-minute cycle instead, cutting roughly a quarter of
+  the requests the dashboard makes while it's open, with no visible difference. Live data (the chain tip and the
+  mempool) still refreshes every 30 seconds.
 - **The tagline sits properly under the title now.** The line under "₿ITCOIN LOTTERY" was close enough to touch
   the title's descenders; it now has room to breathe, with the quote below it moving down to match.
 
