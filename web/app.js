@@ -337,10 +337,39 @@ async function pollNode() {
   } catch { model.node = null; }
 }
 
-async function refresh() {
+// A failed request is one of two very different things, and treating them the same is how a polite client
+// becomes an abusive one:
+//   • network failure  — the host is unreachable. Nothing reaches mempool.space, so retrying costs it
+//                        nothing and we retry quickly (a wifi blip / lid-open should recover in seconds).
+//   • HTTP error       — we DID reach it and it said no (429 rate-limit, 5xx). Retrying hard here is
+//                        exactly the wrong response: it adds load precisely when the server is asking for
+//                        less. Back off well past the normal cadence, and obey Retry-After if it sends one.
+// fetch() only rejects on the first kind — a 429 RESOLVES, so without an explicit res.ok check it slips
+// through and gets handled as if the host were down.
+class HttpError extends Error {
+  constructor(res) { super(`HTTP ${res.status}`); this.status = res.status; this.retryAfter = retryAfterMs(res); }
+}
+function retryAfterMs(res) {
+  const h = res && res.headers && res.headers.get && res.headers.get("Retry-After");
+  if (!h) return null;
+  const secs = Number(h);
+  if (Number.isFinite(secs)) return Math.max(0, secs * 1000);            // delta-seconds form
+  const at = Date.parse(h);                                             // or an HTTP-date
+  return Number.isFinite(at) ? Math.max(0, at - Date.now()) : null;
+}
+async function api(path) {
+  const res = await fetch(`${API}${path}`);
+  if (!res.ok) throw new HttpError(res);
+  return res;
+}
+// Set only when the server itself pushed back. The 30s setInterval keeps firing regardless, so without this
+// guard a backoff would be meaningless — we'd still hit the host every 30s while "backing off".
+let backoffUntil = 0;
+async function refresh(fromRetry = false) {
+  if (!fromRetry && backoffUntil && Date.now() < backoffUntil) return;
   try {
-    const tipHash = await (await fetch(`${API}/blocks/tip/hash`)).text();
-    const blk = await (await fetch(`${API}/block/${tipHash}`)).json();
+    const tipHash = await (await api("/blocks/tip/hash")).text();
+    const blk = await (await api(`/block/${tipHash}`)).json();
     model.tipHeight = blk.height;
     model.block = blk;
     model.txCount = blk.tx_count;
@@ -380,25 +409,35 @@ async function refresh() {
     fetch(`${API}/v1/fees/recommended`).then((r) => r.json()).then((f) => { if (f && f.fastestFee != null) model.fees = f; }).catch(() => {}); // next-block fee → "fee weather"
     model.error = null;
     model.chainOkAt = Date.now();
-    retryDelay = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
+    retryDelay = 0; backoffUntil = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
   } catch (e) {
     // ONE unreachable host must never take the whole dashboard down: keep the last known chain data on
     // screen (and everything that doesn't come from mempool.space at all — your node, your ticket, the
     // SHA-256 panels) and say so in a small corner notice. See drawOfflineNotice.
-    model.error = "can't reach mempool.space";
-    scheduleChainRetry();
+    const http = e instanceof HttpError;
+    model.error = !http ? "can't reach mempool.space"
+      : e.status === 429 ? "mempool.space is rate-limiting us — backing off"
+      : `mempool.space returned ${e.status} — backing off`;
+    scheduleChainRetry(e);
   }
 }
-// While offline, retry faster than the 30s cadence (5s → 10s → 20s → 30s) so a laptop waking up or a wifi
-// blip recovers in seconds instead of leaving stale data on screen for half a minute.
+// Unreachable → retry fast (5s → 10s → 20s → 30s): a laptop waking or a wifi blip recovers in seconds, and
+// none of those attempts touch the server. Server said no → start ABOVE the normal cadence and double from
+// there, so we ask progressively less often rather than more.
+const BACKOFF_MAX_MS = 15 * 60_000;
 let retryTimer = 0, retryDelay = 0;
-function scheduleChainRetry() {
+function scheduleChainRetry(err) {
   if (retryTimer) return;
-  retryDelay = retryDelay ? Math.min(REFRESH_MS, retryDelay * 2) : 5_000;
-  retryTimer = setTimeout(() => { retryTimer = 0; refresh(); }, retryDelay);
+  const http = err instanceof HttpError;
+  if (http && err.retryAfter != null) retryDelay = Math.min(BACKOFF_MAX_MS, Math.max(err.retryAfter, REFRESH_MS));
+  else if (http) retryDelay = Math.min(BACKOFF_MAX_MS, retryDelay ? retryDelay * 2 : REFRESH_MS * 2);
+  else retryDelay = Math.min(REFRESH_MS, retryDelay ? retryDelay * 2 : 5_000);
+  if (http) backoffUntil = Date.now() + retryDelay; // also suppresses the 30s interval until then
+  retryTimer = setTimeout(() => { retryTimer = 0; refresh(true); }, retryDelay);
 }
-// the machine slept / the network came back → refetch now rather than waiting out the interval
-function recoverNow() { retryDelay = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; } refresh(); pollNode(); }
+// The machine slept / the network came back → refetch now rather than waiting out the interval. Deliberately
+// NOT forced: coming back from sleep doesn't entitle us to ignore a 429 the server already gave us.
+function recoverNow() { if (!backoffUntil || Date.now() >= backoffUntil) { retryDelay = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; } } refresh(); pollNode(); }
 window.addEventListener("online", recoverNow);
 
 // ---- canvas / painter ----
@@ -634,7 +673,7 @@ const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
-const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
+const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
 const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
@@ -747,9 +786,9 @@ function drawDecodeQuote(to, p, alpha, seed) {
   for (let i = 0; i < total; i++) {
     if (to[i] === " ") continue;
     const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char resolves at its own moment → scattered, not left-to-right
-    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 80); }                                    // resolved
-    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 80); }        // decoding now
-    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
+    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 86); }                                    // resolved
+    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86); }        // decoding now
+    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 86); }          // not yet decoded
   }
 }
 const VERSION = "web v0.118.0";
@@ -3869,12 +3908,14 @@ function render(ts) {
   ctx.save();
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 44, { size: 28, weight: 800, align: "center", baseline: "middle" }); // y=44 (was 38) so the fixed status pill above it has clearance
-  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
+  // y=68 (was 62): at 62 the 28px title's descenders nearly touched this line. The quote + attribution + TOP
+  // below all moved down by the same 6px, so this only opens up the title gap and leaves the rest as it was.
+  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 68, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha, quotePhase === "hold" ? quoteIdx : quoteNext);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
-  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
+  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 107, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
   headerHits = []; ticketHits = []; youHit = null; bestHit = null;
   // NOTE: an unreachable mempool.space (model.error) does NOT gate this loop — it used to replace every panel
