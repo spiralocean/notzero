@@ -12,6 +12,10 @@ version number and bump `desktop/package.json`.
   the next time it starts: **your blockchain data is untouched and nothing re-syncs**, so it costs one short
   download and you carry on mining. Every downloaded copy is checked against a hash pinned inside the signed app,
   so a tampered or corrupted download is refused rather than run.
+- **You can now see which Bitcoin Core you're running.** Settings and the NETWORK panel show your node's version —
+  and it's read from the node itself, not from whatever notzero ships, so it's right whether the app manages your
+  node or you connected your own. If you run your own node, that's the difference between assuming you're current
+  and knowing it. Nothing in the app showed this before.
 
 **Dashboard**
 - **A dropped connection no longer blanks the whole app.** If mempool.space couldn't be reached — a wifi blip, or a
