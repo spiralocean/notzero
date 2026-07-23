@@ -19,6 +19,11 @@ version number and bump `desktop/package.json`.
   server's own "try again in N seconds" — instead of retrying every few seconds. (A regression from 0.1.58's
   faster-recovery change, which correctly sped up retries for a dropped connection but wrongly applied the same
   speed-up when the server was explicitly asking for less.) A genuinely unreachable host still recovers fast.
+- **Lighter touch on the public mempool.space API.** Slow-moving figures — the bitcoin price, the 3-day average
+  hashrate, and the next-difficulty estimate — were being refetched every 30 seconds even though they barely
+  change minute to minute. They now update on the existing 5-minute cycle instead, cutting roughly a quarter of
+  the requests the dashboard makes while it's open, with no visible difference. Live data (the chain tip and the
+  mempool) still refreshes every 30 seconds.
 - **The tagline sits properly under the title now.** The line under "₿ITCOIN LOTTERY" was close enough to touch
   the title's descenders; it now has room to breathe, with the quote below it moving down to match.
 

@@ -110,3 +110,38 @@ test("rate-limited: the app backs off instead of hammering", async ({ page }) =>
   expect(await page.evaluate(() => window.__model.error)).toContain("rate-limit");
   expect(await page.evaluate(() => window.__drawn)).toBeGreaterThan(2); // and the dashboard stays up
 });
+
+// Guard the polling budget: slow-moving aggregates (price / 3d-hashrate / difficulty) were moved OFF the 30s
+// tip/mempool cycle onto the 300s history timer. This proves it directly — a second refresh() re-fetches the
+// mempool group but NOT the aggregates — so a future edit that drops an aggregate back into refresh() is caught.
+test("polling budget: refresh() re-fetches the mempool group but not the slow aggregates", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  const hits = {};
+  await page.route("https://mempool.space/**", (r) => {
+    const path = new URL(r.request().url()).pathname;
+    hits[path] = (hits[path] || 0) + 1;
+    r.continue();
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.chainOkAt > 0, null, { timeout: 20000 });
+  // one MORE refresh cycle, on top of boot
+  await page.evaluate(() => window.__refresh());
+  await page.waitForTimeout(1500);
+
+  const h = (p) => hits[p] || 0;
+  console.log("   mempool group /mempool:", h("/api/mempool"), " fees/recommended:", h("/api/v1/fees/recommended"));
+  console.log("   aggregates  /v1/prices:", h("/api/v1/prices"), " difficulty:", h("/api/v1/difficulty-adjustment"));
+
+  // mempool group is on the 30s path → hit on BOTH boot and the forced refresh
+  expect(h("/api/mempool")).toBeGreaterThanOrEqual(2);
+  expect(h("/api/v1/fees/recommended")).toBeGreaterThanOrEqual(2);
+  // slow aggregates are on the 300s path (refreshSlow, via loadHistory) → fetched once at boot, NOT by refresh()
+  expect(h("/api/v1/prices")).toBe(1);
+  expect(h("/api/v1/mining/hashrate/3d")).toBe(1);
+  expect(h("/api/v1/difficulty-adjustment")).toBe(1);
+  // and the price still actually loaded, so moving it didn't break the header
+  expect(await page.evaluate(() => window.__model.price)).toBeGreaterThan(0);
+});
