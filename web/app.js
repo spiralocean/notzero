@@ -599,6 +599,31 @@ const QUOTES = [
   { q: "If you don't believe me or don't get it, I don't have time to try to convince you, sorry.", src: "Satoshi Nakamoto" },
   { q: "I'll pay 10,000 bitcoins for a couple of pizzas.", src: "Laszlo Hanyecz, 2010" },
   { q: "Vires in numeris — strength in numbers.", src: "Bitcoin motto" },
+  { q: "The root problem with conventional currency is all the trust that's required to make it work.", src: "Satoshi Nakamoto, 2009" },
+  "Satoshi mined the first block, then vanished. The lottery's run without a host ever since.",
+  // the paradox of winning: you'd never want to spend it
+  "You play to win money you can spend, then discover it's the one thing you can't bring yourself to part with.",
+  "No one regrets the bitcoin they kept — only the bitcoin they spent.",
+  { q: "On May 22, 2010, someone paid 10,000 BTC for two pizzas — worth about {PIZZA} today. Now a holiday: National Bitcoin Pizza Day. He doesn't like to talk about it.", src: "Bitcoin Pizza Day" },
+  "The two happiest days of a boat owner's life: buying and selling. For a bitcoiner, only one of those is happy — and it isn't the sale.",
+  "In 2013, a man threw a hard drive holding ~8,000 BTC into a landfill — about {LANDFILL} today. He's still trying to dig it up.",
+  // self-custody — the whole point
+  { q: "Not your keys, not your coins.", src: "Andreas Antonopoulos" },
+  "Don't trust. Verify.",
+  // scarcity + the sheer scale of the network
+  "There will only ever be 21 million. You're mining a slice of a fixed pie.",
+  "Every second, the network computes more hashes than there are grains of sand on every beach on Earth.",
+  // why bitcoin — the value, not the lottery
+  "Every year your cash buys a little less. Bitcoin was built so 21 million always means 21 million.",
+  "Money that can be frozen isn't fully yours. Bitcoin can't be frozen, seized, or reversed.",
+  "For the first time: money no king, bank, or government can print, freeze, or debase.",
+  { q: "The one thing that's missing but will soon be developed is a reliable e-cash.", src: "Milton Friedman, 1999" },
+  // the model shift — spend in cash, save in bitcoin; you don't need a whole coin, and it isn't just for techies
+  "Spend in cash. Save in bitcoin.",
+  "Keep your spending money in cash. Keep your savings in something they can't print more of.",
+  "You don't need a whole bitcoin. Each one splits into 100 million sats — start with a handful.",
+  "Bitcoin isn't for the tech elite — it's for anyone tired of watching their savings quietly shrink.",
+  "Saving in bitcoin isn't gambling — it's declining to keep your life's work in a currency built to lose value.",
   // real-world long shots — all far likelier than solo-mining a block, yet they happen to someone
   "Struck by lightning this year: about 1 in a million. A block is a longer shot — and still gets found.",
   "Powerball jackpot: 1 in 292 million. Someone wins it anyway.",
@@ -613,7 +638,14 @@ const QUOTES = [
   "The odds you exist — this exact sperm, this exact egg — are about 1 in 400 trillion. You already won a longer lottery.",
   "Just by being born, you beat odds longer than any block. The unlikeliest thing already happened — it's you.",
 ];
-const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
+// a BTC amount at the live price → a human magnitude, so quotes like the pizza/landfill never go stale. "a fortune" until the price loads.
+const btcWorth = (btc) => { const v = btc * (model.price || 0); return !v ? "a fortune" : v >= 1e9 ? `$${(v / 1e9).toFixed(1)} billion` : `$${Math.round(v / 1e6)} million`; };
+const quoteText = (i) => {
+  let raw = typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q;
+  if (raw.includes("{PIZZA}")) raw = raw.replace("{PIZZA}", btcWorth(10000));    // Laszlo's two pizzas
+  if (raw.includes("{LANDFILL}")) raw = raw.replace("{LANDFILL}", btcWorth(8000)); // the Newport landfill drive
+  return raw;
+};
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
