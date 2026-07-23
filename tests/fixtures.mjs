@@ -35,6 +35,7 @@ const ZHIST = {}; for (let b = 0; b <= 12; b++) ZHIST[b] = Math.round(1400 * Mat
 
 const NODE = {
   ts: 1718901234, reachable: true, blocks: 954469, headers: 954469, verificationprogress: 0.99999,
+  core_version: "31.1.0", subversion: "/Satoshi:31.1.0/", // the node's own version — NETWORK panel + Settings show it
   initialblockdownload: false, size_on_disk: 9_800_000_000, pruned: true,
   mempool: { count: 4200, bytes: 2_300_000, rate: 12, relay: false },
   miner: {

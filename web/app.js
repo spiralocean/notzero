@@ -635,7 +635,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
-const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 198, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -3483,6 +3483,12 @@ function drawNetwork(r) {
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
+  // which Bitcoin Core is actually running — the node's own subversion via node.json, not the version we pin,
+  // so it's right whether the app manages the node or you brought your own (in which case we can't know it).
+  // Same source as the line in Settings. Its own row rather than tacked onto the miner line above, which is
+  // making a different point ("not a mining rig") and shouldn't be diluted.
+  { const cv = model.node && model.node.core_version;
+    if (cv) { text(`your node runs Bitcoin Core ${cv}${model.node.initialblockdownload ? " · still syncing" : ""}`, r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 17; } }
   if (isDesktop && nodeMode === "managed") { const quitHint = (desktopPlatform === "win32" || desktopPlatform === "linux") ? "Quitting from the tray icon" : "Quitting the app (⌘Q)"; text(`Closing this window keeps your node + mining running in the background. ${quitHint} stops your node.`, r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 18; }
   // all three indicators in one row: BTC price (left) · mining power vs difficulty (middle) · halving (right)
   const gap = 16, ch = r.y + r.h - y - 6;
