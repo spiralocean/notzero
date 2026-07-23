@@ -235,7 +235,7 @@ function expectedEvery(l2) {
 function coinFlips(bits) { const n = Math.round(bits); return `${n} coin-flip${n === 1 ? "" : "s"} landing heads in a row`; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, chainOkAt: 0, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
 // true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
 // you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
 function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
@@ -379,10 +379,27 @@ async function refresh() {
     fetch(`${API}/mempool/recent`).then((r) => r.json()).then((txs) => { if (Array.isArray(txs)) model.recentTxs = txs.filter((t) => t && t.vsize); }).catch(() => {});
     fetch(`${API}/v1/fees/recommended`).then((r) => r.json()).then((f) => { if (f && f.fastestFee != null) model.fees = f; }).catch(() => {}); // next-block fee → "fee weather"
     model.error = null;
+    model.chainOkAt = Date.now();
+    retryDelay = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
   } catch (e) {
-    model.error = "Couldn't reach mempool.space — retrying…";
+    // ONE unreachable host must never take the whole dashboard down: keep the last known chain data on
+    // screen (and everything that doesn't come from mempool.space at all — your node, your ticket, the
+    // SHA-256 panels) and say so in a small corner notice. See drawOfflineNotice.
+    model.error = "can't reach mempool.space";
+    scheduleChainRetry();
   }
 }
+// While offline, retry faster than the 30s cadence (5s → 10s → 20s → 30s) so a laptop waking up or a wifi
+// blip recovers in seconds instead of leaving stale data on screen for half a minute.
+let retryTimer = 0, retryDelay = 0;
+function scheduleChainRetry() {
+  if (retryTimer) return;
+  retryDelay = retryDelay ? Math.min(REFRESH_MS, retryDelay * 2) : 5_000;
+  retryTimer = setTimeout(() => { retryTimer = 0; refresh(); }, retryDelay);
+}
+// the machine slept / the network came back → refetch now rather than waiting out the interval
+function recoverNow() { retryDelay = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; } refresh(); pollNode(); }
+window.addEventListener("online", recoverNow);
 
 // ---- canvas / painter ----
 const canvas = document.getElementById("stage");
@@ -421,7 +438,7 @@ window.addEventListener("resize", resize);
 let motionMode = "full";
 try { motionMode = localStorage.getItem("bl.motion") || (localStorage.getItem("bl.rainoff") === "1" ? "calm" : "full"); } catch (_) {}
 let osReduceMotion = false, reduceMotion = false, showRain = true, motionOff = false, winFocused = true;
-let rafId = 0, lastDraw = 0;
+let rafId = 0, lastDraw = 0, lastTickMs = 0; // lastTickMs: wall clock at the last frame — a big jump = the machine slept
 function applyMotion() {
   motionOff = motionMode === "off";
   reduceMotion = osReduceMotion || motionOff;       // freeze panel animation (OS accessibility OR user "off")
@@ -3683,6 +3700,20 @@ function drawMinerStatus() {
   text(txt, x + padL, y + h / 2, { size: 11, weight: 600, color: `rgba(${dot},0.95)`, baseline: "middle", mono: true });
 }
 
+// mempool.space unreachable → a small fixed notice in the top-left (under the motion/text-size row), NOT a
+// takeover of the screen. It says how stale the public chain data is, so the numbers still on screen are
+// honestly labelled rather than silently frozen.
+function drawOfflineNotice() {
+  if (!model.error) return;
+  const age = model.chainOkAt ? (Date.now() - model.chainOkAt) / 1000 : Infinity;
+  const lbl = `⚠ ${model.error}${model.chainOkAt ? ` · chain data ${agoStr(age)}` : ""} · retrying…`;
+  ctx.font = "600 11px ui-monospace, monospace";
+  const w = ctx.measureText(lbl).width + 18, h = 20, x = PAD, y = 37;
+  const pulse = 0.6 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 2));
+  ctx.fillStyle = "rgba(30,16,8,0.94)"; roundRect(x, y, w, h, 5); ctx.fill();
+  ctx.strokeStyle = `rgba(255,170,80,${0.35 + 0.3 * pulse})`; ctx.lineWidth = 1; roundRect(x, y, w, h, 5); ctx.stroke();
+  text(lbl, x + w / 2, y + h / 2, { size: 11, weight: 600, color: "rgba(255,190,110,0.95)", align: "center", baseline: "middle", mono: true });
+}
 // persistent network-win notice (fixed, above the footer) — so you know even if you missed the moment
 function drawNetWinBadge(wins) {
   netWinHit = null;
@@ -3805,6 +3836,10 @@ function drawCelebration() {
 
 function render(ts) {
   rafId = requestAnimationFrame(render);
+  // Lid-open / wake-from-sleep: wall-clock jumped far more than a frame, so every timer-driven poll is late
+  // and the wifi has probably only just come back. Refetch immediately instead of showing stale-or-offline
+  // data until the next 30s tick. (Runs before the frame-rate governor's early-return so it never gets skipped.)
+  { const now = Date.now(); if (lastTickMs && now - lastTickMs > 45_000) recoverNow(); lastTickMs = now; }
   // Frame-rate governor. The loop is always scheduled, but we only actually repaint when enough time has
   // passed for the current mode — the early-return is essentially free, so idle CPU tracks the draw rate:
   //   off      → 1fps heartbeat (a safety net; real changes repaint instantly via requestRender)
@@ -3836,22 +3871,23 @@ function render(ts) {
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
   headerHits = []; ticketHits = []; youHit = null; bestHit = null;
-  if (model.error) {
-    text(model.error, W / 2, TOP + 40, { size: 16, color: "rgba(255,120,90,0.9)", align: "center", baseline: "middle" });
-  } else {
-    for (const f of frames) {
-      // dim the matrix rain behind each section so its content reads clearly
-      const top = f.header.y - 3;
-      const bot = f.content ? f.content.y + f.content.h + 5 : f.header.y + f.header.h + 3;
-      ctx.fillStyle = "rgba(6,5,12,0.62)";
-      roundRect(f.header.x - 6, top, f.header.w + 12, bot - top, 9); ctx.fill();
-      const hov = hoverSection === f.section;
-      drawHeader(f.section, f.header, !!f.content, hov);
-      headerHits.push(f);
-      // never let one panel (e.g. a malformed hash from an untrusted source) freeze the whole loop
-      if (f.content) try { drawContent(f.section, f.content); } catch (err) { text("— this panel hit an error —", f.content.x + f.content.w / 2, f.content.y + f.content.h / 2, { size: 13, color: "rgba(255,140,90,0.8)", align: "center", baseline: "middle" }); }
-    }
+  // NOTE: an unreachable mempool.space (model.error) does NOT gate this loop — it used to replace every panel
+  // with a single error line, so a wifi blip blanked the entire app including the panels that never needed
+  // that host. Panels keep their last known values (and their own "loading…" placeholders on a cold start);
+  // drawOfflineNotice reports the outage in the corner.
+  for (const f of frames) {
+    // dim the matrix rain behind each section so its content reads clearly
+    const top = f.header.y - 3;
+    const bot = f.content ? f.content.y + f.content.h + 5 : f.header.y + f.header.h + 3;
+    ctx.fillStyle = "rgba(6,5,12,0.62)";
+    roundRect(f.header.x - 6, top, f.header.w + 12, bot - top, 9); ctx.fill();
+    const hov = hoverSection === f.section;
+    drawHeader(f.section, f.header, !!f.content, hov);
+    headerHits.push(f);
+    // never let one panel (e.g. a malformed hash from an untrusted source) freeze the whole loop
+    if (f.content) try { drawContent(f.section, f.content); } catch (err) { text("— this panel hit an error —", f.content.x + f.content.w / 2, f.content.y + f.content.h / 2, { size: 13, color: "rgba(255,140,90,0.8)", align: "center", baseline: "middle" }); }
   }
+  window.__drawn = headerHits.length; // how many panels this frame actually PAINTED (not just laid out) — the e2e suite asserts an outage never zeroes this
   ctx.restore();
 
   // scrollbar indicator (fixed)
@@ -3927,7 +3963,7 @@ function render(ts) {
   // scrim behind the fixed TOP controls (status pill, preview/motion/size) so scrolled panel content doesn't
   // collide with them once the header has scrolled up out of view. Mirrors the footer scrim. Only when scrolled.
   if (scrollY > 0) { const tGrad = ctx.createLinearGradient(0, 0, 0, 42); tGrad.addColorStop(0, "rgba(5,4,10,0.97)"); tGrad.addColorStop(0.62, "rgba(5,4,10,0.82)"); tGrad.addColorStop(1, "rgba(5,4,10,0)"); ctx.fillStyle = tGrad; ctx.fillRect(0, 0, W, 42); }
-  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawOfflineNotice(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
   drawConsensusBanner(); // persistent "network rule change detected" banner when the node flags unknown consensus rules
@@ -4047,6 +4083,7 @@ window.addEventListener("keydown", requestRender);
 window.addEventListener("resize", requestRender);
 
 // ---- boot ----
+window.__model = model; window.__refresh = refresh; // test hooks (like __frames above) — let the e2e suite read live state / force a refetch
 resize();
 pollNode();
 refresh();

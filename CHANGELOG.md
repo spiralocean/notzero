@@ -13,6 +13,16 @@ version number and bump `desktop/package.json`.
   download and you carry on mining. Every downloaded copy is checked against a hash pinned inside the signed app,
   so a tampered or corrupted download is refused rather than run.
 
+**Dashboard**
+- **A dropped connection no longer blanks the whole app.** If mempool.space couldn't be reached — a wifi blip, or a
+  laptop waking from sleep — the dashboard replaced *every* panel with a single error line, including the panels
+  that never needed that site at all (your node, your ticket, the SHA-256 walkthroughs). Now the dashboard stays
+  up: panels keep their last known values, and the outage is reported as a small notice in the top-left corner
+  that also tells you how old the chain data is.
+- **Faster recovery after sleep or a wifi drop.** While offline the app retries every few seconds instead of waiting
+  out its 30-second cycle, and it refetches immediately when the network comes back or when the machine wakes —
+  so opening the lid no longer leaves stale numbers (or a stale error) sitting on screen.
+
 ## 0.1.57
 
 **Linux**

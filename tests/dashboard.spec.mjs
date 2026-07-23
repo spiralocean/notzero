@@ -36,3 +36,27 @@ test("win celebration (preview)", async ({ page }) => {
   // screenshot eats most of the default 5s expect budget — give this one shot room to stabilize
   await expect(page).toHaveScreenshot("celebration.png", { clip: { x: 340, y: 300, width: 600, height: 300 }, timeout: 20000 });
 });
+
+// Regression: mempool.space going down (wifi drop, laptop waking from sleep) used to replace the ENTIRE
+// dashboard with a single error line — including the panels fed by your own node or computed locally.
+// The app must stay up, keep its last known values, and report the outage in the corner instead.
+test("mempool.space offline: the dashboard stays up", async ({ page }) => {
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.goto("/");
+  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 8000 });
+  const before = await page.evaluate(() => ({ drawn: window.__drawn, tip: window.__model.tipHeight }));
+  expect(before.drawn).toBeGreaterThan(0);
+
+  // now the host goes away entirely, and force an immediate refetch rather than waiting out the interval
+  await page.route("https://mempool.space/**", (r) => r.abort());
+  await page.evaluate(() => window.__refresh());
+  await page.waitForFunction(() => window.__model.error, null, { timeout: 8000 });
+  await page.waitForTimeout(300);
+
+  const after = await page.evaluate(() => ({ drawn: window.__drawn, tip: window.__model.tipHeight, err: window.__model.error }));
+  expect(after.drawn).toBe(before.drawn);   // every panel still painted, not replaced by an error line
+  expect(after.tip).toBe(before.tip);         // last known chain data retained, not wiped
+  expect(after.err).toContain("mempool.space");
+});
