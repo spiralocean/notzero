@@ -6,6 +6,10 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.59
 
+**Dashboard**
+- **The tagline sits properly under the title now.** The line under "₿ITCOIN LOTTERY" was close enough to touch
+  the title's descenders; it now has room to breathe, with the quote below it moving down to match.
+
 ## 0.1.58
 
 **Node**

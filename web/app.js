@@ -634,7 +634,7 @@ const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
-const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 116;
+const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
 const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
@@ -747,9 +747,9 @@ function drawDecodeQuote(to, p, alpha, seed) {
   for (let i = 0; i < total; i++) {
     if (to[i] === " ") continue;
     const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char resolves at its own moment → scattered, not left-to-right
-    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 80); }                                    // resolved
-    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 80); }        // decoding now
-    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 80); }          // not yet decoded
+    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 86); }                                    // resolved
+    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86); }        // decoding now
+    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 86); }          // not yet decoded
   }
 }
 const VERSION = "web v0.118.0";
@@ -3869,12 +3869,14 @@ function render(ts) {
   ctx.save();
   ctx.translate(0, -scrollY);
   text("₿ITCOIN LOTTERY", W / 2, 44, { size: 28, weight: 800, align: "center", baseline: "middle" }); // y=44 (was 38) so the fixed status pill above it has clearance
-  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 62, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
+  // y=68 (was 62): at 62 the 28px title's descenders nearly touched this line. The quote + attribution + TOP
+  // below all moved down by the same 6px, so this only opens up the title gap and leaves the rest as it was.
+  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 68, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha, quotePhase === "hold" ? quoteIdx : quoteNext);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
-  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 101, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
+  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 107, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
   headerHits = []; ticketHits = []; youHit = null; bestHit = null;
   // NOTE: an unreachable mempool.space (model.error) does NOT gate this loop — it used to replace every panel
