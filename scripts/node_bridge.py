@@ -198,6 +198,19 @@ def consensus_alert(w):
     return " · ".join(keep)
 
 
+def core_version(subversion):
+    """'/Satoshi:31.1.0/' -> '31.1.0'.
+
+    Anything that isn't a plain Satoshi string (Knots, a patched or self-built node) passes through trimmed
+    rather than being blanked — for someone running their own node, showing what it actually reports is more
+    honest than showing nothing, and more useful than pretending it's the version we pin.
+    """
+    s = (subversion or "").strip().strip("/")
+    if s.startswith("Satoshi:"):
+        return s.split(":", 1)[1]
+    return s
+
+
 def build(url, user, pw, cookie=""):
     # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
     # poll, since the cookie rotates on each bitcoind restart).
@@ -221,11 +234,19 @@ def build(url, user, pw, cookie=""):
         reason = getattr(e, "reason", e)
         if isinstance(e, (TimeoutError, socket.timeout)) or isinstance(reason, (TimeoutError, socket.timeout)):
             node_busy = True
+    netinfo = {}
     if node_ok:
         try:
             peers_raw = rpc(url, user, pw, "getpeerinfo")
         except Exception:  # noqa: BLE001 — peers are best-effort; a hiccup here must not flip the node to "unreachable"
             peers_raw = []
+        # One getnetworkinfo now serves two callers: the Core version shown in Settings, and localrelay
+        # (blocksonly) below — which used to make its own call. Deliberately OUTSIDE the IBD guard, so the
+        # version is known while the node is still syncing, which is exactly when someone asks what's running.
+        try:
+            netinfo = rpc(url, user, pw, "getnetworkinfo")
+        except Exception:  # noqa: BLE001 — cosmetic; never let it affect reachability
+            netinfo = {}
     if node_ok and not chain.get("initialblockdownload", False):  # mempool isn't shown during sync — skip its 2 RPC calls so a busy node doesn't stall the poll
         # mempool: transactions flowing in while the next block is mined (the "data coming in")
         try:
@@ -234,10 +255,7 @@ def build(url, user, pw, cookie=""):
             mp_prev = _prev_recv.get("__mp", mp_count)
             _prev_recv["__mp"] = mp_count
             # localrelay=False means blocksonly: the node receives whole blocks but no loose transactions
-            try:
-                relay = bool(rpc(url, user, pw, "getnetworkinfo").get("localrelay", True))
-            except Exception:  # noqa: BLE001
-                relay = True
+            relay = bool(netinfo.get("localrelay", True))  # from the single getnetworkinfo above
             mempool = {"count": mp_count, "bytes": int(mp.get("bytes", 0)), "rate": round((mp_count - mp_prev) / POLL_SEC, 2), "relay": relay}
         except Exception:  # noqa: BLE001
             mempool = None
@@ -336,6 +354,11 @@ def build(url, user, pw, cookie=""):
         "consensus_alert": consensus_alert(chain.get("warnings")),  # non-empty ONLY when an unknown rule has locked in / activated (not mere signalling) → update likely needed
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),
+        # Which Bitcoin Core is actually running, read from the node itself rather than from the version we
+        # pin — so it's truthful for a managed node AND for someone's own node, which we neither pin nor
+        # control. Shown in Settings; until now nothing anywhere surfaced it.
+        "core_version": core_version(netinfo.get("subversion")),
+        "subversion": (netinfo.get("subversion") or ""),  # the raw string, for support questions
         "mempool": mempool,
         "nettotals": nettotals,
         "miner": miner,

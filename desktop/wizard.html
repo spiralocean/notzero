@@ -93,6 +93,7 @@
     <div class="section">
       <h2>Your Bitcoin node</h2>
       <div class="hint">Solo mining needs a Bitcoin node to tell you what to mine and to submit a winning block.</div>
+      <div class="hint" id="core-version" style="display:none;margin-top:6px"></div>
       <div class="detect" id="detect"></div>
       <div class="choice">
         <div class="opt sel" id="opt-existing"><div class="t">I already run a node</div><div class="d">Connect to your running bitcoind via RPC. Instant.</div></div>
@@ -251,6 +252,21 @@
       $("managed-status").classList.add("show");
       $("start").textContent = "Save changes";
     }
+    // Which Bitcoin Core is actually running. Read from the node itself (node.json <- getnetworkinfo), not from
+    // the version we pin — so it's correct for a managed node AND for someone's own node, which we neither pin
+    // nor control. Until now nothing in the app surfaced this at all. Stays hidden if no node answers, so it
+    // never shows during first-run setup when there isn't one yet. textContent, not innerHTML: the string comes
+    // from the node's own subversion field.
+    fetch("/node.json", { cache: "no-store" })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((n) => {
+        const v = n && n.reachable !== false && n.core_version;
+        if (!v) return;
+        $("core-version").textContent = `Running Bitcoin Core ${v}${n.initialblockdownload ? " · still syncing" : ""}`;
+        $("core-version").style.display = "";
+      })
+      .catch(() => {});
+
     $("opt-existing").onclick = selectExisting;
     $("opt-new").onclick = selectManaged;
     $("cancel").onclick = () => { window.location = "/"; };
