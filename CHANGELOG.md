@@ -6,6 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.59
 
+**Node**
+- **New nodes reach the point where they can mine much faster.** notzero's managed node fast-starts from a
+  verified UTXO snapshot; that snapshot moved from block 880,000 to 935,000 — 55,000 blocks closer to the tip.
+  For someone setting up for the first time that's roughly **8 hours instead of 25, and ~41 GB of block data
+  instead of ~134** before mining begins (and the snapshot file itself is a touch smaller too). No change for
+  anyone already set up. Existing installs on older versions keep working — the previous snapshot stays hosted.
+
 ## 0.1.58
 
 **Node**
