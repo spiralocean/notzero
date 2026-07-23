@@ -19,6 +19,9 @@
 // https://bitcoincore.org/bin/bitcoin-core-<v>/SHA256SUMS, and ASSUMEUTXO from
 // src/kernel/chainparams.cpp (m_assumeutxo_data) for that release. Then run
 // `node scripts/verify-core-pins.cjs` to confirm the new hashes match Core's signed sums.
+// You don't have to remember to look: .github/workflows/core-watch.yml checks weekly and opens an issue
+// when a newer Core ships (or when these pins stop verifying). It only ever reports — the bump is by hand,
+// because nothing in CI proves a new Core still works with scripts/node_bridge.py.
 // ---------------------------------------------------------------------------
 "use strict";
 const fs = require("fs");
