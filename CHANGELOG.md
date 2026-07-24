@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.60
 
+**Dashboard**
+- **Only fetches the busy mempool data when you're actually looking at it.** The mempool detail — the projected
+  blocks, the fee weather, the live transaction feed — is drawn only inside the MEMPOOL panel, so when that
+  panel is collapsed the dashboard no longer keeps pulling it from the public mempool.space API every 30 seconds.
+  If you run your own node, the "N pending" count comes straight from it, so a collapsed panel makes no external
+  calls at all. Opening the panel loads everything on demand. (Together with the earlier change, a node user
+  with the panel closed now makes only a couple of API calls per cycle instead of ten.)
+
 ## 0.1.59
 
 **Node**

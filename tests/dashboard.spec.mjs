@@ -135,13 +135,57 @@ test("polling budget: refresh() re-fetches the mempool group but not the slow ag
   console.log("   mempool group /mempool:", h("/api/mempool"), " fees/recommended:", h("/api/v1/fees/recommended"));
   console.log("   aggregates  /v1/prices:", h("/api/v1/prices"), " difficulty:", h("/api/v1/difficulty-adjustment"));
 
-  // mempool group is on the 30s path → hit on BOTH boot and the forced refresh
+  // /mempool stays on the 30s path here: the fixture node is blocksonly (relay:false), so it has no local
+  // count and the collapsed header still needs mempool.space for it — fetched on boot AND the forced refresh.
   expect(h("/api/mempool")).toBeGreaterThanOrEqual(2);
-  expect(h("/api/v1/fees/recommended")).toBeGreaterThanOrEqual(2);
+  // fee weather is drawn only in the EXPANDED mempool panel, which this test never opens → visibility-gated off.
+  expect(h("/api/v1/fees/recommended")).toBe(0);
   // slow aggregates are on the 300s path (refreshSlow, via loadHistory) → fetched once at boot, NOT by refresh()
   expect(h("/api/v1/prices")).toBe(1);
   expect(h("/api/v1/mining/hashrate/3d")).toBe(1);
   expect(h("/api/v1/difficulty-adjustment")).toBe(1);
   // and the price still actually loaded, so moving it didn't break the header
   expect(await page.evaluate(() => window.__model.price)).toBeGreaterThan(0);
+});
+
+// Visibility-gating: the mempool GROUP (projection, fee weather, live tx feed) is drawn only in the expanded
+// MEMPOOL panel. When it's collapsed AND a synced relaying node supplies the pending count, the dashboard makes
+// none of those calls; the header shows the node's count. Expanding the panel fetches them on demand.
+test("mempool gating: collapsed + node count = no mempool-group calls; expanding fetches them", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  // a synced node that RELAYS (has a real mempool) with a pending count
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 961000, headers: 961000, initialblockdownload: false, pruned: true,
+    core_version: "31.1.0", mempool: { count: 55000, bytes: 30e6, rate: 9, relay: true },
+  }) }));
+  const hits = {};
+  await page.route("https://mempool.space/**", (r) => { const p = new URL(r.request().url()).pathname; hits[p] = (hits[p] || 0) + 1; r.continue(); });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.node && window.__model.node.mempool, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+
+  // MEMPOOL collapsed by default (fixtures don't expand it). Force a couple refreshes and confirm the group is silent.
+  const base = { mp: hits["/api/mempool"] || 0, proj: hits["/api/v1/fees/mempool-blocks"] || 0, fees: hits["/api/v1/fees/recommended"] || 0, recent: hits["/api/mempool/recent"] || 0 };
+  await page.evaluate(() => window.__refresh());
+  await page.evaluate(() => window.__refresh());
+  await page.waitForTimeout(500);
+  const collapsed = { mp: (hits["/api/mempool"]||0)-base.mp, proj: (hits["/api/v1/fees/mempool-blocks"]||0)-base.proj, fees: (hits["/api/v1/fees/recommended"]||0)-base.fees, recent: (hits["/api/mempool/recent"]||0)-base.recent };
+  console.log("   collapsed, 2 refreshes:", JSON.stringify(collapsed), "(all should be 0)");
+  expect(collapsed.mp).toBe(0);
+  expect(collapsed.proj).toBe(0);
+  expect(collapsed.fees).toBe(0);
+  expect(collapsed.recent).toBe(0);
+  // the node's count is present for the collapsed header to use — no mempool.space call was made for it
+  expect(await page.evaluate(() => window.__model.node.mempool.count)).toBe(55000);
+
+  // now EXPAND the mempool panel → the group must be fetched on demand
+  const before = { proj: hits["/api/v1/fees/mempool-blocks"]||0, fees: hits["/api/v1/fees/recommended"]||0 };
+  await page.evaluate(() => { window.__expand && window.__expand("mempool"); });
+  await page.waitForTimeout(800);
+  const projAfter = (hits["/api/v1/fees/mempool-blocks"]||0) - before.proj, feesAfter = (hits["/api/v1/fees/recommended"]||0) - before.fees;
+  console.log("   after expanding:", JSON.stringify({ proj: projAfter, fees: feesAfter }), "(should be >= 1)");
+  expect(projAfter + feesAfter).toBeGreaterThanOrEqual(1);
 });
