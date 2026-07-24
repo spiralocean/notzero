@@ -13,6 +13,12 @@ version number and bump `desktop/package.json`.
   public-API calls per cycle, and the block actually updates *faster* (your node is checked every few seconds).
   The public demo, and a node that's still syncing, still use mempool.space as before. A bonus: with your node
   supplying the block, a mempool.space outage no longer even shows a notice — your dashboard just keeps working.
+- **Only fetches the busy mempool data when you're actually looking at it.** The mempool detail — the projected
+  blocks, the fee weather, the live transaction feed — is drawn only inside the MEMPOOL panel, so when that
+  panel is collapsed the dashboard no longer keeps pulling it from the public mempool.space API every 30 seconds.
+  If you run your own node, the "N pending" count comes straight from it, so a collapsed panel makes no external
+  calls at all. Opening the panel loads everything on demand. (Together with the earlier change, a node user
+  with the panel closed now makes only a couple of API calls per cycle instead of ten.)
 
 **Desktop**
 - **Clear path to fully uninstall.** Settings now has an "Uninstall notzero completely" note next to "Remove node

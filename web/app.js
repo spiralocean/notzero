@@ -239,6 +239,16 @@ const model = { tipHeight: null, block: null, txCount: null, price: null, hashra
 // true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
 // you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
 function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
+// Pending-tx count from YOUR synced node (getmempoolinfo, in node.json) — but only if it actually relays txs (a
+// blocksonly node has an empty mempool, so its 0 would mislead; fall back to mempool.space there). null = no
+// usable local count, i.e. the public demo, a still-syncing node, or blocksonly. Lets the collapsed MEMPOOL
+// header show a count without a mempool.space call (see refresh()).
+function nodeMempoolCount() {
+  const n = model.node, mp = n && n.mempool;
+  if (!n || n.reachable === false || n.initialblockdownload || !mp) return null;
+  if (mp.relay === false || mp.count == null) return null;
+  return mp.count;
+}
 // Turn the managed-node provisioning feed into a human phase for the dashboard to show. Returns null unless we're
 // in desktop managed mode AND the node is mid-setup (before it's a reachable, mineable node). {head, detail,
 // progress (0-1|null), isError}. `detail` prefers the app's own message so the wording stays in one place.
@@ -426,17 +436,33 @@ async function refresh(fromRetry = false) {
     // — a 5-min cadence is visually identical — so they now ride loadHistory()'s 300s timer instead, cutting 3
     // of every 10 calls this loop made. Only genuinely time-varying data (the tip + the mempool group below,
     // which feeds the live tx-flow viz) stays on the 30s cadence. See refreshSlow().
-    // mempool: the pending-tx pool the next block is packed from — count, fee distribution, and the
-    // projected upcoming blocks (mempool.space's mempool-blocks). Feeds the live tx-flow viz.
-    Promise.all([
-      fetch(`${API}/mempool`).then((r) => r.json()).catch(() => null),
-      fetch(`${API}/v1/fees/mempool-blocks`).then((r) => r.json()).catch(() => null),
-    ]).then(([mp, blocks]) => {
-      if (mp && mp.count != null) model.mempool = { count: mp.count, vsize: mp.vsize, hist: mp.fee_histogram || [], blocks: Array.isArray(blocks) ? blocks : (model.mempool?.blocks || []) };
-    }).catch(() => {});
-    // the actual most-recent transactions — real fee/size/value, used to spawn the live particles + spotlight whales
-    fetch(`${API}/mempool/recent`).then((r) => r.json()).then((txs) => { if (Array.isArray(txs)) model.recentTxs = txs.filter((t) => t && t.vsize); }).catch(() => {});
-    fetch(`${API}/v1/fees/recommended`).then((r) => r.json()).then((f) => { if (f && f.fastestFee != null) model.fees = f; }).catch(() => {}); // next-block fee → "fee weather"
+    // The mempool GROUP — the histogram, the projected-blocks treemap, the live tx feed, the fee weather — is
+    // drawn ONLY inside the expanded MEMPOOL panel (and the tx feed also in MERKLE). So fetch it only when that
+    // data is on screen. When the MEMPOOL panel is collapsed and your synced node already knows the pending
+    // count (getmempoolinfo, in node.json), the header reads that and we make ZERO of these calls. The public
+    // demo, and a blocksonly node with no mempool of its own, still fetch — they have no local count to show.
+    // This is visibility-gating, NOT node substitution: the projection + pool identification are mempool.space's
+    // own analysis, which a bare node can't reproduce, so the expanded panel always draws them from mempool.space.
+    const mpOpen = expanded.has("mempool");
+    const nodeMpCount = nodeMempoolCount(); // pending-tx count from YOUR node, or null (demo / syncing / blocksonly)
+    if (mpOpen || nodeMpCount == null) {
+      // the header needs a count even when collapsed, so a node-less client fetches /mempool for it; the
+      // projection + fee weather are only meaningful expanded, so they ride along only when the panel is open.
+      fetch(`${API}/mempool`).then((r) => r.json()).then((mp) => {
+        if (mp && mp.count != null) model.mempool = { ...(model.mempool || {}), count: mp.count, vsize: mp.vsize, hist: mp.fee_histogram || [], blocks: model.mempool?.blocks || [] };
+      }).catch(() => {});
+      if (mpOpen) {
+        fetch(`${API}/v1/fees/mempool-blocks`).then((r) => r.json()).then((blocks) => {
+          if (Array.isArray(blocks)) model.mempool = { ...(model.mempool || { count: nodeMpCount || 0 }), blocks };
+        }).catch(() => {});
+        fetch(`${API}/v1/fees/recommended`).then((r) => r.json()).then((f) => { if (f && f.fastestFee != null) model.fees = f; }).catch(() => {}); // next-block fee → "fee weather"
+      }
+    }
+    // the actual most-recent transactions — real fee/size/value — feed the MEMPOOL particles/whales AND the
+    // MERKLE tree's leaf txids, so fetch them only when one of those panels is open.
+    if (mpOpen || expanded.has("merkle")) {
+      fetch(`${API}/mempool/recent`).then((r) => r.json()).then((txs) => { if (Array.isArray(txs)) model.recentTxs = txs.filter((t) => t && t.vsize); }).catch(() => {});
+    }
     model.error = null;
     model.chainOkAt = Date.now();
     retryDelay = 0; backoffUntil = 0; if (retryTimer) { clearTimeout(retryTimer); retryTimer = 0; }
@@ -934,7 +960,14 @@ function layoutSections() {
 
 function summary(s) {
   if (s === "nextBlock") { if (!model.block) return "—"; const e = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp)); return `${Math.floor(e / 60)}:${String(e % 60).padStart(2, "0")} since last`; }
-  if (s === "mempool") { const mp = model.mempool; return mp ? `${mp.count.toLocaleString()} pending · ~${(mp.blocks || []).length} blocks deep` : "—"; }
+  if (s === "mempool") {
+    // count comes from the last /mempool fetch OR straight from your node (so a collapsed panel needs no
+    // mempool.space call); "blocks deep" only shows when we actually have the projection (i.e. it's been open).
+    const mp = model.mempool, count = (mp && mp.count != null) ? mp.count : nodeMempoolCount();
+    if (count == null) return "—";
+    const depth = mp && mp.blocks && mp.blocks.length ? ` · ~${mp.blocks.length} blocks deep` : "";
+    return `${count.toLocaleString()} pending${depth}`;
+  }
   if (s === "closeness") { const p = model.ticket?.prox; return p ? (p.won ? "TARGET HIT" : `${p.label} · ${p.leadingZeroBits} zero bits`) : "—"; }
   if (s === "avalanche") { return "1 bit in → half the hash out · no aiming"; }
   if (s === "verify") { const v = model.verify; return v ? (v.merkleMatch == null ? "recomputing the proof-of-work…" : ((v.hashMatch && v.belowTarget && v.merkleMatch) ? "hash ✓ · below target ✓ · merkle ✓ — valid" : "check failed")) : "recompute a real block's hash yourself"; }
@@ -4125,7 +4158,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
     fireCelebration({ preview: true, height: (model.tipHeight || 0) + 1, hash: (model.block && model.block.id) || "" });
     return;
   }
-  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; if (!expanded.has("mempool")) { expanded.add("mempool"); saveExpanded(); } scrollToSection = "mempool"; requestRender(); return; } // replay the block-mined animations — always open + scroll to the MEMPOOL harvest so the preview is visible wherever the user is (the sync commit is a bonus when that panel's open + at the tip)
+  if (inHit(blockPreviewHit, e.offsetX, e.offsetY)) { mpPreview = true; syncPreview = true; if (!expanded.has("mempool")) { expanded.add("mempool"); saveExpanded(); refresh(); } scrollToSection = "mempool"; requestRender(); return; } // replay the block-mined animations — always open + scroll to the MEMPOOL harvest so the preview is visible wherever the user is (the sync commit is a bonus when that panel's open + at the tip). refresh() so the harvest has real mempool data even if the panel was collapsed (visibility-gated fetch)
   if (expanded.has("hashInside") && inHit(hashInputHit, e.offsetX, e.offsetY + scrollY)) { hashViz.focused = true; requestRender(); return; } // focus the hash input
   if (expanded.has("churn")) { // THE CHURN transport: speed · pause/play · step ONE mix sub-step at a time
     const cyc = e.offsetY + scrollY;
@@ -4155,7 +4188,14 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   }
   hashViz.focused = false; // any other click blurs it
   const s = sectionAt(e.offsetX, e.offsetY + scrollY);
-  if (s) { if (expanded.has(s)) expanded.delete(s); else expanded.add(s); saveExpanded(); }
+  if (s) {
+    const wasOpen = expanded.has(s);
+    if (wasOpen) expanded.delete(s); else expanded.add(s);
+    saveExpanded();
+    // Opening MEMPOOL/MERKLE now: their data is fetched only while visible (see refresh's visibility gate), so
+    // pull it immediately instead of leaving the just-opened panel empty until the next 30s tick.
+    if (!wasOpen && (s === "mempool" || s === "merkle")) refresh();
+  }
 });
 canvas.addEventListener("mousemove", (ev) => { const e = ptr(ev);
   mouseX = e.offsetX; mouseY = e.offsetY;
@@ -4176,6 +4216,7 @@ window.addEventListener("resize", requestRender);
 
 // ---- boot ----
 window.__model = model; window.__refresh = refresh; // test hooks (like __frames above) — let the e2e suite read live state / force a refetch
+window.__expand = (s) => { if (!expanded.has(s)) { expanded.add(s); saveExpanded(); if (s === "mempool" || s === "merkle") refresh(); requestRender(); } }; // e2e: simulate opening a panel (fires the on-open fetch)
 resize();
 pollNode();
 refresh();
