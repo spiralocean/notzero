@@ -7,12 +7,29 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.60
 
 **Dashboard**
+- **If you run your own node, the dashboard leans on it instead of the public API.** The current block — the one
+  the NEXT BLOCK, VERIFY, and your-ticket panels are built from — now comes straight from your synced node
+  (which already knows it) rather than being fetched from mempool.space every 30 seconds. That's two fewer
+  public-API calls per cycle, and the block actually updates *faster* (your node is checked every few seconds).
+  The public demo, and a node that's still syncing, still use mempool.space as before. A bonus: with your node
+  supplying the block, a mempool.space outage no longer even shows a notice — your dashboard just keeps working.
 - **Only fetches the busy mempool data when you're actually looking at it.** The mempool detail — the projected
   blocks, the fee weather, the live transaction feed — is drawn only inside the MEMPOOL panel, so when that
   panel is collapsed the dashboard no longer keeps pulling it from the public mempool.space API every 30 seconds.
   If you run your own node, the "N pending" count comes straight from it, so a collapsed panel makes no external
   calls at all. Opening the panel loads everything on demand. (Together with the earlier change, a node user
   with the panel closed now makes only a couple of API calls per cycle instead of ten.)
+
+**Desktop**
+- **Clear path to fully uninstall.** Settings now has an "Uninstall notzero completely" note next to "Remove node
+  & all data", spelling out the two steps to get back to before you installed — remove the node + data, then quit
+  and remove the app the normal way for your system (drag to the Trash on macOS, Settings → Apps on Windows,
+  delete the AppImage on Linux). Previously "Remove node & all data" left you at the first-run screen with the app
+  still installed, which isn't the same as uninstalling.
+- **Clearer status while your node is setting up.** During the initial blockchain sync the bottom of the screen
+  used to read "practice mode — set up a node," which was both wrong (the app is setting one up for you) and
+  overlapped the disk-usage readout. It now shows the real sync status ("syncing blockchain — NN%"), and the
+  duplicate line that caused the overlap is gone until the node is ready.
 
 ## 0.1.59
 

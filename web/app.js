@@ -384,29 +384,49 @@ async function api(path) {
 // Set only when the server itself pushed back. The 30s setInterval keeps firing regardless, so without this
 // guard a backoff would be meaningless — we'd still hit the host every 30s while "backing off".
 let backoffUntil = 0;
+// Apply a tip block (from EITHER source — the node's tip_block or mempool.space's /block) to the model:
+// the NEXT BLOCK / VERIFY / AVALANCHE panels and the machine's ticket. Source-agnostic because the bridge
+// publishes the tip in mempool.space's exact field shape (see tip_block_from_core in node_bridge.py).
+async function applyTipBlock(blk) {
+  model.tipHeight = blk.height;
+  model.block = blk;
+  model.txCount = blk.tx_count;
+  model.difficulty = blk.difficulty;
+  computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
+  computeAvalanche(blk); // precompute the single-bit-flip hashes for THE AVALANCHE panel
+  // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
+  const seed = machineSeed();
+  if (!model.ticket || model.ticket.height !== blk.height || model.ticket.seed !== seed) {
+    const nonce = await pickNonce(seed, blk.height);
+    const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
+    const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
+    const target = bitsToTarget(blk.bits);
+    const avNonce = (nonce + 1) >>> 0;
+    const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
+    const avalancheHex = bytesToHex(await sha256(avH1));
+    model.ticket = { height: blk.height, seed, nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+  }
+}
+// Your own synced node already knows the tip — use ITS block header (delivered same-origin in node.json every
+// ~4s by the bridge) rather than fetching it from mempool.space every 30s. Faster (the 3s node poll beats the
+// 30s external one) AND two fewer public-API calls per cycle for the common case of a node-running user. Falls
+// back to mempool.space for the public demo and while a node is still syncing (no meaningful local tip yet).
+function nodeTip() {
+  const n = model.node;
+  if (!n || n.reachable === false || n.initialblockdownload) return null;
+  const tb = n.tip_block;
+  if (!tb || tb.id == null || tb.bits == null || tb.height == null) return null;
+  return tb;
+}
 async function refresh(fromRetry = false) {
   if (!fromRetry && backoffUntil && Date.now() < backoffUntil) return;
   try {
-    const tipHash = await (await api("/blocks/tip/hash")).text();
-    const blk = await (await api(`/block/${tipHash}`)).json();
-    model.tipHeight = blk.height;
-    model.block = blk;
-    model.txCount = blk.tx_count;
-    model.difficulty = blk.difficulty;
-    computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
-    computeAvalanche(blk); // precompute the single-bit-flip hashes for THE AVALANCHE panel
-
-    // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
-    const seed = machineSeed();
-    if (!model.ticket || model.ticket.height !== blk.height || model.ticket.seed !== seed) {
-      const nonce = await pickNonce(seed, blk.height);
-      const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
-      const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
-      const target = bitsToTarget(blk.bits);
-      const avNonce = (nonce + 1) >>> 0;
-      const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
-      const avalancheHex = bytesToHex(await sha256(avH1));
-      model.ticket = { height: blk.height, seed, nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+    const nt = nodeTip();
+    if (nt) {
+      await applyTipBlock(nt); // tip from YOUR node — no mempool.space round-trip for the block header
+    } else {
+      const tipHash = await (await api("/blocks/tip/hash")).text();
+      await applyTipBlock(await (await api(`/block/${tipHash}`)).json());
     }
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
@@ -3999,7 +4019,11 @@ function render(ts) {
   const prog = node && node.verificationprogress != null ? node.verificationprogress : 0;
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
-  const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
+  // "symbolic" is the miner's DEFAULT mode (no live node yet). For a MANAGED node it's just the transient state
+  // during setup/sync — the app IS setting a node up — so "practice mode · set up a node" would be both wrong and
+  // misleading there. Suppress it for managed mode so the footer shows the real setup/sync status instead.
+  const symbolic = !!(node && node.miner && node.miner.mode === "symbolic") && nodeMode !== "managed";
+  const managedSyncing = nodeMode === "managed" && reachable && !synced; // node present but not yet caught up
   // synced + live but the miner genuinely stalled (tip moved on without a new ticket) → don't claim LIVE.
   // A merely-slow block (tip itself is old) is NOT a stall — minerStalled() distinguishes them.
   const lastTs = node && node.miner && node.miner.attempt ? Date.parse(node.miner.attempt.attempted_at || "") : NaN;
@@ -4015,15 +4039,24 @@ function render(ts) {
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD - (HAS_AMBIENT_BTN ? 30 : 0), H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // clear the ambient FAB (bottom-right) so the version isn't hidden behind it
+  window.__footerPill = fmsg; // test hook: the right-hand status string
+  let leftMsg = "";
   if (syncDemo) {
-    text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+    leftMsg = "◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  } else if (managedSyncing) {
+    // Managed node mid-setup: the SYNC panel already shows progress + disk, and the right pill shows "syncing
+    // X%". A second fixed line on the left just overlaps the panel's disk readout, so we draw nothing here until
+    // the node is ready — the payout appears once it's actually mining.
   } else if (!node) {
     // public / demo view — nobody is mining here, so DON'T show a payout warning (it reads as "your
     // rewards go to a stranger"). Explain what this is and how to take part.
-    text("◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    leftMsg = "◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else if (symbolic) {
     // practice mode — real attempts, but no node and no rewards yet, so don't show a payout warning
-    text("◷ practice mode — no rewards yet · set up a node to take a real shot at a block", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    leftMsg = "◷ practice mode — no rewards yet · set up a node to take a real shot at a block";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else {
     // a real local node IS present — show the actual payout (warn only if unset/invalid, where it matters)
     const pay = node.payout;
@@ -4033,8 +4066,10 @@ function render(ts) {
     let msg = `⛏ payout ${masked}`, col = "rgba(255,255,255,0.5)";
     if (status === "invalid") { msg = `⚠ payout ${masked} — that address looks invalid`; col = "rgba(255,120,90,0.95)"; }
     else if (isDefault) { msg = `⚠ no wallet set — rewards go to the dashboard owner (${masked})`; col = "rgba(255,180,80,0.95)"; }
+    leftMsg = msg;
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
+  window.__footerLeft = leftMsg; // test hook: the left-hand status string ("" when suppressed)
 
   // YOUR block → only CELEBRATE once it's confirmed in the chain. ws.status: pending | confirmed | lost.
   // (a found+submitted block is not a win — it can be a duplicate, rejected, or beaten to the chain.)
