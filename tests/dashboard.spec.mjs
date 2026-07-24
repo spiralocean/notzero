@@ -146,6 +146,51 @@ test("polling budget: refresh() re-fetches the mempool group but not the slow ag
   expect(await page.evaluate(() => window.__model.price)).toBeGreaterThan(0);
 });
 
+// A managed node mid-sync is NOT "practice mode" — the app is setting a node up. The footer must show the real
+// sync status, not "practice mode · set up a node", and must not stack a second long line on the left (which
+// overlapped the SYNC panel's disk readout). Regression for both from the same report.
+test("footer: managed node syncing shows sync status, not practice mode", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.60" }) }));
+  // managed node up but still syncing, miner still in its default symbolic mode
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 900000, headers: 961000, verificationprogress: 0.94,
+    initialblockdownload: true, size_on_disk: 9.4e9, pruned: true, miner: { mode: "symbolic" },
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__footerPill != null, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  const pill = await page.evaluate(() => window.__footerPill);
+  const left = await page.evaluate(() => window.__footerLeft);
+  console.log(`   pill: ${JSON.stringify(pill)}\n   left: ${JSON.stringify(left)}`);
+  expect(pill.toLowerCase()).not.toContain("practice mode"); // the bug: it used to say this
+  expect(pill.toLowerCase()).toContain("syncing");            // shows the real state instead
+  expect(left).toBe("");                                       // left suppressed → no overlap with the disk readout
+});
+
+// And once synced, the left footer returns (payout) — suppression is only during the sync.
+test("footer: managed node synced shows the payout again", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.60" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 961000, headers: 961000, verificationprogress: 0.99999,
+    initialblockdownload: false, size_on_disk: 9.4e9, pruned: true,
+    miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() } },
+    payout: { masked: "bc1qxs…fph2fn", is_default: false, valid: true, status: "ok" },
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__footerLeft != null && window.__footerLeft !== "", null, { timeout: 20000 });
+  const left = await page.evaluate(() => window.__footerLeft);
+  console.log(`   synced left: ${JSON.stringify(left)}`);
+  expect(left).toContain("payout");
+});
+
 // A synced local node already knows the tip, delivered same-origin in node.json — so the dashboard must render
 // the tip from THERE and skip the mempool.space /blocks/tip/hash + /block/{id} round-trip. Two fewer public-API
 // calls per cycle for the common (node-running) user, and a faster tip (the 3s node poll vs the 30s external).
