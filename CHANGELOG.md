@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.60
 
+**Desktop**
+- **Clearer status while your node is setting up.** During the initial blockchain sync the bottom of the screen
+  used to read "practice mode — set up a node," which was both wrong (the app is setting one up for you) and
+  overlapped the disk-usage readout. It now shows the real sync status ("syncing blockchain — NN%"), and the
+  duplicate line that caused the overlap is gone until the node is ready.
+
 ## 0.1.59
 
 **Node**

@@ -3966,7 +3966,11 @@ function render(ts) {
   const prog = node && node.verificationprogress != null ? node.verificationprogress : 0;
   const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
-  const symbolic = !!(node && node.miner && node.miner.mode === "symbolic");
+  // "symbolic" is the miner's DEFAULT mode (no live node yet). For a MANAGED node it's just the transient state
+  // during setup/sync — the app IS setting a node up — so "practice mode · set up a node" would be both wrong and
+  // misleading there. Suppress it for managed mode so the footer shows the real setup/sync status instead.
+  const symbolic = !!(node && node.miner && node.miner.mode === "symbolic") && nodeMode !== "managed";
+  const managedSyncing = nodeMode === "managed" && reachable && !synced; // node present but not yet caught up
   // synced + live but the miner genuinely stalled (tip moved on without a new ticket) → don't claim LIVE.
   // A merely-slow block (tip itself is old) is NOT a stall — minerStalled() distinguishes them.
   const lastTs = node && node.miner && node.miner.attempt ? Date.parse(node.miner.attempt.attempted_at || "") : NaN;
@@ -3982,15 +3986,24 @@ function render(ts) {
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD - (HAS_AMBIENT_BTN ? 30 : 0), H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // clear the ambient FAB (bottom-right) so the version isn't hidden behind it
+  window.__footerPill = fmsg; // test hook: the right-hand status string
+  let leftMsg = "";
   if (syncDemo) {
-    text("◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)", PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+    leftMsg = "◉ SYNC DEMO — simulated · press D or Esc to exit (back to your live node)";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(90,210,140,0.95)", baseline: "middle" });
+  } else if (managedSyncing) {
+    // Managed node mid-setup: the SYNC panel already shows progress + disk, and the right pill shows "syncing
+    // X%". A second fixed line on the left just overlaps the panel's disk readout, so we draw nothing here until
+    // the node is ready — the payout appears once it's actually mining.
   } else if (!node) {
     // public / demo view — nobody is mining here, so DON'T show a payout warning (it reads as "your
     // rewards go to a stranger"). Explain what this is and how to take part.
-    text("◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    leftMsg = "◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else if (symbolic) {
     // practice mode — real attempts, but no node and no rewards yet, so don't show a payout warning
-    text("◷ practice mode — no rewards yet · set up a node to take a real shot at a block", PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+    leftMsg = "◷ practice mode — no rewards yet · set up a node to take a real shot at a block";
+    text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else {
     // a real local node IS present — show the actual payout (warn only if unset/invalid, where it matters)
     const pay = node.payout;
@@ -4000,8 +4013,10 @@ function render(ts) {
     let msg = `⛏ payout ${masked}`, col = "rgba(255,255,255,0.5)";
     if (status === "invalid") { msg = `⚠ payout ${masked} — that address looks invalid`; col = "rgba(255,120,90,0.95)"; }
     else if (isDefault) { msg = `⚠ no wallet set — rewards go to the dashboard owner (${masked})`; col = "rgba(255,180,80,0.95)"; }
+    leftMsg = msg;
     text(msg, PAD, H - 14, { size: 13, weight: 700, color: col, baseline: "middle" });
   }
+  window.__footerLeft = leftMsg; // test hook: the left-hand status string ("" when suppressed)
 
   // YOUR block → only CELEBRATE once it's confirmed in the chain. ws.status: pending | confirmed | lost.
   // (a found+submitted block is not a win — it can be a duplicate, rejected, or beaten to the chain.)
