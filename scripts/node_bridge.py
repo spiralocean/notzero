@@ -211,6 +211,35 @@ def core_version(subversion):
     return s
 
 
+def tip_block_from_core(cb):
+    """Core getblock(hash, 1) -> the block-header shape the dashboard uses for its tip.
+
+    The dashboard was written against mempool.space's /block/{id} object, so we match THAT shape exactly
+    (merkle_root/timestamp/tx_count, bits as an integer) rather than Core's (merkleroot/time/nTx, bits as a
+    hex string). Getting a field name or the bits base wrong wouldn't corrupt anything — the dashboard's VERIFY
+    panel recomputes the double-SHA and checks it equals `id`, so a mismatch would show as "doesn't verify"
+    rather than bad data — but matching precisely is what makes it actually verify. bits: Core reports the
+    compact target as hex ("17028c61"); mempool.space reports it as the same value in decimal, so int(.,16).
+    """
+    if not cb or cb.get("hash") is None or cb.get("bits") is None:
+        return None
+    try:
+        return {
+            "id": cb["hash"],
+            "height": cb.get("height"),
+            "version": cb.get("version"),
+            "previousblockhash": cb.get("previousblockhash"),
+            "merkle_root": cb.get("merkleroot"),
+            "timestamp": cb.get("time"),
+            "bits": int(cb["bits"], 16) if isinstance(cb["bits"], str) else cb["bits"],
+            "nonce": cb.get("nonce"),
+            "tx_count": cb.get("nTx"),
+            "difficulty": cb.get("difficulty"),
+        }
+    except (ValueError, TypeError):  # a malformed field must never break node.json — just omit the tip block
+        return None
+
+
 def build(url, user, pw, cookie=""):
     # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
     # poll, since the cookie rotates on each bitcoind restart).
@@ -247,7 +276,15 @@ def build(url, user, pw, cookie=""):
             netinfo = rpc(url, user, pw, "getnetworkinfo")
         except Exception:  # noqa: BLE001 — cosmetic; never let it affect reachability
             netinfo = {}
+    tip_block = None
     if node_ok and not chain.get("initialblockdownload", False):  # mempool isn't shown during sync — skip its 2 RPC calls so a busy node doesn't stall the poll
+        # the tip block's full header, so the dashboard can render NEXT BLOCK / VERIFY / the ticket straight from
+        # YOUR node instead of fetching it from mempool.space every 30s. Only when synced — during IBD the local
+        # tip is meaningless. getblock verbosity 1 = header + txids (no tx bodies), a light call.
+        try:
+            tip_block = tip_block_from_core(rpc(url, user, pw, "getblock", [chain["bestblockhash"], 1]))
+        except Exception:  # noqa: BLE001 — cosmetic; the dashboard falls back to mempool.space for the tip
+            tip_block = None
         # mempool: transactions flowing in while the next block is mined (the "data coming in")
         try:
             mp = rpc(url, user, pw, "getmempoolinfo")
@@ -359,6 +396,7 @@ def build(url, user, pw, cookie=""):
         # control. Shown in Settings; until now nothing anywhere surfaced it.
         "core_version": core_version(netinfo.get("subversion")),
         "subversion": (netinfo.get("subversion") or ""),  # the raw string, for support questions
+        "tip_block": tip_block,  # full tip header (synced only) → dashboard renders the tip from the node, not mempool.space
         "mempool": mempool,
         "nettotals": nettotals,
         "miner": miner,

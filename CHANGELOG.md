@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.60
 
+**Dashboard**
+- **If you run your own node, the dashboard leans on it instead of the public API.** The current block — the one
+  the NEXT BLOCK, VERIFY, and your-ticket panels are built from — now comes straight from your synced node
+  (which already knows it) rather than being fetched from mempool.space every 30 seconds. That's two fewer
+  public-API calls per cycle, and the block actually updates *faster* (your node is checked every few seconds).
+  The public demo, and a node that's still syncing, still use mempool.space as before. A bonus: with your node
+  supplying the block, a mempool.space outage no longer even shows a notice — your dashboard just keeps working.
+
 ## 0.1.59
 
 **Node**

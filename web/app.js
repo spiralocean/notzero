@@ -374,29 +374,49 @@ async function api(path) {
 // Set only when the server itself pushed back. The 30s setInterval keeps firing regardless, so without this
 // guard a backoff would be meaningless — we'd still hit the host every 30s while "backing off".
 let backoffUntil = 0;
+// Apply a tip block (from EITHER source — the node's tip_block or mempool.space's /block) to the model:
+// the NEXT BLOCK / VERIFY / AVALANCHE panels and the machine's ticket. Source-agnostic because the bridge
+// publishes the tip in mempool.space's exact field shape (see tip_block_from_core in node_bridge.py).
+async function applyTipBlock(blk) {
+  model.tipHeight = blk.height;
+  model.block = blk;
+  model.txCount = blk.tx_count;
+  model.difficulty = blk.difficulty;
+  computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
+  computeAvalanche(blk); // precompute the single-bit-flip hashes for THE AVALANCHE panel
+  // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
+  const seed = machineSeed();
+  if (!model.ticket || model.ticket.height !== blk.height || model.ticket.seed !== seed) {
+    const nonce = await pickNonce(seed, blk.height);
+    const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
+    const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
+    const target = bitsToTarget(blk.bits);
+    const avNonce = (nonce + 1) >>> 0;
+    const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
+    const avalancheHex = bytesToHex(await sha256(avH1));
+    model.ticket = { height: blk.height, seed, nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+  }
+}
+// Your own synced node already knows the tip — use ITS block header (delivered same-origin in node.json every
+// ~4s by the bridge) rather than fetching it from mempool.space every 30s. Faster (the 3s node poll beats the
+// 30s external one) AND two fewer public-API calls per cycle for the common case of a node-running user. Falls
+// back to mempool.space for the public demo and while a node is still syncing (no meaningful local tip yet).
+function nodeTip() {
+  const n = model.node;
+  if (!n || n.reachable === false || n.initialblockdownload) return null;
+  const tb = n.tip_block;
+  if (!tb || tb.id == null || tb.bits == null || tb.height == null) return null;
+  return tb;
+}
 async function refresh(fromRetry = false) {
   if (!fromRetry && backoffUntil && Date.now() < backoffUntil) return;
   try {
-    const tipHash = await (await api("/blocks/tip/hash")).text();
-    const blk = await (await api(`/block/${tipHash}`)).json();
-    model.tipHeight = blk.height;
-    model.block = blk;
-    model.txCount = blk.tx_count;
-    model.difficulty = blk.difficulty;
-    computeVerify(blk); // recompute this real block's proof-of-work for the VERIFY THIS BLOCK panel
-    computeAvalanche(blk); // precompute the single-bit-flip hashes for THE AVALANCHE panel
-
-    // hash ONCE per (block, seed) — cache it so the 30s refresh doesn't re-hash an unchanged block
-    const seed = machineSeed();
-    if (!model.ticket || model.ticket.height !== blk.height || model.ticket.seed !== seed) {
-      const nonce = await pickNonce(seed, blk.height);
-      const h1 = await sha256(serializeHeader(blk, nonce));   // 1st SHA-256 round
-      const hashHex = bytesToHex(await sha256(h1));            // 2nd round (the "double") = our submission
-      const target = bitsToTarget(blk.bits);
-      const avNonce = (nonce + 1) >>> 0;
-      const avH1 = await sha256(serializeHeader(blk, avNonce)); // same header, nonce+1 → totally different (avalanche)
-      const avalancheHex = bytesToHex(await sha256(avH1));
-      model.ticket = { height: blk.height, seed, nonce, hash1Hex: bytesToHex(h1), hashHex, prox: proximity(hashHex, target), avNonce, avHash1Hex: bytesToHex(avH1), avalancheHex };
+    const nt = nodeTip();
+    if (nt) {
+      await applyTipBlock(nt); // tip from YOUR node — no mempool.space round-trip for the block header
+    } else {
+      const tipHash = await (await api("/blocks/tip/hash")).text();
+      await applyTipBlock(await (await api(`/block/${tipHash}`)).json());
     }
 
     fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
