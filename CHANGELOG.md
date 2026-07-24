@@ -4,7 +4,23 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.61
+## Unreleased — next: 0.1.62
+
+## 0.1.61
+
+**Desktop**
+- **First-run setup now defaults to "Set one up for me."** The wizard used to pre-select "I already run a node,"
+  so a new user who just pasted a payout address and hit Start landed on the bring-your-own-node path — the
+  power-user option — and never got the managed node the app exists to provide. Managed is now the default; the
+  wizard flips to "I already run a node" automatically when it detects one already running on this machine.
+- **Node auto-detection now finds nodes that log in with an rpcuser/rpcpassword, not just cookie-auth ones.** On
+  first run the wizard probes for an existing local node; previously it only recognized a node using Bitcoin
+  Core's automatic `.cookie` login, so a node configured with an explicit `rpcuser`/`rpcpassword` looked like
+  "no node found." It now also reads those credentials from a `bitcoin.conf` in the default data directory and,
+  after a real connection succeeds, pre-fills the RPC fields so you just confirm and start. It never guesses —
+  a candidate has to pass a live `getblockchaininfo` first; `rpcauth` hashes (unreversible) and nodes at a
+  custom `-datadir` still need manual entry. (This also re-detects nodes an older notzero set up with
+  `rpcuser=lottery`, which recent versions had stopped recognizing.)
 
 ## 0.1.60
 

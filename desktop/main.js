@@ -707,6 +707,42 @@ function resolveCookiePath(userPath) {
   const candidate = p.endsWith(".cookie") ? p : path.join(p, ".cookie");
   return fs.existsSync(candidate) ? candidate : "";
 }
+// bitcoind's default bitcoin.conf location per platform (sibling of the cookie). "" if it isn't there.
+function defaultConfPath() {
+  const home = os.homedir();
+  const p = process.platform === "darwin" ? path.join(home, "Library", "Application Support", "Bitcoin", "bitcoin.conf")
+    : process.platform === "win32" ? path.join(process.env.APPDATA || path.join(home, "AppData", "Roaming"), "Bitcoin", "bitcoin.conf")
+    : path.join(home, ".bitcoin", "bitcoin.conf");
+  return fs.existsSync(p) ? p : "";
+}
+// Best-effort read of rpcuser/rpcpassword/rpcport for MAINNET from a default-location bitcoin.conf. Honors the
+// [main] section (which wins over the top level) and ignores [test]/[regtest]/[signet]. `rpcauth=` is a salted
+// hash we can't reverse, so it's skipped — only a plaintext rpcpassword is usable. We never act on what we read
+// here until a real connection test (in detectExistingNode) confirms it. Returns { user, pass, port } — user/pass
+// may be "" when only a port was found (still useful so the cookie probe can target a custom rpcport).
+function readConfRpcCreds() {
+  const confPath = defaultConfPath();
+  if (!confPath) return null;
+  let text; try { text = fs.readFileSync(confPath, "utf8"); } catch (_) { return null; }
+  const top = {}, main = {};
+  let section = ""; // "" = applies to every network; otherwise the [network] we're inside
+  for (const raw of text.split(/\r?\n/)) {
+    const line = raw.trim();
+    if (!line || line.startsWith("#")) continue;
+    const sec = line.match(/^\[(\w+)\]$/);
+    if (sec) { section = sec[1].toLowerCase(); continue; }
+    if (section && section !== "main") continue; // a testnet/regtest/signet section — not our chain
+    const eq = line.indexOf("=");
+    if (eq < 0) continue;
+    const key = line.slice(0, eq).trim().toLowerCase();
+    const val = line.slice(eq + 1).trim();
+    if (key === "rpcuser" || key === "rpcpassword" || key === "rpcport") (section === "main" ? main : top)[key] = val;
+  }
+  const user = main.rpcuser || top.rpcuser || "";
+  const pass = main.rpcpassword || top.rpcpassword || "";
+  const port = Number(main.rpcport || top.rpcport || 0) || 0;
+  return { user, pass, port };
+}
 // Generic JSON-RPC call (any method/params, optional /wallet/<name> path). Mirrors testRpc's error mapping.
 function rpcCall(rpcUrl, authHeader, method, params) {
   return new Promise((resolve) => {
@@ -840,15 +876,26 @@ function handleNodeAddress(req, res) {
 }
 
 // ---- detect an existing node (so node-runners are auto-recognized instead of typing RPC details) ----
-// Best-effort: probe a default-cookie node on localhost. A node with explicit rpcuser/rpcpassword and no
-// cookie can't be auto-authed, so it falls back to manual entry — we never guess credentials.
+// Best-effort: probe a running node on localhost. Two credential sources, in order: (1) the auto-generated
+// .cookie in the default datadir — the zero-config common case; (2) rpcuser/rpcpassword read from that node's
+// own bitcoin.conf. We never guess credentials — each candidate has to pass a real getblockchaininfo before we
+// report `found`. When we authed via conf, we hand the creds back so the wizard can pre-fill them (the app has
+// to persist them to connect at runtime anyway); cookie auth needs nothing, so nothing is returned there.
 async function detectExistingNode() {
+  const conf = readConfRpcCreds();                 // may be null; gives us the rpcport (and maybe user/pass)
+  const port = (conf && conf.port) || 8332;
+  const url = `http://127.0.0.1:${port}`;
+  const found = (r, extra) => ({ found: true, rpc_url: url, chain: r.info && r.info.chain, syncing: !!(r.info && r.info.initialblockdownload), ...(extra || {}) });
   const cookie = resolveCookiePath("");
-  if (!cookie) return { found: false };
-  const authHeader = rpcAuthHeader({ cookiePath: cookie });
-  if (!authHeader) return { found: false };
-  const r = await testRpc("http://127.0.0.1:8332", authHeader);
-  return r.ok ? { found: true, rpc_url: "http://127.0.0.1:8332", chain: r.info && r.info.chain, syncing: !!(r.info && r.info.initialblockdownload) } : { found: false };
+  if (cookie) {
+    const authHeader = rpcAuthHeader({ cookiePath: cookie });
+    if (authHeader) { const r = await testRpc(url, authHeader); if (r.ok) return found(r); }
+  }
+  if (conf && conf.user && conf.pass) {
+    const authHeader = rpcAuthHeader({ user: conf.user, pass: conf.pass });
+    if (authHeader) { const r = await testRpc(url, authHeader); if (r.ok) return found(r, { rpc_user: conf.user, rpc_pass: conf.pass }); }
+  }
+  return { found: false };
 }
 
 // ---- managed node: provision + run a private Bitcoin Core, then point the miner at it ----

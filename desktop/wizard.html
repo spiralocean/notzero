@@ -96,10 +96,10 @@
       <div class="hint" id="core-version" style="display:none;margin-top:6px"></div>
       <div class="detect" id="detect"></div>
       <div class="choice">
-        <div class="opt sel" id="opt-existing"><div class="t">I already run a node</div><div class="d">Connect to your running bitcoind via RPC. Instant.</div></div>
-        <div class="opt" id="opt-new"><div class="t">Set one up for me</div><div class="d">Downloads &amp; runs a private Bitcoin Core for you. No terminal.</div></div>
+        <div class="opt sel" id="opt-new"><div class="t">Set one up for me</div><div class="d">Downloads &amp; runs a private Bitcoin Core for you. No terminal.</div></div>
+        <div class="opt" id="opt-existing"><div class="t">I already run a node</div><div class="d">Connect to your running bitcoind via RPC. Instant.</div></div>
       </div>
-      <div class="rpc" id="managed">
+      <div class="rpc show" id="managed">
         <div class="reassure">
           We'll set up your <b>own private Bitcoin node</b> — nothing to configure.<br/><br/>
           ✓ Downloads the <b>official Bitcoin Core</b> and <b>verifies its signature</b> before it ever runs.<br/>
@@ -123,7 +123,7 @@
           </div>
         </details>
       </div>
-      <div class="rpc show" id="rpc">
+      <div class="rpc" id="rpc">
         <label>RPC URL</label>
         <input id="rpc_url" type="text" value="http://127.0.0.1:8332" spellcheck="false" />
         <div class="row">
@@ -214,7 +214,7 @@
     </div>
 
     <div class="actions">
-      <button class="primary" id="start">Start mining</button>
+      <button class="primary" id="start">Set up my node &amp; start</button>
       <button class="ghost" id="cancel" style="display:none">Cancel</button>
     </div>
     <div class="err" id="err"></div>
@@ -239,7 +239,7 @@
 
   <script>
     const $ = (id) => document.getElementById(id);
-    let settingsMode = false, nodeChoice = "existing";
+    let settingsMode = false, nodeChoice = "managed";
     function selectExisting() { nodeChoice = "existing"; $("opt-existing").classList.add("sel"); $("opt-new").classList.remove("sel"); $("rpc").classList.add("show"); $("managed").classList.remove("show"); $("start").textContent = settingsMode ? "Save changes" : "Start mining"; }
     function selectManaged() {
       nodeChoice = "managed"; $("opt-new").classList.add("sel"); $("opt-existing").classList.remove("sel");
@@ -359,10 +359,17 @@
           }
         }
       } catch (_) {}
-      if (!settingsMode) {
+      if (settingsMode) {
+        // Editing an existing config. Managed installs already returned above; anything left is BYO, so
+        // show the RPC fields (the markup now defaults to the managed panel).
+        selectExisting();
+      } else {
+        // Fresh install: default to "Set one up for me" (initializes the managed panel: disk check + CTA),
+        // then flip to BYO only if we actually detect a node already running on this machine.
+        selectManaged();
         try {
           const d = await (await fetch("/detect-node")).json();
-          if (d && d.found) { selectExisting(); $("rpc_url").value = d.rpc_url || $("rpc_url").value; $("detect").textContent = `✓ Detected a running node on this machine${d.syncing ? " (still syncing)" : ""} — confirm and start.`; }
+          if (d && d.found) { selectExisting(); $("rpc_url").value = d.rpc_url || $("rpc_url").value; if (d.rpc_user) $("rpc_user").value = d.rpc_user; if (d.rpc_pass) $("rpc_pass").value = d.rpc_pass; $("detect").textContent = `✓ Detected a running node on this machine${d.syncing ? " (still syncing)" : ""} — using it instead. Confirm and start.`; }
         } catch (_) {}
       }
     })();
