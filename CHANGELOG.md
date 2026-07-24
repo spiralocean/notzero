@@ -7,6 +7,11 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.60
 
 **Desktop**
+- **Clear path to fully uninstall.** Settings now has an "Uninstall notzero completely" note next to "Remove node
+  & all data", spelling out the two steps to get back to before you installed — remove the node + data, then quit
+  and remove the app the normal way for your system (drag to the Trash on macOS, Settings → Apps on Windows,
+  delete the AppImage on Linux). Previously "Remove node & all data" left you at the first-run screen with the app
+  still installed, which isn't the same as uninstalling.
 - **Clearer status while your node is setting up.** During the initial blockchain sync the bottom of the screen
   used to read "practice mode — set up a node," which was both wrong (the app is setting one up for you) and
   overlapped the disk-usage readout. It now shows the real sync status ("syncing blockchain — NN%"), and the
