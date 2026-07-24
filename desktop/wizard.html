@@ -114,6 +114,14 @@
         <div class="reassure">✓ You're running your <b>own private node</b>, set up by this app. No keys are held here.</div>
         <button class="ghost btn-sm" id="node-remove" type="button" style="margin-top:12px;color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove node &amp; all data</button>
         <div class="hint" style="margin-top:6px">Stops the node and deletes Bitcoin Core + its ~20 GB of data. You'd re-sync if you set it up again.</div>
+        <details style="margin-top:14px">
+          <summary style="cursor:pointer;color:rgba(255,153,26,0.92);font-size:13px;font-weight:600;list-style:none">Uninstall notzero completely ▸</summary>
+          <div class="hint" style="margin-top:8px">
+            To remove notzero and get back to where you were before installing:<br/>
+            <b>1.</b> Click <b>Remove node &amp; all data</b> above — that deletes Bitcoin Core and its ~20&nbsp;GB of data.<br/>
+            <b>2.</b> Quit notzero, then <span id="uninstall-step2">remove the app</span>.
+          </div>
+        </details>
       </div>
       <div class="rpc show" id="rpc">
         <label>RPC URL</label>
@@ -267,6 +275,16 @@
       })
       .catch(() => {});
 
+    // Per-OS "remove the app" step for the uninstall instructions. We deliberately DON'T self-delete the running
+    // app (fiddly + easy to leave orphans — see 0.1.57); we tell the user the native way instead. quitHint below
+    // matches the platform's real quit gesture. textContent, not innerHTML — plain strings from a known set.
+    function uninstallStep2(platform) {
+      const el = $("uninstall-step2"); if (!el) return;
+      if (platform === "win32") el.textContent = "uninstall it from Settings → Apps (or Add / Remove Programs).";
+      else if (platform === "linux") el.textContent = "delete the notzero AppImage, and remove ~/.config/autostart/notzero.desktop if it's there.";
+      else el.textContent = "drag notzero from your Applications folder to the Trash."; // macOS + fallback
+    }
+
     $("opt-existing").onclick = selectExisting;
     $("opt-new").onclick = selectManaged;
     $("cancel").onclick = () => { window.location = "/"; };
@@ -287,6 +305,7 @@
       try {
         const c = await (await fetch("/config")).json();
         if (c && c.app_version) $("appver").textContent = "v" + c.app_version; // visible build number for support
+        uninstallStep2(c && c.platform); // tailor the "remove the app" step to this OS
         if (c && c.exists) {
           settingsMode = true;
           document.title = "Settings — ₿itcoin Lottery";
