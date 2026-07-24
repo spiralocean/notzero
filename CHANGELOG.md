@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.60
+## Unreleased — next: 0.1.61
+
+## 0.1.60
 
 **Dashboard**
 - **If you run your own node, the dashboard leans on it instead of the public API.** The current block — the one
