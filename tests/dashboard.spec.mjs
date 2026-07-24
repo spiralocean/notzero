@@ -190,3 +190,59 @@ test("footer: managed node synced shows the payout again", async ({ page }) => {
   console.log(`   synced left: ${JSON.stringify(left)}`);
   expect(left).toContain("payout");
 });
+
+// A synced local node already knows the tip, delivered same-origin in node.json — so the dashboard must render
+// the tip from THERE and skip the mempool.space /blocks/tip/hash + /block/{id} round-trip. Two fewer public-API
+// calls per cycle for the common (node-running) user, and a faster tip (the 3s node poll vs the 30s external).
+test("node tip: a synced node's tip_block replaces the mempool.space tip fetch", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  // count tip fetches specifically
+  let tipHashHits = 0, blockHits = 0;
+  await page.route("**/api/blocks/tip/hash", (r) => { tipHashHits++; r.fulfill({ status: 200, contentType: "text/plain", body: "deadbeef" }); });
+  await page.route("**/api/block/*", (r) => { blockHits++; r.continue(); });
+  // give the node a tip_block (mempool.space's field shape, as the bridge publishes it)
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 961000, headers: 961000, verificationprogress: 0.99999,
+    initialblockdownload: false, size_on_disk: 9.8e9, pruned: true, core_version: "31.1.0",
+    tip_block: { id: "0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee", height: 961000, version: 671088640,
+      previousblockhash: "00000000000000000000164c0521899c2ace28639352efb1e6f7faa1f1ab0d6fd",
+      merkle_root: "f576d43263ff8056c3cfa68d456e059d02d48d09413ead2e58ef020ffd0c3dc0",
+      timestamp: 1718901000, bits: 386089497, nonce: 12345, tx_count: 4001, difficulty: 1.26e14 },
+  }) }));
+  await page.goto("/");
+  // the boot refresh() legitimately runs before node.json arrives, so mempool.space is the only source then.
+  // Wait for the node (with its tip) to be loaded, then measure only fetches AFTER that point.
+  await page.waitForFunction(() => window.__model && window.__model.node && window.__model.node.tip_block, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  const tipBase = tipHashHits, blockBase = blockHits;
+  await page.evaluate(() => window.__refresh());
+  await page.waitForFunction(() => window.__model.tipHeight === 961000, null, { timeout: 20000 });
+  await page.evaluate(() => window.__refresh()); // and a second cycle, to be sure it stays off mempool.space
+  await page.waitForTimeout(500);
+
+  const tipAfter = tipHashHits - tipBase, blockAfter = blockHits - blockBase;
+  console.log(`   tip-hash fetches after node loaded: ${tipAfter}  block: ${blockAfter}  (both should be 0)`);
+  expect(tipAfter).toBe(0);                                       // no /blocks/tip/hash once the node tip is available
+  expect(blockAfter).toBe(0);                                     // no /block/{id}
+  expect(await page.evaluate(() => window.__model.block.height)).toBe(961000); // tip really came from the node
+  expect(await page.evaluate(() => window.__model.ticket && window.__model.ticket.height)).toBe(961000); // ticket built on it
+});
+
+// Mirror: the public demo (and a still-syncing node) has no usable local tip, so it MUST still fetch from
+// mempool.space. Proves the substitution is conditional, not a blanket removal.
+test("node tip: no node (demo) still fetches the tip from mempool.space", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  let tipHashHits = 0;
+  await page.route("**/api/blocks/tip/hash", (r) => { tipHashHits++; r.continue(); });
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 404, contentType: "text/plain", body: "no node" }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.chainOkAt > 0, null, { timeout: 20000 });
+  console.log(`   tip-hash fetches with no node: ${tipHashHits} (should be >= 1)`);
+  expect(tipHashHits).toBeGreaterThanOrEqual(1);
+});
