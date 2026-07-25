@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.63
 
+**Build**
+- CI actions moved to their current majors (`checkout` v4→v7, `setup-node` v4→v7, `setup-python` v5→v7,
+  `github-script` v7→v9). Every release run was warning that these still target Node 20 and were being
+  forced onto Node 24; that forcing is temporary, and a release workflow that stops running is a release
+  we can't ship. Checked for the breaking changes each major introduced — none apply here: nothing pushes
+  with the checkout token, no `packageManager` field to trip setup-node's auto-caching, no `pip-install`
+  input, and no `require('@actions/github')` in the github-script step.
+
 ## 0.1.62
 
 **Desktop**

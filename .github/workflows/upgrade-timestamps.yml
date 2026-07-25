@@ -34,7 +34,7 @@ jobs:
       RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       RCLONE_CONFIG_R2_ACL: private
     steps:
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
       - name: Install OpenTimestamps client + rclone
