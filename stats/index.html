@@ -1,0 +1,399 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex, nofollow" />
+<title>notzero — reach</title>
+<style>
+  :root {
+    color-scheme: light;
+    --ground:#f7f5f2; --panel:#fff; --edge:#e4e0d8; --edge-soft:#eeebe4;
+    --ink:#17150f; --ink-2:#57534a; --ink-3:#8a8478;
+    --accent:#a35c06; --accent-mark:#b8670a; --accent-wash:rgba(184,103,10,.13);
+    --grid:rgba(23,21,15,.09);
+    --mac:#2a78d6; --win:#eb6834; --linux:#1baf7a;
+    --shadow:0 1px 2px rgba(23,21,15,.05),0 8px 24px -16px rgba(23,21,15,.22);
+    --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --ground:#05040a; --panel:#0c0b13; --edge:#1e1c29; --edge-soft:#16141f;
+      --ink:#f2efe9; --ink-2:#a8a4b4; --ink-3:#6d6980;
+      --accent:#ff991a; --accent-mark:#ff991a; --accent-wash:rgba(255,153,26,.16);
+      --grid:rgba(242,239,233,.08);
+      --mac:#3987e5; --win:#d95926; --linux:#199e70;
+      --shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px -16px rgba(0,0,0,.8);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --ground:#05040a; --panel:#0c0b13; --edge:#1e1c29; --edge-soft:#16141f;
+    --ink:#f2efe9; --ink-2:#a8a4b4; --ink-3:#6d6980;
+    --accent:#ff991a; --accent-mark:#ff991a; --accent-wash:rgba(255,153,26,.16);
+    --grid:rgba(242,239,233,.08);
+    --mac:#3987e5; --win:#d95926; --linux:#199e70;
+    --shadow:0 1px 2px rgba(0,0,0,.5),0 8px 24px -16px rgba(0,0,0,.8);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--ground);color:var(--ink);font-family:var(--sans);font-size:15px;line-height:1.55;-webkit-font-smoothing:antialiased}
+  .wrap{max-width:1080px;margin:0 auto;padding:48px 24px 72px;display:flex;flex-direction:column;gap:34px}
+  .eyebrow{font-family:var(--mono);font-size:11px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin:0 0 10px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  h1{font-family:var(--mono);font-size:clamp(26px,4.4vw,38px);font-weight:600;letter-spacing:-.02em;line-height:1.12;margin:0 0 10px;text-wrap:balance}
+  .lede{margin:0;max-width:64ch;color:var(--ink-2)}
+  code{font-family:var(--mono);font-size:.88em;background:var(--edge-soft);border:1px solid var(--edge);border-radius:4px;padding:1px 5px;color:var(--ink)}
+  .tiles{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px}
+  .tile{background:var(--panel);border:1px solid var(--edge);border-radius:10px;padding:18px 18px 16px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px}
+  .tile .k{font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--ink-3)}
+  .tile .v{font-family:var(--mono);font-size:34px;font-weight:600;letter-spacing:-.03em;font-variant-numeric:tabular-nums;line-height:1.1}
+  .tile .v .unit{font-size:15px;font-weight:500;color:var(--ink-3);letter-spacing:0}
+  .tile .n{font-size:12.5px;color:var(--ink-3);line-height:1.45}
+  .tile.lead .v{color:var(--accent)}
+  .panel{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:22px 22px 18px;box-shadow:var(--shadow);display:flex;flex-direction:column;gap:4px}
+  .panel h2{font-size:15.5px;font-weight:650;margin:0;letter-spacing:-.01em}
+  .panel .sub{margin:0 0 12px;font-size:13px;color:var(--ink-2);max-width:72ch}
+  .plot{position:relative;overflow-x:auto;min-height:60px}
+  svg{display:block;width:100%;height:auto;overflow:visible}
+  text{font-family:var(--mono);font-variant-numeric:tabular-nums}
+  .axis{fill:var(--ink-3);font-size:10.5px}
+  .gridline{stroke:var(--grid);stroke-width:1}
+  .zeroline{stroke:var(--grid);stroke-width:1.5}
+  .legend{display:flex;flex-wrap:wrap;gap:6px 18px;margin-top:12px}
+  .legend span{display:inline-flex;align-items:center;gap:7px;font-size:12.5px;color:var(--ink-2)}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+  .note{margin:12px 0 0;padding:11px 13px;border-left:2px solid var(--accent-mark);background:var(--accent-wash);border-radius:0 6px 6px 0;font-size:12.5px;color:var(--ink-2);max-width:76ch}
+  .note b{color:var(--ink);font-weight:600}
+  .tip{position:absolute;pointer-events:none;background:var(--panel);border:1px solid var(--edge);border-radius:7px;padding:8px 10px;font-family:var(--mono);font-size:11.5px;line-height:1.6;color:var(--ink);box-shadow:var(--shadow);opacity:0;transition:opacity .1s ease;white-space:nowrap;z-index:5;font-variant-numeric:tabular-nums}
+  .tip.on{opacity:1}
+  .tip .th{color:var(--ink-3)}
+  details{background:var(--panel);border:1px solid var(--edge);border-radius:12px;padding:0 22px;box-shadow:var(--shadow)}
+  summary{cursor:pointer;padding:16px 0;font-size:14px;font-weight:600;list-style:none;display:flex;align-items:center;gap:9px}
+  summary::-webkit-details-marker{display:none}
+  summary::before{content:"";width:0;height:0;border-left:5px solid var(--ink-3);border-top:4px solid transparent;border-bottom:4px solid transparent;transition:transform .15s ease}
+  details[open] summary::before{transform:rotate(90deg)}
+  summary:focus-visible{outline:2px solid var(--accent-mark);outline-offset:3px;border-radius:4px}
+  .tw{overflow-x:auto;padding-bottom:18px}
+  table{border-collapse:collapse;width:100%;font-size:12.5px;font-family:var(--mono);font-variant-numeric:tabular-nums}
+  th,td{text-align:right;padding:6px 12px 6px 0;border-bottom:1px solid var(--edge-soft);white-space:nowrap}
+  th{color:var(--ink-3);font-weight:500;font-size:10.5px;letter-spacing:.08em;text-transform:uppercase}
+  th:first-child,td:first-child{text-align:left}
+  tbody tr:last-child td{border-bottom:none}
+  td.rel{color:var(--accent)}
+  footer{font-size:12.5px;color:var(--ink-3);max-width:74ch}
+  .status{font-family:var(--mono);font-size:12px;color:var(--ink-3)}
+  .status.err{color:var(--win)}
+  button.refresh{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;background:var(--edge-soft);color:var(--ink-2);border:1px solid var(--edge);border-radius:5px;padding:3px 9px;cursor:pointer}
+  button.refresh:hover{color:var(--ink)}
+  button.refresh:focus-visible{outline:2px solid var(--accent-mark);outline-offset:2px}
+  .hidden{display:none}
+  @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <p class="eyebrow"><span id="window">loading…</span> <button class="refresh" id="refresh" type="button">Refresh</button></p>
+    <h1>How many people have it, and how many are running it</h1>
+    <p class="lede">Downloads come from the landing page's own counter. Installs are derived from CDN traffic the app already generates checking for updates — no telemetry, nothing new collected. The same numbers come out of <code>node scripts/stats.mjs</code>.</p>
+  </header>
+
+  <p class="status err hidden" id="error"></p>
+
+  <section class="tiles" id="tiles"></section>
+
+  <section class="panel">
+    <h2>Installs running, by hour</h2>
+    <p class="sub">Each running app fetches <code>CHANGELOG.md</code> every 30 minutes, so hourly requests ÷ 2 is a headcount.</p>
+    <div class="plot" id="p-installs"></div>
+    <p class="note"><b>Read the flat parts, not the peaks.</b> A release makes every updated machine restart and poll again immediately, so release hours count the same handful of computers more than once. The steady median between releases is the real number.</p>
+  </section>
+
+  <section class="panel">
+    <h2>Installer downloads, by hour</h2>
+    <p class="sub">Actual <code>.dmg</code> / <code>.exe</code> / <code>.AppImage</code> / <code>.zip</code> fetches — the bandwidth behind a release, and the only traffic here that costs real money.</p>
+    <div class="plot" id="p-artifacts"></div>
+    <p class="note" id="art-note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Visitors to the site</h2>
+    <p class="sub">Sessions on <code>getnotzero.com</code>, hour by hour — the top of the funnel, the people who could go on to download.</p>
+    <div class="plot" id="p-visitors"></div>
+    <p class="note" id="vis-note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Demo dashboard</h2>
+    <p class="sub">Sessions on <code>demo.getnotzero.com</code> — the dashboard someone can try before installing anything.</p>
+    <div class="plot" id="p-demo"></div>
+    <p class="note" id="demo-note"></p>
+  </section>
+
+  <section class="panel">
+    <h2>Which platforms</h2>
+    <p class="sub">Update-feed checks — one file per platform, so the split is exact even when the headcount isn't.</p>
+    <div class="plot" id="p-platform"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--mac)"></i>macOS — <code>latest-mac.yml</code></span>
+      <span><i class="swatch" style="background:var(--win)"></i>Windows — <code>latest.yml</code></span>
+      <span><i class="swatch" style="background:var(--linux)"></i>Linux — <code>latest-linux.yml</code></span>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>What the CDN is actually serving</h2>
+    <p class="sub">Every request to dl.getnotzero.com in the window, by kind.</p>
+    <div class="plot" id="p-mix"></div>
+  </section>
+
+  <details>
+    <summary>Hourly figures</summary>
+    <div class="tw">
+      <table>
+        <thead><tr><th>Hour (UTC)</th><th>Changelog polls</th><th>Implied installs</th><th>Installers</th><th>Proof fetches</th><th>mac</th><th>win</th><th>linux</th><th>Site visits</th><th>Demo visits</th></tr></thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+  </details>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const NS = "http://www.w3.org/2000/svg";
+const el = (n, a) => { const e = document.createElementNS(NS, n); for (const k in a) e.setAttribute(k, a[k]); return e; };
+const $ = (id) => document.getElementById(id);
+let REL = {};
+
+function tooltip(host) {
+  const t = document.createElement("div"); t.className = "tip"; host.appendChild(t);
+  return {
+    show(html, x, y) {
+      t.innerHTML = html; t.classList.add("on");
+      const w = host.clientWidth, tw = t.offsetWidth;
+      t.style.left = Math.max(0, Math.min(w - tw, x - tw / 2)) + "px";
+      t.style.top = Math.max(0, y - t.offsetHeight - 10) + "px";
+    },
+    hide() { t.classList.remove("on"); },
+  };
+}
+const clear = (id) => { const h = $(id); h.innerHTML = ""; return h; };
+const niceMax = (v, floor) => { const m = Math.max(v, floor); return Math.ceil(m / 4) * 4; };
+
+function drawInstalls(rows) {
+  const host = clear("p-installs");
+  const W = 980, Hh = 268, L = 40, R = 14, T = 16, B = 34;
+  const iw = W - L - R, ih = Hh - T - B;
+  const max = niceMax(Math.max(...rows.map((r) => r.installs)) * 1.15, 6);
+  const x = (i) => L + (iw * i) / Math.max(1, rows.length - 1);
+  const y = (v) => T + ih - (ih * v) / max;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Installs running by hour" });
+  const step = Math.max(1, Math.round(max / 4));
+  for (let v = 0; v <= max; v += step) {
+    svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0 ? "zeroline" : "gridline" }));
+    const t = el("text", { x: L - 9, y: y(v) + 3.5, class: "axis", "text-anchor": "end" }); t.textContent = v; svg.appendChild(t);
+  }
+  rows.forEach((r, i) => {
+    if (!REL[r.hour]) return;
+    svg.appendChild(el("line", { x1: x(i), x2: x(i), y1: T, y2: T + ih, stroke: "var(--accent-mark)", "stroke-width": 1, "stroke-dasharray": "3 4", opacity: ".5" }));
+    const lb = el("text", { x: x(i) + 5, y: T + 11, class: "axis", fill: "var(--accent)" }); lb.textContent = "v" + REL[r.hour]; svg.appendChild(lb);
+  });
+  const pts = rows.map((r, i) => [x(i), y(r.installs)]);
+  const line = pts.map((p, i) => (i ? "L" : "M") + p[0].toFixed(1) + " " + p[1].toFixed(1)).join(" ");
+  svg.appendChild(el("path", { d: `${line} L ${x(rows.length - 1)} ${y(0)} L ${x(0)} ${y(0)} Z`, fill: "var(--accent-wash)" }));
+  svg.appendChild(el("path", { d: line, fill: "none", stroke: "var(--accent-mark)", "stroke-width": 2, "stroke-linejoin": "round", "stroke-linecap": "round" }));
+  rows.forEach((r, i) => { if (i % 3) return; const t = el("text", { x: x(i), y: Hh - 12, class: "axis", "text-anchor": "middle" }); t.textContent = r.hour; svg.appendChild(t); });
+  const focus = el("circle", { r: 5, fill: "var(--accent-mark)", stroke: "var(--panel)", "stroke-width": 2, opacity: 0 });
+  svg.appendChild(focus); host.appendChild(svg);
+  const tip = tooltip(host);
+  svg.addEventListener("pointermove", (ev) => {
+    const bb = svg.getBoundingClientRect();
+    const px = ((ev.clientX - bb.left) / bb.width) * W;
+    let i = Math.round(((px - L) / iw) * (rows.length - 1));
+    i = Math.max(0, Math.min(rows.length - 1, i));
+    const r = rows[i];
+    focus.setAttribute("cx", x(i)); focus.setAttribute("cy", y(r.installs)); focus.setAttribute("opacity", 1);
+    tip.show(`<span class="th">${r.hour}:00 UTC</span><br>${r.installs} installs<br><span class="th">${r.changelog} polls</span>${REL[r.hour] ? `<br><span class="th">v${REL[r.hour]} shipped</span>` : ""}`, (x(i) / W) * bb.width, (y(r.installs) / Hh) * bb.height);
+  });
+  svg.addEventListener("pointerleave", () => { focus.setAttribute("opacity", 0); tip.hide(); });
+}
+
+// shared bar renderer; `cap` clips outliers so the rest of the day stays readable, and clipped bars are
+// hatched + labelled so a truncated bar is never mistaken for a full one
+function drawBars(id, rows, pick, opts) {
+  const host = clear(id);
+  const W = 980, Hh = opts.height || 200, L = 40, R = 14, T = 18, B = 34;
+  const iw = W - L - R, ih = Hh - T - B;
+  const vals = rows.map(pick);
+  const cap = opts.cap || niceMax(Math.max(...vals, 1) * 1.1, 4);
+  const step = Math.max(1, Math.round(cap / 4));
+  const bw = iw / rows.length - 6;
+  const y = (v) => T + ih - (ih * Math.min(v, cap)) / cap;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": opts.alt });
+  for (let v = 0; v <= cap; v += step) {
+    svg.appendChild(el("line", { x1: L, x2: W - R, y1: y(v), y2: y(v), class: v === 0 ? "zeroline" : "gridline" }));
+    const t = el("text", { x: L - 9, y: y(v) + 3.5, class: "axis", "text-anchor": "end" }); t.textContent = v; svg.appendChild(t);
+  }
+  const tip = tooltip(host);
+  rows.forEach((r, i) => {
+    const v = pick(r), bx = L + (iw * i) / rows.length + 3;
+    if (v > 0) {
+      const clipped = v > cap;
+      const bar = el("rect", { x: bx, y: y(v), width: bw, height: ih - (y(v) - T), rx: 4, fill: opts.fill });
+      bar.style.cursor = "crosshair";
+      bar.addEventListener("pointerenter", () => {
+        const bb = svg.getBoundingClientRect();
+        tip.show(`<span class="th">${r.hour}:00 UTC</span><br>${v} ${opts.unit}${v === 1 ? "" : "s"}${clipped ? `<br><span class="th">bar clipped at ${cap}</span>` : ""}${REL[r.hour] && opts.marks ? `<br><span class="th">v${REL[r.hour]} shipped</span>` : ""}`, ((bx + bw / 2) / W) * bb.width, (y(v) / Hh) * bb.height);
+      });
+      bar.addEventListener("pointerleave", () => tip.hide());
+      svg.appendChild(bar);
+      if (clipped) {
+        for (let k = 0; k < 3; k++) svg.appendChild(el("line", { x1: bx, x2: bx + bw, y1: T + 3 + k * 4, y2: T + 1 + k * 4, stroke: "var(--panel)", "stroke-width": 2 }));
+        const cl = el("text", { x: bx + bw / 2, y: T - 5, class: "axis", "text-anchor": "middle", fill: "var(--ink-2)" }); cl.textContent = v; svg.appendChild(cl);
+      } else if (opts.label) {
+        const lb = el("text", { x: bx + bw / 2, y: y(v) - 7, class: "axis", "text-anchor": "middle", fill: "var(--ink-2)" }); lb.textContent = v; svg.appendChild(lb);
+      }
+    }
+    if (i % 3 === 0) { const t = el("text", { x: bx + bw / 2, y: Hh - 12, class: "axis", "text-anchor": "middle" }); t.textContent = r.hour; svg.appendChild(t); }
+  });
+  host.appendChild(svg);
+}
+
+function drawPlatform(feed) {
+  const host = clear("p-platform");
+  const rows = [
+    { k: "macOS", v: feed.mac, c: "var(--mac)" },
+    { k: "Linux", v: feed.linux, c: "var(--linux)" },
+    { k: "Windows", v: feed.win, c: "var(--win)" },
+  ].sort((a, b) => b.v - a.v);
+  const W = 980, rowH = 46, T = 6, L = 96, R = 150;
+  const Hh = T + rows.length * rowH + 8;
+  const max = Math.max(...rows.map((r) => r.v), 1);
+  const total = rows.reduce((n, r) => n + r.v, 0) || 1;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Update-feed checks by platform" });
+  rows.forEach((r, i) => {
+    const y = T + i * rowH + 8, bh = 22, w = ((W - L - R) * r.v) / max;
+    const lb = el("text", { x: L - 12, y: y + bh / 2 + 4, class: "axis", "text-anchor": "end", fill: "var(--ink)", "font-size": "12.5" });
+    lb.textContent = r.k; svg.appendChild(lb);
+    svg.appendChild(el("rect", { x: L, y, width: Math.max(w, 2), height: bh, rx: 4, fill: r.c }));
+    const vl = el("text", { x: L + Math.max(w, 2) + 12, y: y + bh / 2 + 4, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
+    vl.textContent = `${r.v} checks · ~${(r.v / 12).toFixed(1)} machines · ${Math.round((r.v / total) * 100)}%`;
+    svg.appendChild(vl);
+  });
+  host.appendChild(svg);
+}
+
+function drawMix(t, rows) {
+  const host = clear("p-mix");
+  const proofs = rows.reduce((n, r) => n + r.proofs, 0), chg = rows.reduce((n, r) => n + r.changelog, 0);
+  const feed = t.feed.mac + t.feed.win + t.feed.linux, art = t.artifacts;
+  const segs = [
+    { k: "Release proofs", v: proofs, o: 1 },
+    { k: "CHANGELOG.md", v: chg, o: .58 },
+    { k: "Update feeds", v: feed, o: .34 },
+    { k: "Installers", v: art, o: .18 },
+  ].filter((s) => s.v > 0);
+  const total = segs.reduce((n, s) => n + s.v, 0) || 1;
+  const W = 980, Hh = 74, bh = 30;
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Traffic composition by kind" });
+  const tip = tooltip(host);
+  let x = 0;
+  for (const s of segs) {
+    const w = (W * s.v) / total, cx = x + w / 2;
+    const rect = el("rect", { x, y: 6, width: Math.max(w - 2, 1), height: bh, rx: 4, fill: "var(--accent-mark)", opacity: s.o });
+    rect.style.cursor = "crosshair";
+    rect.addEventListener("pointerenter", () => {
+      const bb = svg.getBoundingClientRect();
+      tip.show(`<span class="th">${s.k}</span><br>${s.v.toLocaleString()} req · ${Math.round((s.v / total) * 100)}%`, (cx / W) * bb.width, (6 / Hh) * bb.height + 30);
+    });
+    rect.addEventListener("pointerleave", () => tip.hide());
+    svg.appendChild(rect);
+    if (w > 96) { const t1 = el("text", { x: x + 10, y: 26, class: "axis", fill: "var(--ground)", "font-size": "11.5", "font-weight": "600" }); t1.textContent = `${Math.round((s.v / total) * 100)}%`; svg.appendChild(t1); }
+    x += w;
+  }
+  let lx = 0;
+  for (const s of segs) {
+    const w = (W * s.v) / total;
+    if (w > 96) { const t2 = el("text", { x: lx, y: 60, class: "axis", fill: "var(--ink-2)", "font-size": "11.5" }); t2.textContent = `${s.k} — ${s.v.toLocaleString()}`; svg.appendChild(t2); }
+    lx += w;
+  }
+  host.appendChild(svg);
+}
+
+function tiles(d) {
+  const t = d.totals, dl = d.downloads;
+  const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
+  $("tiles").innerHTML = `
+    <div class="tile lead"><span class="k">Downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time, landing-page button. Direct CDN links aren't counted.</span></div>
+    <div class="tile lead"><span class="k">Running installs</span><span class="v">~${t.installsSteady}<span class="unit"> steady</span></span><span class="n">Median hour. Release hours read higher because updated machines restart.</span></div>
+    <div class="tile"><span class="k">Site visits / ${t.hoursLabel}</span><span class="v">${t.siteVisits}</span><span class="n">Sessions on getnotzero.com.</span></div>
+    <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;
+}
+
+function outlierNote(rows, pick, total, what) {
+  const vals = rows.map(pick), peak = Math.max(...vals);
+  const rest = total - peak;
+  const peakHour = rows[vals.indexOf(peak)]?.hour;
+  if (peak > 8 && peak > rest * 2)
+    return `<b>${peak} of ${total} ${what} arrived in a single hour, at ${peakHour}:00.</b> A burst that size against this baseline is a crawler, not people — discount it, and read the real figure as about <b>${rest}</b> across the rest of the window. That bar is drawn clipped so the other hours stay readable.`;
+  return `<b>${total} ${what}</b> across the window, median ${median(vals)} per hour.`;
+}
+const median = (xs) => { const s = [...xs].sort((a, b) => a - b), m = s.length >> 1; return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2; };
+
+function table(rows) {
+  $("tbody").innerHTML = rows.map((r) => {
+    const cells = [r.hour + ":00" + (REL[r.hour] ? "  ← v" + REL[r.hour] : ""), r.changelog, r.installs, r.artifacts, r.proofs, r.mac, r.win, r.linux, r.siteVisits, r.demoVisits];
+    return "<tr>" + cells.map((c, i) => `<td${i === 0 && REL[r.hour] ? ' class="rel"' : ""}>${c}</td>`).join("") + "</tr>";
+  }).join("");
+}
+
+function render(d) {
+  if (d.error) throw new Error(d.error);
+  if (d.trafficError) throw new Error(d.trafficError);
+  const rows = d.rows || [];
+  REL = d.releases || {};
+  const t = d.totals;
+  t.hoursLabel = d.window.hours + "h";
+  if (!rows.length) throw new Error("Cloudflare returned no traffic for this window.");
+
+  tiles(d);
+  drawInstalls(rows);
+  drawBars("p-artifacts", rows, (r) => r.artifacts, { fill: "var(--accent-mark)", unit: "installer", label: true, marks: true, alt: "Installer downloads by hour" });
+  drawBars("p-visitors", rows, (r) => r.siteVisits, { fill: "var(--mac)", unit: "visit", alt: "Visits to getnotzero.com by hour" });
+  drawBars("p-demo", rows, (r) => r.demoVisits, { fill: "var(--linux)", unit: "visit", cap: 12, alt: "Visits to demo.getnotzero.com by hour" });
+  drawPlatform(t.feed);
+  drawMix(t, rows);
+  table(rows);
+
+  const relHours = rows.filter((r) => REL[r.hour]);
+  const inRel = relHours.reduce((n, r) => n + r.artifacts, 0);
+  $("art-note").innerHTML = t.artifacts
+    ? `${t.artifacts} fetches in the window${relHours.length ? `, <b>${inRel} of them in the ${relHours.length} release hour${relHours.length === 1 ? "" : "s"}</b>. That clustering is what jittering the first update check by 0–10 minutes spreads out.` : "."}`
+    : "No installer downloads in this window.";
+  $("vis-note").innerHTML = outlierNote(rows, (r) => r.siteVisits, t.siteVisits, "visits");
+  $("demo-note").innerHTML = outlierNote(rows, (r) => r.demoVisits, t.demoVisits, "visits");
+  $("window").textContent = `notzero · ${d.window.since.replace("T", " ").replace("Z", "")} → ${d.window.until.slice(11, 16)} UTC`;
+  $("foot").innerHTML = `Install figures are derived from request volume, not unique clients — a machine asleep for six hours stops counting until it wakes. Cloudflare caps this dataset at a 24-hour span. Sources: zone analytics for <code>dl.getnotzero.com</code>, <code>getnotzero.com</code> and <code>demo.getnotzero.com</code>, plus the public <code>getnotzero.com/api/downloads</code> counter.`;
+  $("error").classList.add("hidden");
+}
+
+async function load() {
+  const btn = $("refresh"); btn.disabled = true; btn.textContent = "Loading…";
+  try {
+    const r = await fetch("/api/stats?hours=24", { cache: "no-store" });
+    render(await r.json());
+  } catch (e) {
+    const box = $("error");
+    box.textContent = "Couldn't load the numbers: " + (e.message || e);
+    box.classList.remove("hidden");
+    $("window").textContent = "notzero · no data";
+  } finally { btn.disabled = false; btn.textContent = "Refresh"; }
+}
+$("refresh").addEventListener("click", load);
+load();
+</script>
+</body>
+</html>
