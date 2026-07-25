@@ -103,6 +103,19 @@ export async function onRequestGet({ request, env }) {
       else if (/\.(dmg|exe|AppImage|zip)$/.test(p)) b.artifacts += n;
       else if (p.includes("SHA256SUMS")) b.proofs += n;
     }
+
+    // Machines, counted properly. Every other figure on this page divides request volume by a polling
+    // cadence, which yields an AVERAGE of how many are awake — a machine that's asleep contributes nothing.
+    // An installer is different: each machine fetches it exactly once when it takes a release, so counting
+    // versioned artifact fetches counts computers, with no cadence assumption and nothing inflated by restarts.
+    const perVersion = {};
+    for (const row of z.dl) {
+      const m = /^\/notzero-(\d+\.\d+\.\d+)-(mac|win|linux)/.exec(row.dimensions.clientRequestPath);
+      if (!m || row.dimensions.clientRequestPath.endsWith(".blockmap")) continue; // blockmaps are extra fetches by the same machine
+      const v = (perVersion[m[1]] ||= { version: m[1], mac: 0, win: 0, linux: 0, total: 0 });
+      v[m[2]] += row.count; v.total += row.count;
+    }
+    const machines = Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version));
     for (const row of z.sites) {
       const b = touch(hourKey(row.dimensions.datetimeHour));
       const isDemo = row.dimensions.clientRequestHTTPHost === DEMO_HOST;
@@ -118,7 +131,13 @@ export async function onRequestGet({ request, env }) {
 
     const sum = (k) => rows.reduce((n, b) => n + b[k], 0);
     out.rows = rows;
+    out.machines = machines;
     out.totals = {
+      // A FLOOR on the fleet, not a total: the busiest single release in the window. Summing across releases
+      // would count one machine several times; taking only the newest would read as a collapse in the minutes
+      // after a cut, before everyone has updated. A machine that stayed off through every release in the
+      // window is invisible here — which is why this is "at least", and why it can only ever be an undercount.
+      machinesSeen: machines.reduce((n, v) => Math.max(n, v.total), 0),
       requests: sum("changelog") + sum("proofs") + sum("artifacts") + sum("mac") + sum("win") + sum("linux"),
       polling: sum("changelog") + sum("proofs"),
       artifacts: sum("artifacts"),
@@ -135,6 +154,13 @@ export async function onRequestGet({ request, env }) {
   }
 
   return json(out);
+}
+
+// newest-first semantic version compare
+function cmpVer(a, b) {
+  const A = a.split(".").map(Number), B = b.split(".").map(Number);
+  for (let i = 0; i < 3; i++) if ((A[i] || 0) !== (B[i] || 0)) return (A[i] || 0) - (B[i] || 0);
+  return 0;
 }
 
 function median(xs) {

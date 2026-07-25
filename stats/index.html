@@ -110,6 +110,18 @@
   <section class="tiles" id="tiles"></section>
 
   <section class="panel">
+    <h2>Machines, by release</h2>
+    <p class="sub">Each machine fetches the installer once when it takes a release, so these are counts of computers — no polling cadence assumed, nothing inflated by restarts.</p>
+    <div class="plot" id="p-machines"></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--mac)"></i>macOS</span>
+      <span><i class="swatch" style="background:var(--win)"></i>Windows</span>
+      <span><i class="swatch" style="background:var(--linux)"></i>Linux</span>
+    </div>
+    <p class="note" id="mach-note"></p>
+  </section>
+
+  <section class="panel">
     <h2>Installs running, by hour</h2>
     <p class="sub">Each running app fetches <code>CHANGELOG.md</code> every 30 minutes, so hourly requests ÷ 2 is a headcount.</p>
     <div class="plot" id="p-installs"></div>
@@ -270,6 +282,44 @@ function drawBars(id, rows, pick, opts) {
   host.appendChild(svg);
 }
 
+// stacked horizontal bars: one row per release, segmented by platform
+function drawMachines(machines) {
+  const host = clear("p-machines");
+  if (!machines.length) { host.innerHTML = '<p class="sub">No installer fetches in this window.</p>'; return; }
+  const rows = machines.slice(0, 6);
+  const W = 980, rowH = 44, T = 6, L = 74, R = 132;
+  const Hh = T + rows.length * rowH + 8;
+  const max = Math.max(...rows.map((r) => r.total), 1);
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Machines that took each release, split by platform" });
+  const tip = tooltip(host);
+  const parts = [["mac", "var(--mac)", "macOS"], ["win", "var(--win)", "Windows"], ["linux", "var(--linux)", "Linux"]];
+  rows.forEach((r, i) => {
+    const y = T + i * rowH + 8, bh = 22;
+    const lb = el("text", { x: L - 12, y: y + bh / 2 + 4, class: "axis", "text-anchor": "end", fill: "var(--ink)", "font-size": "12.5" });
+    lb.textContent = r.version; svg.appendChild(lb);
+    let x = L;
+    for (const [k, c, label] of parts) {
+      if (!r[k]) continue;
+      const w = ((W - L - R) * r[k]) / max;
+      // 2px surface gap between segments so adjacent fills stay separable without relying on hue
+      const seg = el("rect", { x, y, width: Math.max(w - 2, 2), height: bh, rx: 3, fill: c });
+      seg.style.cursor = "crosshair";
+      const cx = x + w / 2;
+      seg.addEventListener("pointerenter", () => {
+        const bb = svg.getBoundingClientRect();
+        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[k]} machine${r[k] === 1 ? "" : "s"}`, (cx / W) * bb.width, (y / Hh) * bb.height);
+      });
+      seg.addEventListener("pointerleave", () => tip.hide());
+      svg.appendChild(seg);
+      x += w;
+    }
+    const vl = el("text", { x: x + 10, y: y + bh / 2 + 4, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
+    vl.textContent = `${r.total} machine${r.total === 1 ? "" : "s"}`;
+    svg.appendChild(vl);
+  });
+  host.appendChild(svg);
+}
+
 function drawPlatform(feed) {
   const host = clear("p-platform");
   const rows = [
@@ -335,9 +385,9 @@ function tiles(d) {
   const t = d.totals, dl = d.downloads;
   const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
   $("tiles").innerHTML = `
-    <div class="tile lead"><span class="k">Downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time, landing-page button. Direct CDN links aren't counted.</span></div>
-    <div class="tile lead"><span class="k">Running installs</span><span class="v">~${t.installsSteady}<span class="unit"> steady</span></span><span class="n">Median hour. Release hours read higher because updated machines restart.</span></div>
-    <div class="tile"><span class="k">Site visits / ${t.hoursLabel}</span><span class="v">${t.siteVisits}</span><span class="n">Sessions on getnotzero.com.</span></div>
+    <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.machinesSeen || "—"}<span class="unit"> at least</span></span><span class="n">Counted from installer fetches — one per machine per release. Real computers, not an average.</span></div>
+    <div class="tile lead"><span class="k">Downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time, landing-page button. Misses direct CDN links; a download isn't an install.</span></div>
+    <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">Median hour. Lower than the machine count because some are asleep.</span></div>
     <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;
 }
 
@@ -368,6 +418,12 @@ function render(d) {
   if (!rows.length) throw new Error("Cloudflare returned no traffic for this window.");
 
   tiles(d);
+  const machines = d.machines || [];
+  drawMachines(machines);
+  const newest = machines[0];
+  $("mach-note").innerHTML = machines.length
+    ? `<b>At least ${t.machinesSeen} machines</b> are running notzero — the busiest single release here, since summing across releases would count one computer several times.${newest ? ` The newest, v${newest.version}, is at ${newest.total} so far and still climbing as machines check in.` : ""} A machine that stayed switched off through every release in this window doesn't appear at all, so this can only ever be an undercount.`
+    : "No installer fetches in this window — nothing updated in the last 24 hours.";
   drawInstalls(rows);
   drawBars("p-artifacts", rows, (r) => r.artifacts, { fill: "var(--accent-mark)", unit: "installer", label: true, marks: true, alt: "Installer downloads by hour" });
   drawBars("p-visitors", rows, (r) => r.siteVisits, { fill: "var(--mac)", unit: "visit", alt: "Visits to getnotzero.com by hour" });
