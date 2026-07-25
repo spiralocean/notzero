@@ -4,7 +4,22 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.62
+## Unreleased — next: 0.1.63
+
+## 0.1.62
+
+**Desktop**
+- **A slow first RPC answer no longer costs you the fast start.** Right after boot, Bitcoin Core reports "done
+  loading" but its first `getblockchaininfo` can still block for tens of seconds behind chainstate work. The
+  app read that one slow answer as "nothing to do" and skipped the assumeutxo snapshot entirely — quietly
+  putting a first-run user into a full sync from genesis, hours of extra wait with nothing on screen saying
+  why. It now retries the probe before giving up.
+- **The startup screen no longer goes quiet during the handoff.** Between "loading the chain" and the sync
+  view there was a stretch — 40 seconds on a cold boot here — where the last message just sat there, looking
+  frozen. That step now says what it's doing.
+- **Dev runs no longer install a login item.** Running the app from source registered a startup item pointing
+  at the bare Electron binary in `node_modules`, so every reboot launched a stray Electron welcome window
+  alongside the real app. Development runs now skip the login item and clear any one an earlier run left.
 
 ## 0.1.61
 

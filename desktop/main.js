@@ -1212,10 +1212,27 @@ async function createWindow() {
 // the tray (mining starts headless; the window is one tray click away) instead of popping a window each boot.
 const bootHidden = process.argv.includes("--hidden");
 function applyAutoStart(cfg) {
+  // NEVER register a login item in dev. process.execPath is then the bare Electron binary in node_modules,
+  // so every `npm start` installed a login item that relaunches Electron (with no app → its default welcome
+  // window) at each boot. Undo any such item while we're here, so a dev run also cleans up after past ones.
+  if (!app.isPackaged) { clearDevAutoStart(); return; }
   const enabled = !cfg || cfg.auto_start !== false; // default ON
   if (process.platform === "linux") { applyAutoStartLinux(enabled); return; } // Electron's setLoginItemSettings is a no-op on Linux — do it ourselves
   try { app.setLoginItemSettings({ openAtLogin: enabled, openAsHidden: true, args: ["--hidden"] }); }
   catch (_) { /* best effort — unsupported platform just won't autostart */ }
+}
+// Remove a login item a previous DEV run left behind. mac/Windows register per-bundle/per-exe, so unregistering
+// here targets node_modules' Electron and can't touch the installed app's own entry. Linux shares one autostart
+// file with the packaged app, so only delete it when its Exec actually points at a dev Electron.
+function clearDevAutoStart() {
+  try {
+    if (process.platform === "linux") {
+      const file = path.join(os.homedir(), ".config", "autostart", "notzero.desktop");
+      if (/node_modules[/\\]electron[/\\]/.test(fs.readFileSync(file, "utf8"))) fs.unlinkSync(file);
+      return;
+    }
+    app.setLoginItemSettings({ openAtLogin: false });
+  } catch (_) { /* no such item / unreadable → nothing to clean up */ }
 }
 // Linux has no login-item API in Electron, so write/remove a freedesktop autostart entry directly. Use $APPIMAGE
 // (the stable AppImage path) — process.execPath inside an AppImage points at a temp FUSE mount that changes each run.

@@ -137,7 +137,22 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
 
   // Load the assumeutxo snapshot if the node is still in IBD and we host one.
   async function maybeLoadSnapshot() {
-    let info; try { info = await rpc("getblockchaininfo"); } catch { return; }
+    // Core answers RPC as soon as init reports "Done loading", but this first getblockchaininfo can still block
+    // for tens of seconds behind cs_main (assumeutxo background validation resuming, mempool reload). Retry
+    // instead of reading one slow answer as "nothing to do": bailing here silently skips the fast start and
+    // drops a first-run user into a full sync from genesis — hours of extra wait, and nothing says why.
+    // It also gives the STARTING → SYNCING handoff a message of its own; without it the UI sat on a stale
+    // "loading the chain (Ns)" line for the whole probe.
+    const TRIES = 4; // × the 30s RPC timeout → we wait ~2 min at worst. Long, but only when the node isn't
+                     // answering at all (nothing to show anyway), and cheap next to the full sync it prevents.
+    let info = null;
+    for (let attempt = 1; attempt <= TRIES && !info; attempt++) {
+      emit(STATES.STARTING, null, attempt === 1
+        ? "Your node is up — checking where the chain stands…"
+        : `Your node is up — checking where the chain stands (attempt ${attempt} of ${TRIES})…`);
+      try { info = await rpc("getblockchaininfo"); } catch (_) { if (attempt < TRIES) await sleep(2000); }
+    }
+    if (!info) return; // alive but not answering — sync() keeps polling, and IBD proceeds without the snapshot
     // Already usable / past the snapshot height → any downloaded utxo-*.dat is dead weight; reclaim it now
     // (also cleans up a leftover from an older build that never deleted it after loading).
     if (info.initialblockdownload === false || info.blocks >= P.ASSUMEUTXO.height) { sweepSnapshotFiles(); return; }
