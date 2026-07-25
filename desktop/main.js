@@ -534,7 +534,13 @@ function initAutoUpdate() {
     setTimeout(() => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) {} }, 6000); // a beat longer so the message is readable before the relaunch
   });
   const check = () => { autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => {}); }; // re-read the pref each check so a toggle takes effect
-  check();
+  // Jitter the FIRST check. The recurring interval needs none — each client's phase comes from its own launch
+  // time — but launches themselves cluster twice over: people boot in the morning, and (the self-inflicted one)
+  // an auto-update restarts every machine that took it within the same couple of hours, leaving the whole fleet
+  // phase-aligned afterwards. Both land as a spike on the feed, and with autoDownload on, a spike of installer
+  // downloads right behind it. A few minutes of spread costs nothing here: this is the background check, and
+  // Help → "Check for Updates…" stays instant.
+  setTimeout(check, Math.floor(Math.random() * 10 * 60 * 1000)); // 0–10 min
   setInterval(check, 2 * 60 * 60 * 1000); // every 2 hours
 }
 // Menu → "Check for Updates…": always show WHAT'S NEW with an Update/Later choice (autoDownload off so nothing
