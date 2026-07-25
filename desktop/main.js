@@ -326,6 +326,40 @@ function fetchDl(name, binary) {
   });
 }
 
+// ---- on-disk cache for CDN files that can no longer change ----
+// The anchor/history refreshers run every 30 minutes and re-downloaded the same proofs every time, forever:
+// ~9 uncached GETs per cycle per install, which was ~97% of everything we ask of the CDN. Most of those
+// answers are settled and will never differ.
+//
+// "Settled" is NOT the same as "published", and the difference matters. A release's SHA256SUMS-<ver> is
+// written once by the anchor job and never rewritten. Its .ots is NOT: it ships as a PENDING proof (a
+// calendar commitment) and upgrade-timestamps.yml rewrites it every 6 hours until the calendars land it in a
+// Bitcoin block. So a proof is only cacheable once it actually carries a Bitcoin attestation — cache it
+// before then and the client would pin the pending version and never see it confirm, which is precisely the
+// transition the 30-minute cadence exists to catch.
+function cdnCachePath(name) {
+  if (!DATA_DIR || /[/\\]/.test(name)) return ""; // pre-init, or a name that could escape the cache dir
+  return path.join(DATA_DIR, "cdn-cache", name);
+}
+// Fetch through the disk cache. `settled(data)` decides whether THIS answer is final and may be stored;
+// anything it rejects is re-fetched next cycle exactly as before.
+async function fetchDlSettled(name, binary, settled) {
+  const cached = cdnCachePath(name);
+  if (cached) {
+    try { const buf = fs.readFileSync(cached); return binary ? buf : buf.toString("utf8"); } catch (_) {} // miss → fall through
+  }
+  const data = await fetchDl(name, binary);
+  if (data && cached) {
+    let ok = false; try { ok = settled(data); } catch (_) { ok = false; }
+    if (ok) try { fs.mkdirSync(path.dirname(cached), { recursive: true }); fs.writeFileSync(cached, binary ? data : Buffer.from(data, "utf8")); } catch (_) {}
+  }
+  return data;
+}
+// A SHA256SUMS-<version> is written once at release and never rewritten.
+const fetchSums = (name) => fetchDlSettled(name, false, (d) => d.length > 0);
+// A proof is final only once it carries a Bitcoin attestation (see above).
+const fetchProof = (name) => fetchDlSettled(name, true, (d) => parseProof(d).bitcoin.length > 0);
+
 // Verify a downloaded update against the anchored SHA256SUMS + the local node. Never throws. Returns { level, ... }:
 //   onchain    hash matches AND the checksum file is confirmed in a block the node validated  → { height, blockTime }
 //   pending    hash matches; the on-chain proof isn't block-confirmed yet (recent release)
@@ -357,7 +391,7 @@ async function verifyUpdateArtifact(version, filePath) {
 async function refreshCurrentVersionAnchor() {
   const version = app.getVersion();
   try {
-    const sums = await fetchDl("SHA256SUMS-" + version), ots = await fetchDl("SHA256SUMS-" + version + ".ots", true);
+    const sums = await fetchSums("SHA256SUMS-" + version), ots = await fetchProof("SHA256SUMS-" + version + ".ots");
     if (!sums || !ots) { currentVersionAnchor = { version, level: "unverified" }; return; }
     const rpc = nodeRpcFromConfig();
     if (!rpc) { currentVersionAnchor = { version, level: "unchecked" }; return; }
@@ -377,7 +411,7 @@ async function refreshUpdateHistory() {
     for (const m of md.matchAll(/^##\s+v?(\d+\.\d+\.\d+)\b/gm)) { if (!seen.has(m[1])) { seen.add(m[1]); versions.push(m[1]); } if (versions.length >= 6) break; }
     const rpc = nodeRpcFromConfig(), cur = app.getVersion(), hist = [];
     for (const v of versions) {
-      const ots = await fetchDl("SHA256SUMS-" + v + ".ots", true);
+      const ots = await fetchProof("SHA256SUMS-" + v + ".ots");
       if (!ots) { hist.push({ version: v, level: "none", current: v === cur }); continue; } // released before on-chain anchoring
       let level = "unchecked", height, blockTime, r = null;
       if (rpc) { try { r = await verifyAgainstNode(ots, null, rpc); } catch (_) {} }

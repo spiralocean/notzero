@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.63
 
+**Desktop**
+- **The app stops re-downloading proofs that can't change.** The dashboard's "verified releases" list and the
+  running version's on-chain badge refresh every 30 minutes, and each refresh re-fetched every release's
+  checksum file and timestamp proof from scratch — about 9 requests per cycle, forever, for answers that were
+  settled. Confirmed proofs are now kept on disk and read from there. A proof is only treated as settled once
+  it actually carries a Bitcoin attestation: a freshly published one is a pending calendar commitment that
+  gets rewritten when it lands in a block, so caching it any earlier would pin "pending" permanently and hide
+  the confirmation the refresh exists to catch.
+
 **Build**
 - CI actions moved to their current majors (`checkout` v4→v7, `setup-node` v4→v7, `setup-python` v5→v7,
   `github-script` v7→v9). Every release run was warning that these still target Node 20 and were being
