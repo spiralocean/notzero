@@ -6,6 +6,18 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.66
 
+**Desktop**
+- **Setup now tells you how much it downloads.** It said the first sync "downloads and checks part of the
+  blockchain" — which described what your node *keeps* (about 20 GB), not what it *transfers*. It actually
+  pulls the whole chain, around 750 GB, checking every block since 2009 for itself before discarding what it
+  doesn't need to store. That's a real cost to anyone on a metered or capped connection and it was only
+  discoverable after the fact. Setup now states it up front, alongside why it's the price of your node
+  verifying Bitcoin rather than trusting someone's summary of it, and explains that setup runs in two parts —
+  mining starts within minutes, and the history check continues in the background for hours afterwards.
+- **The sync panel explains the busy machine again.** The line saying the background check uses extra CPU and
+  memory, and that your computer settles down when it finishes, was lost when the 0.1.65 layout fix compacted
+  that strip — leaving the busiest stretch of the install with nothing explaining it.
+
 ## 0.1.65
 
 **Dashboard**
