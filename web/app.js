@@ -3636,7 +3636,20 @@ function drawNetwork(r) {
   { const ne = networkExplainer(model.diffAdjust); if (ne) { text(ne, r.x + r.w / 2, y, { size: 10.5, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" }); y += 17; } }
   // #9: what this miner actually uses — to show it's a lottery ticket, not a power-hungry rig
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
-  if (mp) { const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : ""; text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM${disk} · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19; }
+  // Two lines, because they answer two different questions and one was quietly missing. The miner line makes
+  // the "is this a mining rig?" point. The node line answers "why is my computer busy?" — bitcoind is the
+  // process that actually holds gigabytes and spins fans, and reporting only the miner (~24 MB) understated
+  // what notzero costs a machine by two orders of magnitude.
+  if (mp) {
+    const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : "";
+    text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19;
+    if (mp.node) {
+      const bv = backgroundVerify();
+      const why = bv ? " — higher while it verifies history" : model.node.initialblockdownload ? " — higher while it syncs" : "";
+      const gb = mp.node.mem_mb >= 1024 ? `${(mp.node.mem_mb / 1024).toFixed(1)} GB` : `${Math.round(mp.node.mem_mb)} MB`;
+      text(`⛁ your node uses ~${mp.node.cpu}% CPU · ${gb} RAM${disk}${why}`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 19;
+    }
+  }
   // which Bitcoin Core is actually running — the node's own subversion via node.json, not the version we pin,
   // so it's right whether the app manages the node or you brought your own (in which case we can't know it).
   // Same source as the line in Settings. Its own row rather than tacked onto the miner line above, which is
@@ -3857,7 +3870,10 @@ function drawMinerStatus() {
   // the dot gently pulses while green so "live" reads as alive (frozen under reduced-motion)
   const pulse = (dot === GREEN && !reduceMotion) ? 0.55 + 0.35 * (0.5 + 0.5 * Math.sin(clock * 2.2)) : 0.9;
   ctx.fillStyle = `rgba(${dot},${pulse})`; ctx.beginPath(); ctx.arc(x + 12, y + h / 2, 4, 0, 7); ctx.fill();
-  text(txt, x + padL, y + h / 2, { size: 11, weight: 600, color: `rgba(${dot},0.95)`, baseline: "middle", mono: true });
+  // +0.5: canvas "middle" centres the font's em box, which sits above the optical centre of a lowercase
+  // line. Invisible at dpr 1 (measured: ink band already centred) but a whole device pixel on a Retina panel
+  // at the desktop's 1.1 UI scale, which is where it reads as sitting high.
+  text(txt, x + padL, y + h / 2 + 0.5, { size: 11, weight: 600, color: `rgba(${dot},0.95)`, baseline: "middle", mono: true });
 }
 
 // mempool.space unreachable → a small fixed notice in the top-left (under the motion/text-size row), NOT a

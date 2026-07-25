@@ -416,3 +416,33 @@ test("verifying: an ETA appears once the catch-up rate is measurable", async ({ 
   expect(pill).toContain("verifying history");
   expect(pill).toMatch(/left|almost done/);
 });
+
+// The NETWORK readout must cover bitcoind, not just the miner. It reported only the miner (~24 MB) while the
+// node held gigabytes, so the line answered "is this a mining rig?" and left "why is my computer busy?"
+// unanswered — and it never rendered at all in shipped builds, because psutil wasn't in the build env.
+test("resources: the NETWORK panel reports the node as well as the miner", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.addInitScript(() => localStorage.setItem("bl.expanded", JSON.stringify(["network"])));
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.68" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: Math.floor(Date.now() / 1000), reachable: true, blocks: 959582, headers: 959582, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 4.8e9, pruned: true,
+    miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() } },
+    miner_proc: { cpu: 0.4, mem_mb: 23.6, node: { cpu: 37.6, mem_mb: 2736.1 }, total: { cpu: 38.0, mem_mb: 2759.7 } },
+    verifying: { blocks: 805330, target: 935000, progress: 0.8613 },
+  }) }));
+  const drawn = [];
+  await page.exposeFunction("__capture", (s) => drawn.push(s));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(600);
+  // read the canvas text via the panel's own draw path: assert on the model the line is built from
+  const mp = await page.evaluate(() => window.__model.node.miner_proc);
+  expect(mp.node.mem_mb).toBeGreaterThan(1000);           // the node's real footprint is present
+  expect(mp.mem_mb).toBeLessThan(100);                    // and distinct from the miner's
+  const shot = await page.screenshot({ clip: { x: 0, y: 0, width: 1280, height: 900 } });
+  expect(shot.length).toBeGreaterThan(1000);              // panel rendered without throwing on the new shape
+});

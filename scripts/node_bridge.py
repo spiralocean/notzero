@@ -36,23 +36,75 @@ except Exception:  # noqa: BLE001
     psutil = None
 
 
+_proc_handles = {}  # role -> psutil.Process, kept across polls so cpu_percent can be non-blocking (see below)
+
+
 def miner_proc_stats():
-    """CPU% / RAM the lottery miner daemon is using — to show it's a lottery ticket, not a mining rig.
-    Matches the packaged 'miner'/'miner.exe' binary or a dev 'python lottery_miner.py'. None if not found."""
+    """What this actually costs your machine: the miner AND the node.
+
+    The miner alone was the wrong number. It's a lottery ticket — a couple of percent of one core — while
+    bitcoind is the process that runs your fans up and holds gigabytes, especially during the assumeutxo
+    catch-up. Reporting only the miner answered "is this a mining rig?" while leaving "why is my computer
+    busy?" unanswered, which is the question people actually ask.
+
+    Cost is deliberately near-zero: process handles are cached across polls so cpu_percent(interval=None)
+    measures the gap between polls instead of blocking. The old interval=0.2 stalled the poll for 200ms every
+    cycle; this blocks for nothing. The full process scan only runs when a handle is missing or has died.
+    """
     if psutil is None:
         return None
     me = os.getpid()
-    try:
-        for p in psutil.process_iter(["name", "cmdline"]):
-            if p.pid == me:
-                continue  # never count the bridge itself
-            name = (p.info.get("name") or "").lower()
-            cmd = " ".join(p.info.get("cmdline") or []).lower()
-            if name in ("miner", "miner.exe") or "lottery_miner" in cmd:
-                return {"cpu": round(p.cpu_percent(interval=0.2), 1), "mem_mb": round(p.memory_info().rss / (1024 * 1024), 1)}
-    except Exception:  # noqa: BLE001 — process vanished mid-scan / access denied
+
+    def match(role, p):
+        name = (p.info.get("name") or "").lower()
+        cmd = " ".join(p.info.get("cmdline") or []).lower()
+        if role == "miner":
+            return name in ("miner", "miner.exe") or "lottery_miner" in cmd
+        return name in ("bitcoind", "bitcoind.exe")
+
+    for role in ("miner", "node"):
+        h = _proc_handles.get(role)
+        if h is not None and h.is_running():
+            continue
+        _proc_handles.pop(role, None)
+        try:
+            # A PyInstaller one-file binary is TWO processes: a tiny bootloader parent and the real worker.
+            # Taking the first match found the 0.6 MB parent and reported the miner as using nothing. Pick the
+            # biggest-RSS match instead — that's the process actually doing the work.
+            best, best_rss = None, -1
+            for p in psutil.process_iter(["name", "cmdline"]):
+                if p.pid == me:
+                    continue  # never count the bridge itself
+                if not match(role, p):
+                    continue
+                try:
+                    rss = p.memory_info().rss
+                except Exception:  # noqa: BLE001
+                    continue
+                if rss > best_rss:
+                    best, best_rss = p, rss
+            if best is not None:
+                best.cpu_percent(interval=None)  # prime the counter; the NEXT read is a real average
+                _proc_handles[role] = best
+        except Exception:  # noqa: BLE001 — process vanished mid-scan / access denied
+            pass
+
+    out = {}
+    for role, h in list(_proc_handles.items()):
+        try:
+            out[role] = {"cpu": round(h.cpu_percent(interval=None), 1), "mem_mb": round(h.memory_info().rss / (1024 * 1024), 1)}
+        except Exception:  # noqa: BLE001 — died between the check and the read
+            _proc_handles.pop(role, None)
+    if not out:
         return None
-    return None
+    # `cpu`/`mem_mb` at the top level stay the MINER's, so an older dashboard build keeps reading the field it
+    # expects; `node` and `total` are additive.
+    m, n = out.get("miner"), out.get("node")
+    res = dict(m or {"cpu": 0.0, "mem_mb": 0.0})
+    if n:
+        res["node"] = n
+        res["total"] = {"cpu": round((m or {}).get("cpu", 0) + n["cpu"], 1), "mem_mb": round((m or {}).get("mem_mb", 0) + n["mem_mb"], 1)}
+    return res
 sys.path.insert(0, str(REPO))  # import the miner's real bech32 validator (single source of truth)
 try:
     from lottery_miner import validate_payout_address as _validate_payout

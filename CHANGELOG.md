@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.68
 
+**Dashboard**
+- **The resource readout now covers your node, and actually appears.** The NETWORK panel was meant to show what
+  notzero costs your machine, but it only ever measured the miner — a couple of percent of one core and about
+  24 MB — while Bitcoin Core, the process that actually holds gigabytes and spins your fans, went unmentioned.
+  It also never appeared at all in any released build: the packaged bridge needs `psutil` to read process
+  stats and it wasn't included, so the line silently drew nothing. Both fixed, and the build now fails rather
+  than shipping the readout dead again. Your node's line says when its usage is temporarily higher because
+  it's still verifying history.
+- **The status pill at the top sits properly centred.** Its text was half a pixel high — invisible on a
+  standard display, a full pixel on a Retina one.
+
 ## 0.1.67
 
 **Desktop**

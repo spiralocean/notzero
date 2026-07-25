@@ -20,6 +20,15 @@ if ! python3 -c "import PyInstaller" 2>/dev/null; then
   echo "PyInstaller not found. Install it with:  python3 -m pip install pyinstaller" >&2
   exit 1
 fi
+# psutil is REQUIRED, same as certifi: node_bridge.py imports it for the CPU/RAM readout and degrades to
+# `miner_proc: null` when it's missing. That degradation is silent — the dashboard line simply never draws —
+# so the feature shipped dead in every build from the day it was written until this check existed. A build
+# that can't produce the data should fail here, not quietly omit it.
+if ! python3 -c "import psutil" 2>/dev/null; then
+  echo "psutil not found. Install it with:  python3 -m pip install psutil" >&2
+  echo "  (without it the packaged bridge reports no CPU/RAM stats and the dashboard readout stays blank)" >&2
+  exit 1
+fi
 echo "PyInstaller $(python3 -c 'import PyInstaller; print(PyInstaller.__version__)')  →  $OUT"
 mkdir -p "$OUT"
 
