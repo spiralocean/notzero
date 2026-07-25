@@ -2902,21 +2902,20 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
   ctx.globalAlpha = 1;
 }
 
-// A quiet strip along the top of the SYNC panel while the node re-verifies pre-snapshot history. Worded as
-// something your node is DOING FOR YOU, not a wait: mining is already running, and this is the step that turns
-// "the snapshot says so" into "my own node checked". Deliberately white and low-contrast — an accent colour or
-// a warning tone here would read as a problem, and it isn't one.
+// The assumeutxo catch-up, in the row UNDER the sync status — the same slot the "your computer may warm up"
+// note uses while syncing, and the two can't both apply (that one needs blocks-behind > 0; this only runs once
+// you're at the tip). The arch below drops to clear it, exactly as it already does for that note. Worded as
+// something your node is DOING FOR YOU rather than a wait, and drawn in white: an accent or warning tone here
+// would read as a problem, and it isn't one — mining is already running.
 function drawBackgroundVerify(r) {
   const bv = backgroundVerify();
   if (!bv) return;
-  const y = r.y + 40, left = r.x + 16, right = r.x + r.w - 16;
-  const left_ = Math.max(0, bv.target - bv.blocks);
-  text("Your node is checking Bitcoin's history for itself", left, y, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.66)", baseline: "middle" });
-  text(`${bv.blocks.toLocaleString()} / ${bv.target.toLocaleString()} blocks · ${left_.toLocaleString()} to go`, right, y, { size: 11.5, weight: 600, color: "rgba(255,255,255,0.42)", align: "right", baseline: "middle" });
-  const bw = right - left, by = y + 13;
+  const left = r.x + 16, right = r.x + r.w - 16, y = r.y + 78;
+  text("Your node is checking Bitcoin's history for itself — you're already mining", left, y, { size: 10.5, weight: 600, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  text(`${bv.blocks.toLocaleString()} / ${bv.target.toLocaleString()} · ${(bv.progress * 100).toFixed(1)}%`, right, y, { size: 10.5, weight: 600, color: "rgba(255,255,255,0.42)", align: "right", baseline: "middle" });
+  const bw = right - left, by = r.y + 90;
   ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(left, by, bw, 5, 2.5); ctx.fill();
-  ctx.fillStyle = "rgba(255,255,255,0.45)"; roundRect(left, by, Math.max(4, bw * bv.progress), 5, 2.5); ctx.fill();
-  text("You're already mining — this runs in the background, and your computer quiets down when it finishes.", left, by + 17, { size: 11, color: "rgba(255,255,255,0.38)", baseline: "middle" });
+  ctx.fillStyle = "rgba(255,255,255,0.42)"; roundRect(left, by, Math.max(4, bw * bv.progress), 5, 2.5); ctx.fill();
 }
 
 function drawSync(r) {
@@ -2924,7 +2923,6 @@ function drawSync(r) {
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
   text("SYNCING THE CHAIN — peers → node → block", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  drawBackgroundVerify(r);
 
   const node = model.node;
   // no REAL node yet (practice/symbolic mode, not set up, or unreachable) — show a call-to-action, not a
@@ -3078,10 +3076,11 @@ function drawSync(r) {
   }
   text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 63, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 78, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
+  else drawBackgroundVerify(r); // same row, mutually exclusive: that note needs blocks-behind; this only runs at the tip
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
-  const archBaseY = r.y + (behind > 0 ? 168 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // while syncing, the "warm up / fan" warning takes the row under the status — drop the arch so the "N peers" label clears it
+  const archBaseY = r.y + (behind > 0 ? 168 : backgroundVerify() ? 176 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // the row under the status is taken while syncing (the "warm up / fan" note) and during the assumeutxo catch-up (its line + bar) — drop the arch so the "N peers" label clears whichever is showing
   ctx.strokeStyle = `rgba(${ACCENT},0.12)`; ctx.lineWidth = 1; ctx.beginPath();
   for (let s = 0; s <= 48; s++) { const th = Math.PI * (s / 48), ax = cx + Rx * Math.cos(th), ay = archBaseY - Ry * Math.sin(th); s === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay); }
   ctx.stroke();
