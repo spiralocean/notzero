@@ -4,7 +4,14 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.65
+## Unreleased — next: 0.1.66
+
+## 0.1.65
+
+**Dashboard**
+- **Fixes the overlapping text in BLOCKCHAIN SYNC.** The "checking Bitcoin's history for itself" line added in
+  0.1.64 was drawn on top of the panel's own sync status and progress bar, so the two printed through each
+  other. It now sits in its own row below them.
 
 ## 0.1.64
 
