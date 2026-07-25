@@ -1,0 +1,5 @@
+# Lets every wrangler command in this directory infer the project, so no --project-name flag is needed
+# (and can't be mistyped). Mirrors site/wrangler.toml.
+name = "notzero-stats"
+pages_build_output_dir = "."
+compatibility_date = "2026-07-01"
