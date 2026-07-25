@@ -4,6 +4,11 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <meta name="robots" content="noindex, nofollow" />
+<!-- This page ships its own light AND dark themes. Declaring that stops Dark Reader from inverting an
+     already-dark page — the double pass was washing the SVG bar fills out to near-invisible. The lock is
+     the documented opt-out; color-scheme tells the browser and any other re-themer the same thing. -->
+<meta name="darkreader-lock" />
+<meta name="color-scheme" content="light dark" />
 <title>notzero — reach</title>
 <style>
   :root {
@@ -242,7 +247,10 @@ function drawBars(id, rows, pick, opts) {
     const v = pick(r), bx = L + (iw * i) / rows.length + 3;
     if (v > 0) {
       const clipped = v > cap;
-      const bar = el("rect", { x: bx, y: y(v), width: bw, height: ih - (y(v) - T), rx: 4, fill: opts.fill });
+      // Floor the height: on a chart where most hours are 0 and the peak sets the scale, a bar of 1 came out
+      // a couple of pixels tall and read as empty. Any non-zero hour has to be visibly non-zero.
+      const h = Math.max(ih - (y(v) - T), 4);
+      const bar = el("rect", { x: bx, y: T + ih - h, width: bw, height: h, rx: 3, fill: opts.fill, stroke: "var(--panel)", "stroke-width": 1 });
       bar.style.cursor = "crosshair";
       bar.addEventListener("pointerenter", () => {
         const bb = svg.getBoundingClientRect();
