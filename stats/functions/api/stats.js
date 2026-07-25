@@ -35,25 +35,25 @@ async function gql(token, query) {
   return j.data;
 }
 
-// Release timestamps for the chart markers. Public repo, so no credentials — and if GitHub is unreachable
-// or rate-limits us the page simply renders without markers rather than failing.
+// Release timestamps for the chart markers, taken from when the release workflow RAN — not from the tagged
+// commit's date. Those differ by however long the commit sat before it was tagged: v0.1.61 was committed
+// 16:30Z and released 22:20Z, so commit dates would have parked the marker six hours off the traffic it is
+// meant to explain. One request, public repo, no credentials; if GitHub is unreachable or rate-limits us the
+// page renders without markers rather than failing.
 async function releases(hours) {
   try {
-    const r = await fetch("https://api.github.com/repos/spiralocean/notzero/tags?per_page=12", {
+    const r = await fetch("https://api.github.com/repos/spiralocean/notzero/actions/workflows/release.yml/runs?event=push&per_page=10", {
       headers: { "user-agent": "notzero-stats", accept: "application/vnd.github+json" },
     });
     if (!r.ok) return {};
-    const tags = await r.json();
+    const runs = (await r.json()).workflow_runs || [];
     const cutoff = Date.now() - hours * 3600e3;
     const out = {};
-    // tags carry no date, so ask each tag's commit for its committer date (bounded: newest 6)
-    for (const t of tags.slice(0, 6)) {
-      const c = await fetch(t.commit.url, { headers: { "user-agent": "notzero-stats", accept: "application/vnd.github+json" } });
-      if (!c.ok) continue;
-      const cj = await c.json();
-      const when = Date.parse(cj.commit?.committer?.date || "");
+    for (const run of runs) {
+      if (!/^v\d/.test(run.head_branch || "")) continue;      // tag-triggered runs only
+      const when = Date.parse(run.created_at || "");
       if (!when || when < cutoff) continue;
-      out[new Date(when).toISOString().slice(11, 13)] = t.name.replace(/^v/, "");
+      out[new Date(when).toISOString().slice(11, 13)] = run.head_branch.replace(/^v/, "");
     }
     return out;
   } catch (_) { return {}; }
