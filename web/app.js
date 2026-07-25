@@ -2916,6 +2916,10 @@ function drawBackgroundVerify(r) {
   const bw = right - left, by = r.y + 90;
   ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(left, by, bw, 5, 2.5); ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.42)"; roundRect(left, by, Math.max(4, bw * bv.progress), 5, 2.5); ctx.fill();
+  // The whole point of saying anything here. The "your computer may warm up" note one row up is gated on
+  // blocks-behind, so it stops the moment you reach the tip — which is when THIS starts and runs for hours.
+  // Without this line the busiest stretch of the install is the one with no explanation attached to it.
+  text("Uses extra CPU and memory while it runs — your computer quiets down to near-idle when it finishes.", left, r.y + 104, { size: 9.5, color: "rgba(255,180,80,0.55)", baseline: "middle" });
 }
 
 function drawSync(r) {
@@ -3080,7 +3084,7 @@ function drawSync(r) {
 
   // ---- peer arch (dome) ----
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
-  const archBaseY = r.y + (behind > 0 ? 168 : backgroundVerify() ? 176 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // the row under the status is taken while syncing (the "warm up / fan" note) and during the assumeutxo catch-up (its line + bar) — drop the arch so the "N peers" label clears whichever is showing
+  const archBaseY = r.y + (behind > 0 ? 168 : backgroundVerify() ? 190 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // the row under the status is taken while syncing (the "warm up / fan" note) and during the assumeutxo catch-up (line + bar + the CPU/memory note) — drop the arch so the "N peers" label clears whichever is showing; the catch-up needs the most room, hence 190
   ctx.strokeStyle = `rgba(${ACCENT},0.12)`; ctx.lineWidth = 1; ctx.beginPath();
   for (let s = 0; s <= 48; s++) { const th = Math.PI * (s / 48), ax = cx + Rx * Math.cos(th), ay = archBaseY - Ry * Math.sin(th); s === 0 ? ctx.moveTo(ax, ay) : ctx.lineTo(ax, ay); }
   ctx.stroke();
