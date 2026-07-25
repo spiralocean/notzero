@@ -4,9 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.63
+## Unreleased — next: 0.1.64
+
+## 0.1.63
 
 **Desktop**
+- **Update checks no longer all arrive at once.** The first check on launch now waits a random 0–10 minutes.
+  Launches cluster — people boot in the morning, and an update restarts every machine that took it inside the
+  same couple of hours, leaving the whole fleet checking in lockstep afterwards. That produced a spike of feed
+  checks and, right behind it, a spike of installer downloads. The recurring two-hour check was already spread
+  out and is unchanged, and Help → "Check for Updates…" is still instant.
 - **The app stops re-downloading proofs that can't change.** The dashboard's "verified releases" list and the
   running version's on-chain badge refresh every 30 minutes, and each refresh re-fetched every release's
   checksum file and timestamp proof from scratch — about 9 requests per cycle, forever, for answers that were
