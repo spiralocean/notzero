@@ -199,6 +199,7 @@ def consensus_alert(w):
 
 
 _snapshot_height_cache = {}  # snapshot blockhash -> base height (asked once; it never changes)
+UNKNOWN = "unknown"  # node.json `verifying`: object = running, null = positively finished, "unknown" = couldn't read
 
 
 def background_validation(url, user, pw):
@@ -216,16 +217,22 @@ def background_validation(url, user, pw):
 
     getchainstates landed in Core 26; on anything older this raises and we simply report nothing.
     """
+    # "Couldn't tell" must NEVER look like "finished". This RPC has a 10s timeout and the node is at its
+    # busiest precisely while the catch-up runs (getblockchaininfo was measured taking ~40s behind cs_main on
+    # this machine), so timeouts here are expected, not exceptional. Returning None on error made a single
+    # hiccup indistinguishable from completion, and the desktop notifier fired "your node has verified Bitcoin
+    # for itself" at 85% — a false claim about verification, in an app whose entire premise is verification.
+    # None now means POSITIVELY done (we read one chainstate); UNKNOWN means ask again later.
     try:
         states = (rpc(url, user, pw, "getchainstates") or {}).get("chainstates") or []
     except Exception:  # noqa: BLE001 — cosmetic; never let it affect reachability
-        return None
+        return UNKNOWN
     if len(states) < 2:
         return None
     bg = next((s for s in states if not s.get("snapshot_blockhash")), None)
     snap = next((s for s in states if s.get("snapshot_blockhash")), None)
     if not bg or not snap:
-        return None
+        return UNKNOWN
     h = snap["snapshot_blockhash"]
     if h not in _snapshot_height_cache:
         try:
@@ -234,7 +241,9 @@ def background_validation(url, user, pw):
             _snapshot_height_cache[h] = 0
     target = _snapshot_height_cache[h]
     blocks = int(bg.get("blocks", 0))
-    if target <= 0 or blocks >= target:
+    if target <= 0:
+        return UNKNOWN  # couldn't resolve the snapshot's base height — not evidence the catch-up finished
+    if blocks >= target:
         return None
     return {"blocks": blocks, "target": target, "progress": round(blocks / target, 4)}
 

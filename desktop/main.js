@@ -572,6 +572,8 @@ let syncNotified = null; // the synced state we last notified about (null = base
 let syncCand = null;     // {synced, since} — a candidate sync state still waiting out the debounce
 let warnNotified = null; // last node warning text we notified about (null = baseline not set yet) — one-shot on change
 let verifyNotified = null; // was the assumeutxo catch-up running at last read? (null = baseline not set yet)
+let verifyHeld = 0;        // consecutive polls reading "finished" since it was last seen running
+const VERIFY_DONE_CONFIRMS = 3; // ~15s at the notifier's 5s tick — cheap insurance on an irreversible claim
 // A node can briefly drop and regain sync; a blip that recovers within a block doesn't threaten "one hash
 // per block", so sync notifications only fire once the new state has HELD for this long (flaps are ignored).
 const SYNC_NOTIFY_DELAY_MS = 5 * 60 * 1000;
@@ -649,11 +651,19 @@ function startNotifier() {
     // it initially assumed. When that lands, the node has independently checked every block — the app's whole
     // premise, delivered. Fires ONCE per transition (verifying → not), persisted so a relaunch can't repeat it,
     // and never at first read: a node that was already done at launch has nothing to announce. ---
-    const verifying = !!(node.verifying && node.verifying.target > 0);
-    if (verifyNotified === null) verifyNotified = verifying;   // baseline — no notify for an already-finished node
-    else if (verifyNotified !== verifying) {
-      const justFinished = verifyNotified && !verifying;
-      verifyNotified = verifying;
+    // `verifying` is an object while running, null once POSITIVELY finished, and "unknown" when the bridge
+    // couldn't read it (its getchainstates has a 10s timeout and the node is busiest during the catch-up).
+    // Treating "unknown" as finished is what fired this notification at 85% on a single timed-out poll, so an
+    // unreadable tick now decides nothing. Even a clean "finished" has to HOLD, because claiming the node has
+    // verified all of Bitcoin when it hasn't is the worst thing this app can say.
+    if (node.verifying === "unknown") { verifyHeld = 0; }
+    else {
+      const verifying = !!(node.verifying && node.verifying.target > 0);
+      if (verifyNotified === null) { verifyNotified = verifying; verifyHeld = 0; } // baseline — no notify for an already-finished node
+      else if (verifying) { verifyNotified = true; verifyHeld = 0; }
+      else if (verifyNotified) verifyHeld++;                    // was running, now reads finished — wait for it to stick
+      const justFinished = verifyNotified && !verifying && verifyHeld >= VERIFY_DONE_CONFIRMS;
+      if (justFinished) verifyNotified = false;
       if (justFinished && cfg.verify_done_notified !== true) {
         try { cfg.verify_done_notified = true; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {}
         if (on && cfg.notify_verify_done !== false) {

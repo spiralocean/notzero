@@ -337,3 +337,28 @@ test("verifying: nothing shown once the catch-up is done", async ({ page }) => {
   expect(summary).not.toContain("verifying");
   expect(summary).toContain("gather"); // back to the normal explainer line
 });
+
+// The bridge reports "unknown" when it couldn't read getchainstates (10s timeout, and the node is busiest
+// exactly while the catch-up runs). That must never render as finished — reading it that way is what fired a
+// "your node has verified Bitcoin for itself" notification at 85% on one timed-out poll.
+test("verifying: an unreadable poll shows nothing and does not read as finished", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.67" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 959559, headers: 959559, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 4.8e9, pruned: true, miner: { mode: "live" },
+    verifying: "unknown",
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.node, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  const summary = await page.evaluate(() => window.__summarySync);
+  const drawn = await page.evaluate(() => window.__drawn);
+  console.log(`   SYNC summary: ${JSON.stringify(summary)}  panels drawn: ${drawn}`);
+  expect(summary).not.toContain("verifying");  // no bogus progress
+  expect(summary).toContain("gather");          // falls back to the normal line
+  expect(drawn).toBeGreaterThan(0);             // and the string value doesn't break rendering
+});

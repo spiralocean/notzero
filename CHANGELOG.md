@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.67
 
+**Desktop**
+- **Fixes a false "your node has verified Bitcoin for itself" notification.** It could fire while the check was
+  still running — reported here at 85%. The app asks the node for catch-up progress on a 10-second timeout, and
+  the node is at its busiest doing exactly that work, so a slow answer is routine; a single timed-out reply was
+  being read as "finished" rather than "ask again". An unreadable answer now decides nothing, and a genuine
+  finish has to hold across several checks before the app says so. Nothing about a node's actual verification
+  changed — only whether the app told the truth about it.
+
 ## 0.1.66
 
 **Desktop**
