@@ -198,6 +198,47 @@ def consensus_alert(w):
     return " · ".join(keep)
 
 
+_snapshot_height_cache = {}  # snapshot blockhash -> base height (asked once; it never changes)
+
+
+def background_validation(url, user, pw):
+    """Progress of the assumeutxo catch-up, or None when there's nothing to catch up.
+
+    A fast-start node loads a UTXO snapshot and begins mining at the snapshot height immediately, then walks
+    the chain from genesis in the background to verify for itself everything it initially assumed. That takes
+    hours, runs the machine busy long after setup says "Ready", and until now the app said nothing about it —
+    so the honest reading from the user's side was "it finished, and my fan is still going".
+
+    Two chainstates means the catch-up is running; one means it's done (or a snapshot was never used). The
+    background chainstate is the one WITHOUT a snapshot_blockhash. Its target is the snapshot's own base
+    height, read from the block header rather than hardcoded, so this stays correct for someone else's node
+    and for any future snapshot height.
+
+    getchainstates landed in Core 26; on anything older this raises and we simply report nothing.
+    """
+    try:
+        states = (rpc(url, user, pw, "getchainstates") or {}).get("chainstates") or []
+    except Exception:  # noqa: BLE001 — cosmetic; never let it affect reachability
+        return None
+    if len(states) < 2:
+        return None
+    bg = next((s for s in states if not s.get("snapshot_blockhash")), None)
+    snap = next((s for s in states if s.get("snapshot_blockhash")), None)
+    if not bg or not snap:
+        return None
+    h = snap["snapshot_blockhash"]
+    if h not in _snapshot_height_cache:
+        try:
+            _snapshot_height_cache[h] = int((rpc(url, user, pw, "getblockheader", [h]) or {}).get("height", 0))
+        except Exception:  # noqa: BLE001
+            _snapshot_height_cache[h] = 0
+    target = _snapshot_height_cache[h]
+    blocks = int(bg.get("blocks", 0))
+    if target <= 0 or blocks >= target:
+        return None
+    return {"blocks": blocks, "target": target, "progress": round(blocks / target, 4)}
+
+
 def core_version(subversion):
     """'/Satoshi:31.1.0/' -> '31.1.0'.
 
@@ -276,6 +317,9 @@ def build(url, user, pw, cookie=""):
             netinfo = rpc(url, user, pw, "getnetworkinfo")
         except Exception:  # noqa: BLE001 — cosmetic; never let it affect reachability
             netinfo = {}
+    # Deliberately outside the IBD guard: the assumeutxo catch-up runs while the node reports NOT in IBD (the
+    # snapshot chainstate is already at the tip and mining), which is exactly the window we need to explain.
+    verifying = background_validation(url, user, pw) if node_ok else None
     tip_block = None
     if node_ok and not chain.get("initialblockdownload", False):  # mempool isn't shown during sync — skip its 2 RPC calls so a busy node doesn't stall the poll
         # the tip block's full header, so the dashboard can render NEXT BLOCK / VERIFY / the ticket straight from
@@ -388,6 +432,8 @@ def build(url, user, pw, cookie=""):
         "bestblockhash": chain.get("bestblockhash", ""),  # tip block hash — the ambient view tints each coin by the real block hash
         "verificationprogress": chain.get("verificationprogress", 0.0),
         "initialblockdownload": chain.get("initialblockdownload", False),
+        # {blocks, target, progress} while the node re-verifies pre-snapshot history for itself; null when done
+        "verifying": verifying,
         "consensus_alert": consensus_alert(chain.get("warnings")),  # non-empty ONLY when an unknown rule has locked in / activated (not mere signalling) → update likely needed
         "size_on_disk": chain.get("size_on_disk", 0),
         "pruned": chain.get("pruned", False),

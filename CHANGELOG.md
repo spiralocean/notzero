@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.64
 
+**Desktop**
+- **The app now tells you when your node is checking Bitcoin's history for itself.** A fast-start node loads a
+  verified snapshot of the ledger and begins mining straight away — then spends the next several hours walking
+  the chain from 2009 to confirm, for itself, everything it initially took on the snapshot's word. That happens
+  *after* setup says "Ready", while you're already mining, and the app said nothing about it: your computer ran
+  busy all day with no explanation, which reads as something being wrong. The BLOCKCHAIN SYNC panel now shows
+  the progress and says plainly that mining isn't waiting on it and the machine settles down when it's done.
+  A one-time notification marks the finish, because that's the moment the node stops assuming anything.
+
 ## 0.1.63
 
 **Desktop**

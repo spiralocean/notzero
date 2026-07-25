@@ -290,3 +290,50 @@ test("node tip: no node (demo) still fetches the tip from mempool.space", async 
   console.log(`   tip-hash fetches with no node: ${tipHashHits} (should be >= 1)`);
   expect(tipHashHits).toBeGreaterThanOrEqual(1);
 });
+
+// ---- assumeutxo catch-up ("your node is checking Bitcoin's history for itself") ----
+// A fast-start node mines from a UTXO snapshot immediately, then spends hours re-verifying pre-snapshot
+// history from genesis. That ran the machine busy long after setup said "Ready", with nothing in the app
+// saying why. The bridge now reports it and the SYNC panel says so — without implying mining is blocked.
+test("verifying: the catch-up shows in the SYNC summary while it runs", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.63" }) }));
+  // synced and mining (NOT in IBD) — which is exactly when the catch-up runs
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 959559, headers: 959559, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 9.8e9, pruned: true, miner: { mode: "live" },
+    verifying: { blocks: 735189, target: 935000, progress: 0.7863 },
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.node, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  const summary = await page.evaluate(() => window.__summarySync);
+  console.log(`   SYNC summary: ${JSON.stringify(summary)}`);
+  expect(summary).toContain("verifying history");
+  expect(summary).toContain("79%"); // 0.7863 → 79%
+});
+
+// Once the node finishes, the line must disappear completely — a permanent "verifying" strip on a node that
+// is fully caught up would be worse than never having shown it.
+test("verifying: nothing shown once the catch-up is done", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.63" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 959559, headers: 959559, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 9.8e9, pruned: true, miner: { mode: "live" },
+    verifying: null, // the bridge reports null the moment the two chainstates merge back into one
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.node, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  const summary = await page.evaluate(() => window.__summarySync);
+  console.log(`   SYNC summary: ${JSON.stringify(summary)}`);
+  expect(summary).not.toContain("verifying");
+  expect(summary).toContain("gather"); // back to the normal explainer line
+});

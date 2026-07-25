@@ -868,6 +868,13 @@ function syncInfo() {
   return { tip, head, behind, prog, stale, syncing: behind > 0 || !!n.initialblockdownload || stale };
 }
 function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
+// The assumeutxo catch-up: your node re-verifying, from genesis, the history it initially took on the
+// snapshot's word. Runs for hours AFTER setup says "Ready" and while you're already mining, which is why it
+// gets said out loud — a busy machine with no explanation reads as something being wrong. Null when done.
+function backgroundVerify() {
+  const v = model.node && model.node.verifying;
+  return v && v.target > 0 && v.blocks < v.target ? v : null;
+}
 // `everSynced` (persisted): has this machine ever caught up to the tip? Gates the focused sync view.
 let everSynced = false;
 try { everSynced = localStorage.getItem("bl.everSynced") === "1"; } catch {}
@@ -984,7 +991,7 @@ function summary(s) {
   if (s === "ch") { return "e picks f or g, per bit"; }
   if (s === "maj") { return "majority vote of a, b, c"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
-  if (s === "sync") { return "gather → verify → link → prune"; }
+  if (s === "sync") { const bv = backgroundVerify(); return bv ? `verifying history · ${(bv.progress * 100).toFixed(0)}%` : "gather → verify → link → prune"; }
   if (s === "updates") { return "download → hash → Bitcoin block → your node ✓"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
   return "";
@@ -1000,11 +1007,15 @@ function drawHeader(s, r, isExpanded, hovered) {
     // collapsed sync panel: show a live progress bar in the header, so progress stays visible even with
     // the (heavier) animation closed — handy on weak machines.
     const si = s === "sync" ? syncInfo() : null;
-    if (si && si.syncing) {
+    const bv = s === "sync" && !(si && si.syncing) ? backgroundVerify() : null;
+    if ((si && si.syncing) || bv) {
+      // The catch-up bar is deliberately white, not accent: you are already mining, and this must read as
+      // secondary background work rather than something blocking you.
+      const prog = bv ? bv.progress : si.prog, col = bv ? "255,255,255" : ACCENT, alpha = bv ? 0.45 : 0.85;
       const bw2 = 110, bx = r.x + r.w - 14 - bw2, byc = r.y + r.h / 2;
-      text(`${(si.prog * 100).toFixed(1)}%`, bx - 8, byc, { size: 12, weight: 600, color: "rgba(255,255,255,0.7)", align: "right", baseline: "middle" });
+      text(`${(prog * 100).toFixed(1)}%`, bx - 8, byc, { size: 12, weight: 600, color: "rgba(255,255,255,0.7)", align: "right", baseline: "middle" });
       ctx.fillStyle = "rgba(255,255,255,0.12)"; roundRect(bx, byc - 3, bw2, 6, 3); ctx.fill();
-      ctx.fillStyle = `rgba(${ACCENT},0.85)`; roundRect(bx, byc - 3, Math.max(4, bw2 * si.prog), 6, 3); ctx.fill();
+      ctx.fillStyle = `rgba(${col},${alpha})`; roundRect(bx, byc - 3, Math.max(4, bw2 * prog), 6, 3); ctx.fill();
     } else {
       text(summary(s), r.x + r.w - 14, r.y + r.h / 2, { size: 14, color: "rgba(255,255,255,0.62)", align: "right", baseline: "middle" });
     }
@@ -2891,11 +2902,29 @@ function drawConveyorBlock(x, cy, bw, bh, height, info, fill, fade, highlight) {
   ctx.globalAlpha = 1;
 }
 
+// A quiet strip along the top of the SYNC panel while the node re-verifies pre-snapshot history. Worded as
+// something your node is DOING FOR YOU, not a wait: mining is already running, and this is the step that turns
+// "the snapshot says so" into "my own node checked". Deliberately white and low-contrast — an accent colour or
+// a warning tone here would read as a problem, and it isn't one.
+function drawBackgroundVerify(r) {
+  const bv = backgroundVerify();
+  if (!bv) return;
+  const y = r.y + 40, left = r.x + 16, right = r.x + r.w - 16;
+  const left_ = Math.max(0, bv.target - bv.blocks);
+  text("Your node is checking Bitcoin's history for itself", left, y, { size: 12.5, weight: 700, color: "rgba(255,255,255,0.66)", baseline: "middle" });
+  text(`${bv.blocks.toLocaleString()} / ${bv.target.toLocaleString()} blocks · ${left_.toLocaleString()} to go`, right, y, { size: 11.5, weight: 600, color: "rgba(255,255,255,0.42)", align: "right", baseline: "middle" });
+  const bw = right - left, by = y + 13;
+  ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(left, by, bw, 5, 2.5); ctx.fill();
+  ctx.fillStyle = "rgba(255,255,255,0.45)"; roundRect(left, by, Math.max(4, bw * bv.progress), 5, 2.5); ctx.fill();
+  text("You're already mining — this runs in the background, and your computer quiets down when it finishes.", left, by + 17, { size: 11, color: "rgba(255,255,255,0.38)", baseline: "middle" });
+}
+
 function drawSync(r) {
   if (!reduceMotion) syncState.t += 1 / 60; // reduced-motion: freeze the sync particle flow / pulse
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
   ctx.strokeStyle = `rgba(${ACCENT},0.18)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
   text("SYNCING THE CHAIN — peers → node → block", r.x + 16, r.y + 16, { size: 12, weight: 700, color: "rgba(255,255,255,0.55)", baseline: "middle" });
+  drawBackgroundVerify(r);
 
   const node = model.node;
   // no REAL node yet (practice/symbolic mode, not set up, or unreachable) — show a call-to-action, not a
@@ -3998,6 +4027,7 @@ function render(ts) {
     if (f.content) try { drawContent(f.section, f.content); } catch (err) { text("— this panel hit an error —", f.content.x + f.content.w / 2, f.content.y + f.content.h / 2, { size: 13, color: "rgba(255,140,90,0.8)", align: "center", baseline: "middle" }); }
   }
   window.__drawn = headerHits.length; // how many panels this frame actually PAINTED (not just laid out) — the e2e suite asserts an outage never zeroes this
+  window.__summarySync = summary("sync"); // test hook: computed every frame, NOT inside the panel paint — the SYNC panel only repaints while on screen, so hooking it there went stale the moment it scrolled out of view
   ctx.restore();
 
   // scrollbar indicator (fixed)

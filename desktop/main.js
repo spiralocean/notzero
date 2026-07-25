@@ -571,6 +571,7 @@ let notifyState = null;  // {winHeight, bestBits} baseline for one-shot events �
 let syncNotified = null; // the synced state we last notified about (null = baseline not set yet)
 let syncCand = null;     // {synced, since} — a candidate sync state still waiting out the debounce
 let warnNotified = null; // last node warning text we notified about (null = baseline not set yet) — one-shot on change
+let verifyNotified = null; // was the assumeutxo catch-up running at last read? (null = baseline not set yet)
 // A node can briefly drop and regain sync; a blip that recovers within a block doesn't threaten "one hash
 // per block", so sync notifications only fire once the new state has HELD for this long (flaps are ignored).
 const SYNC_NOTIFY_DELAY_MS = 5 * 60 * 1000;
@@ -640,6 +641,24 @@ function startNotifier() {
       warnNotified = warn;
       if (warn && on && cfg.notify_consensus_change !== false) {
         notify("⚠️ Your node flagged a network change", "Bitcoin Core reports rules it doesn't recognize — an app update may be needed. Open notzero to check.");
+      }
+    }
+
+    // --- assumeutxo catch-up finished: the one moment worth interrupting someone for. A fast-start node mines
+    // from a UTXO snapshot immediately and spends the next several hours re-verifying, from genesis, the history
+    // it initially assumed. When that lands, the node has independently checked every block — the app's whole
+    // premise, delivered. Fires ONCE per transition (verifying → not), persisted so a relaunch can't repeat it,
+    // and never at first read: a node that was already done at launch has nothing to announce. ---
+    const verifying = !!(node.verifying && node.verifying.target > 0);
+    if (verifyNotified === null) verifyNotified = verifying;   // baseline — no notify for an already-finished node
+    else if (verifyNotified !== verifying) {
+      const justFinished = verifyNotified && !verifying;
+      verifyNotified = verifying;
+      if (justFinished && cfg.verify_done_notified !== true) {
+        try { cfg.verify_done_notified = true; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {}
+        if (on && cfg.notify_verify_done !== false) {
+          notify("Your node has verified Bitcoin for itself", "It finished checking every block from 2009 to today — nothing assumed, nothing taken on trust. Your computer settles down from here.");
+        }
       }
     }
 
