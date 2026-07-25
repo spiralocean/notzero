@@ -28,83 +28,129 @@ for _stream in (sys.stdout, sys.stderr):
 
 REPO = pathlib.Path(__file__).resolve().parent.parent
 
-# Cross-platform process stats for the miner (CPU%/RAM). Bundled in the packaged app; if unavailable,
-# miner_proc just reports null instead of failing. (Replaces the old Unix-only pgrep/ps, absent on Windows.)
-try:
-    import psutil
-except Exception:  # noqa: BLE001
-    psutil = None
+# Process stats (CPU%/RAM) for the miner AND the node, using nothing but the standard library.
+#
+# This used psutil, which broke the mac build: psutil is a C extension shipping single-arch wheels, and the
+# mac engines are built --target-arch universal2 so one app runs on both Intel and Apple Silicon. PyInstaller
+# cannot fuse a single-arch binary into a universal2 one ("is not a fat binary!"). certifi never hit this
+# because it is pure Python. Rather than fuse wheels in CI — a build step that breaks whenever psutil changes
+# its wheel tags — sample with `ps` / PowerShell, which has no architecture to be wrong about.
+#
+# CPU% is derived from the change in CUMULATIVE cpu-seconds between samples, which is what both platforms can
+# report cheaply and uniformly. Sampling is throttled (see RES_MIN_INTERVAL) so the Windows path is not
+# spawning a shell on every poll.
+RES_MIN_INTERVAL = 15.0          # seconds between real samples; polls in between reuse the last value
+_res_cache = {"ts": 0.0, "val": None}
+_res_prev = {}                   # role -> (wall_clock, cumulative_cpu_seconds) from the previous sample
 
 
-_proc_handles = {}  # role -> psutil.Process, kept across polls so cpu_percent can be non-blocking (see below)
+def _cpu_seconds(t):
+    """ps TIME field -> seconds. Handles 'MM:SS.ss', 'HH:MM:SS' and 'D-HH:MM:SS'."""
+    try:
+        days = 0
+        if "-" in t:
+            d, t = t.split("-", 1)
+            days = int(d)
+        parts = [float(x) for x in t.split(":")]
+        while len(parts) < 3:
+            parts.insert(0, 0.0)
+        return days * 86400 + parts[0] * 3600 + parts[1] * 60 + parts[2]
+    except Exception:  # noqa: BLE001
+        return 0.0
+
+
+def _sample_processes():
+    """[(rss_bytes, cpu_seconds, text_to_match)] for every process we might care about. [] on any failure."""
+    try:
+        if sys.platform == "win32":
+            script = ("Get-Process | Where-Object { $_.ProcessName -in 'bitcoind','miner' } | "
+                      "Select-Object ProcessName,WorkingSet64,CPU | ConvertTo-Json -Compress")
+            out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+                                 capture_output=True, text=True, timeout=8,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+            if not out:
+                return []
+            data = json.loads(out)
+            if isinstance(data, dict):
+                data = [data]
+            return [(int(d.get("WorkingSet64") or 0), float(d.get("CPU") or 0.0), (d.get("ProcessName") or "").lower()) for d in data]
+        out = subprocess.run(["ps", "-axo", "rss=,time=,args="], capture_output=True, text=True, timeout=8).stdout
+        rows = []
+        for line in out.splitlines():
+            parts = line.split(None, 2)
+            if len(parts) < 3:
+                continue
+            rss_kb, t, args = parts
+            try:
+                rows.append((int(rss_kb) * 1024, _cpu_seconds(t), args.lower()))
+            except ValueError:
+                continue
+        return rows
+    except Exception:  # noqa: BLE001 — ps/powershell missing, timed out, or unparseable
+        return []
 
 
 def miner_proc_stats():
     """What this actually costs your machine: the miner AND the node.
 
-    The miner alone was the wrong number. It's a lottery ticket — a couple of percent of one core — while
+    The miner alone was the wrong number. It is a lottery ticket — a couple of percent of one core — while
     bitcoind is the process that runs your fans up and holds gigabytes, especially during the assumeutxo
     catch-up. Reporting only the miner answered "is this a mining rig?" while leaving "why is my computer
     busy?" unanswered, which is the question people actually ask.
 
-    Cost is deliberately near-zero: process handles are cached across polls so cpu_percent(interval=None)
-    measures the gap between polls instead of blocking. The old interval=0.2 stalled the poll for 200ms every
-    cycle; this blocks for nothing. The full process scan only runs when a handle is missing or has died.
+    Returns the miner's figures at the top level (so an older dashboard build keeps reading the field it
+    expects) with `node` and `total` added alongside. None when nothing could be sampled.
     """
-    if psutil is None:
+    now = time.time()
+    if _res_cache["val"] is not None and now - _res_cache["ts"] < RES_MIN_INTERVAL:
+        return _res_cache["val"]
+
+    rows = _sample_processes()
+    if not rows:
+        _res_cache.update(ts=now, val=None)
         return None
-    me = os.getpid()
 
-    def match(role, p):
-        name = (p.info.get("name") or "").lower()
-        cmd = " ".join(p.info.get("cmdline") or []).lower()
-        if role == "miner":
-            return name in ("miner", "miner.exe") or "lottery_miner" in cmd
-        return name in ("bitcoind", "bitcoind.exe")
-
-    for role in ("miner", "node"):
-        h = _proc_handles.get(role)
-        if h is not None and h.is_running():
-            continue
-        _proc_handles.pop(role, None)
-        try:
-            # A PyInstaller one-file binary is TWO processes: a tiny bootloader parent and the real worker.
-            # Taking the first match found the 0.6 MB parent and reported the miner as using nothing. Pick the
-            # biggest-RSS match instead — that's the process actually doing the work.
-            best, best_rss = None, -1
-            for p in psutil.process_iter(["name", "cmdline"]):
-                if p.pid == me:
-                    continue  # never count the bridge itself
-                if not match(role, p):
-                    continue
-                try:
-                    rss = p.memory_info().rss
-                except Exception:  # noqa: BLE001
-                    continue
-                if rss > best_rss:
-                    best, best_rss = p, rss
-            if best is not None:
-                best.cpu_percent(interval=None)  # prime the counter; the NEXT read is a real average
-                _proc_handles[role] = best
-        except Exception:  # noqa: BLE001 — process vanished mid-scan / access denied
-            pass
+    def pick(role):
+        # A PyInstaller one-file binary is TWO processes: a tiny bootloader parent and the real worker. Taking
+        # the first match found the 0.6 MB parent and reported the miner as using nothing — take the biggest.
+        best = None
+        for rss, cpu_s, text in rows:
+            if role == "miner":
+                hit = "/engine/miner" in text or text.endswith("miner") or text == "miner" or "lottery_miner" in text
+            else:
+                hit = "bitcoind" in text
+            if hit and (best is None or rss > best[0]):
+                best = (rss, cpu_s)
+        return best
 
     out = {}
-    for role, h in list(_proc_handles.items()):
-        try:
-            out[role] = {"cpu": round(h.cpu_percent(interval=None), 1), "mem_mb": round(h.memory_info().rss / (1024 * 1024), 1)}
-        except Exception:  # noqa: BLE001 — died between the check and the read
-            _proc_handles.pop(role, None)
+    for role in ("miner", "node"):
+        got = pick(role)
+        if not got:
+            _res_prev.pop(role, None)
+            continue
+        rss, cpu_s = got
+        prev = _res_prev.get(role)
+        _res_prev[role] = (now, cpu_s)
+        # First sample after start (or after the process restarted, i.e. cpu-seconds went backwards) has no
+        # baseline to difference against — report 0% rather than a made-up number.
+        pct = 0.0
+        if prev and cpu_s >= prev[1] and now > prev[0]:
+            pct = max(0.0, min(100.0 * (cpu_s - prev[1]) / (now - prev[0]), 100.0 * (os.cpu_count() or 1)))
+        out[role] = {"cpu": round(pct, 1), "mem_mb": round(rss / (1024 * 1024), 1)}
+
     if not out:
+        _res_cache.update(ts=now, val=None)
         return None
-    # `cpu`/`mem_mb` at the top level stay the MINER's, so an older dashboard build keeps reading the field it
-    # expects; `node` and `total` are additive.
     m, n = out.get("miner"), out.get("node")
     res = dict(m or {"cpu": 0.0, "mem_mb": 0.0})
     if n:
         res["node"] = n
         res["total"] = {"cpu": round((m or {}).get("cpu", 0) + n["cpu"], 1), "mem_mb": round((m or {}).get("mem_mb", 0) + n["mem_mb"], 1)}
+    _res_cache.update(ts=now, val=res)
     return res
+
+
 sys.path.insert(0, str(REPO))  # import the miner's real bech32 validator (single source of truth)
 try:
     from lottery_miner import validate_payout_address as _validate_payout
