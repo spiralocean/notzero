@@ -13,6 +13,13 @@ version number and bump `desktop/package.json`.
   being read as "finished" rather than "ask again". An unreadable answer now decides nothing, and a genuine
   finish has to hold across several checks before the app says so. Nothing about a node's actual verification
   changed — only whether the app told the truth about it.
+- **The history check is now visible without opening a panel.** Its progress only ever appeared inside
+  BLOCKCHAIN SYNC, which is collapsed by default — so during the busiest hours of an install the screen said
+  "LIVE solo mining" and nothing else, and there was no way to tell the check was still running short of going
+  to look for it. The status line at the bottom now carries it alongside mining.
+- **It tells you how much longer.** A percentage doesn't answer the question people actually have, which is
+  when their computer stops being busy. Both the status line and the sync panel now show a running estimate
+  ("~6h left"), and show nothing at all until the rate is steady enough to be worth stating.
 
 ## 0.1.66
 

@@ -873,7 +873,26 @@ function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
 // gets said out loud — a busy machine with no explanation reads as something being wrong. Null when done.
 function backgroundVerify() {
   const v = model.node && model.node.verifying;
+  // "unknown" (a string) means the bridge couldn't read the node this poll — falsy here, so we show nothing
+  // rather than inventing progress or implying it finished.
   return v && v.target > 0 && v.blocks < v.target ? v : null;
+}
+// "85%" doesn't answer the question people actually have, which is when their computer stops being busy.
+// Same rolling-rate approach as the sync ETA: sample every ~3s, keep a ~90s window, ignore it until the rate
+// is meaningful. Safe to call more than once per frame — the 3s guard stops double-sampling.
+let verifyHist = [];
+function backgroundVerifyEta(bv) {
+  const now = Date.now();
+  if (!verifyHist.length || now - verifyHist[verifyHist.length - 1].ts > 3000) verifyHist.push({ ts: now, h: bv.blocks });
+  while (verifyHist.length > 2 && now - verifyHist[0].ts > 90000) verifyHist.shift();
+  if (verifyHist.length < 2) return "";
+  const first = verifyHist[0], last = verifyHist[verifyHist.length - 1];
+  const bps = (last.h - first.h) / Math.max(1, (last.ts - first.ts) / 1000);
+  if (bps <= 0.02) return "";                       // stalled or too early to say — better silent than wrong
+  const s = (bv.target - bv.blocks) / bps;
+  return s > 172800 ? `~${(s / 86400).toFixed(1)} days left`
+    : s > 3600 ? `~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left`
+    : s > 90 ? `~${Math.round(s / 60)} min left` : "almost done";
 }
 // `everSynced` (persisted): has this machine ever caught up to the tip? Gates the focused sync view.
 let everSynced = false;
@@ -2912,7 +2931,8 @@ function drawBackgroundVerify(r) {
   if (!bv) return;
   const left = r.x + 16, right = r.x + r.w - 16, y = r.y + 78;
   text("Your node is checking Bitcoin's history for itself — you're already mining", left, y, { size: 10.5, weight: 600, color: "rgba(255,255,255,0.55)", baseline: "middle" });
-  text(`${bv.blocks.toLocaleString()} / ${bv.target.toLocaleString()} · ${(bv.progress * 100).toFixed(1)}%`, right, y, { size: 10.5, weight: 600, color: "rgba(255,255,255,0.42)", align: "right", baseline: "middle" });
+  const eta = backgroundVerifyEta(bv);
+  text(`${bv.blocks.toLocaleString()} / ${bv.target.toLocaleString()} · ${(bv.progress * 100).toFixed(1)}%${eta ? ` · ${eta}` : ""}`, right, y, { size: 10.5, weight: 600, color: "rgba(255,255,255,0.42)", align: "right", baseline: "middle" });
   const bw = right - left, by = r.y + 90;
   ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(left, by, bw, 5, 2.5); ctx.fill();
   ctx.fillStyle = "rgba(255,255,255,0.42)"; roundRect(left, by, Math.max(4, bw * bv.progress), 5, 2.5); ctx.fill();
@@ -4070,6 +4090,11 @@ function render(ts) {
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
+  // Mining IS live, and the node is also still verifying pre-snapshot history. Say both. Every other place
+  // this appears is inside the BLOCKCHAIN SYNC panel, which is collapsed by default — so the busiest hours of
+  // an install had no visible explanation anywhere on screen unless you went looking. Stays green: nothing is
+  // wrong and nothing is blocked; the extra clause is the "why is my machine busy" answer, with a time.
+  else if (backgroundVerify()) { const bv = backgroundVerify(), eta = backgroundVerifyEta(bv); fmsg = `◉ LIVE solo mining · verifying history ${(bv.progress * 100).toFixed(0)}%${eta ? ` · ${eta}` : ""} · ${ver}`; fcol = "rgba(90,220,140,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
   text(fmsg, W - PAD - (HAS_AMBIENT_BTN ? 30 : 0), H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // clear the ambient FAB (bottom-right) so the version isn't hidden behind it
   window.__footerPill = fmsg; // test hook: the right-hand status string

@@ -362,3 +362,57 @@ test("verifying: an unreadable poll shows nothing and does not read as finished"
   expect(summary).toContain("gather");          // falls back to the normal line
   expect(drawn).toBeGreaterThan(0);             // and the string value doesn't break rendering
 });
+
+// The catch-up must be visible WITHOUT expanding anything. Everything about it previously lived inside the
+// BLOCKCHAIN SYNC panel, which is collapsed by default — so the busiest hours of an install had no visible
+// explanation on screen. The always-on footer pill now carries it alongside LIVE mining.
+test("verifying: the footer says so without expanding any panel", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.addInitScript(() => localStorage.removeItem("bl.expanded")); // default panels: SYNC is collapsed
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.67" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: Math.floor(Date.now() / 1000), reachable: true, blocks: 959582, headers: 959582, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 4.8e9, pruned: true,
+    miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() } },
+    verifying: { blocks: 798447, target: 935000, progress: 0.854 },
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__footerPill != null, null, { timeout: 20000 });
+  await page.waitForTimeout(400);
+  const pill = await page.evaluate(() => window.__footerPill);
+  console.log(`   footer pill: ${JSON.stringify(pill)}`);
+  expect(pill).toContain("LIVE solo mining");   // still says mining is running — this never reads as blocked
+  expect(pill).toContain("verifying history");  // ...and that the node is still checking history
+  expect(pill).toContain("85%");
+});
+
+// The ETA must appear once there is a measurable rate, and stay silent before that (better nothing than a
+// wrong number). Serve a node.json whose catch-up height advances on each poll.
+test("verifying: an ETA appears once the catch-up rate is measurable", async ({ page }) => {
+  test.setTimeout(90_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.addInitScript(() => localStorage.removeItem("bl.expanded"));
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.67" }) }));
+  let n = 0;
+  await page.route("**/node.json*", (r) => {
+    const blocks = 798000 + (n++) * 4000; // ~4k blocks per poll → a real, measurable rate
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      ts: Math.floor(Date.now() / 1000), reachable: true, blocks: 959582, headers: 959582, verificationprogress: 1,
+      initialblockdownload: false, size_on_disk: 4.8e9, pruned: true,
+      miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() } },
+      verifying: { blocks, target: 935000, progress: blocks / 935000 },
+    }) });
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__footerPill != null, null, { timeout: 20000 });
+  await page.waitForFunction(() => /left|almost done/.test(window.__footerPill || ""), null, { timeout: 45000 });
+  const pill = await page.evaluate(() => window.__footerPill);
+  console.log(`   footer pill with ETA: ${JSON.stringify(pill)}`);
+  expect(pill).toContain("verifying history");
+  expect(pill).toMatch(/left|almost done/);
+});
