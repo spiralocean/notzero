@@ -20,7 +20,13 @@ LIVE="$HOME/Library/Application Support/bitcoin-lottery-desktop/node.json"   # m
 DEST="$(mktemp -d)/dash"
 
 mkdir -p "$DEST"
-cp -R "$ROOT/web/." "$DEST/"
+# SYMLINK each entry rather than copy it. A copy is a snapshot: the server would keep serving whatever the
+# working tree looked like the moment it started, so an edit made afterwards appears to do nothing no matter
+# how hard you refresh. Symlinks mean a reload always reads the file you just saved.
+for f in "$ROOT/web/"* "$ROOT/web/".*; do
+  b="$(basename "$f")"
+  [ "$b" = "." ] || [ "$b" = ".." ] || [ ! -e "$f" ] || ln -sfn "$f" "$DEST/$b"
+done
 
 if [ -f "$LIVE" ]; then
   ln -sf "$LIVE" "$DEST/node.json"   # symlink, not copy: the page keeps seeing fresh polls
