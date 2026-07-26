@@ -7,6 +7,17 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.69
 
 **Dashboard**
+- **A win no longer disappears when you dismiss the celebration.** Everything about a found block — its height,
+  hash, confirmations, whether it settled or was beaten to the chain — lived only in the animation that plays
+  once. Close it and the sole remaining trace was a marker in the ticket timeline. There is now a YOUR WIN
+  panel that appears the moment you find a block and stays, so you can check on it whenever you like.
+- **It says when the reward becomes spendable.** A block's coinbase can't be spent until 100 blocks are built
+  on top of it — roughly 16 hours — and nothing anywhere said so. The app declared CONFIRMED after 6
+  confirmations while your wallet showed an unspendable balance for most of a day, with no explanation for the
+  contradiction. The celebration and the win panel now both say the reward was paid to your address by the
+  block itself, and count down the confirmations until you can move it.
+
+**Dashboard**
 - **Fixes the squashed graphs and overlapping labels in NETWORK.** The node CPU/RAM line added in 0.1.68 was
   drawn without making the panel any taller, and that panel sizes its charts from whatever space is left over
   — so the new row came straight out of the graphs. The panel now grows to fit it.

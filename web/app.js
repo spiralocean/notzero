@@ -20,8 +20,8 @@ function machineSeed() {
 }
 
 // ---- section expand/collapse (persisted) ----
-const SECTIONS = ["nextBlock", "mempool", "closeness", "tickets", "hashBuild", "merkle", "avalanche", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync", "updates"];
-const SECTION_TITLE = { nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", avalanche: "THE AVALANCHE", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC", updates: "VERIFIED UPDATES" };
+const SECTIONS = ["win", "nextBlock", "mempool", "closeness", "tickets", "hashBuild", "merkle", "avalanche", "verify", "hashInside", "oneRound", "shift", "churn", "fold", "sigma1", "ch", "maj", "bitOps", "network", "broadcast", "sync", "updates"];
+const SECTION_TITLE = { win: "YOUR WIN", nextBlock: "NEXT BLOCK", mempool: "MEMPOOL", closeness: "YOUR CLOSENESS", tickets: "YOUR TICKETS", merkle: "MERKLE TREE", hashBuild: "HASH BUILD", avalanche: "THE AVALANCHE", verify: "VERIFY THIS BLOCK", hashInside: "INSIDE THE HASH", fold: "THE FOLD", bitOps: "BIT OPERATIONS", oneRound: "ONE ROUND", shift: "THE SHIFT", churn: "THE CHURN", sigma1: "ONE STEP · SCRAMBLE (Σ1)", ch: "ONE STEP · CHOOSE (Ch)", maj: "ONE STEP · MAJORITY (Maj)", network: "NETWORK", broadcast: "BROADCAST", sync: "BLOCKCHAIN SYNC", updates: "VERIFIED UPDATES" };
 function loadExpanded() {
   try {
     const raw = JSON.parse(localStorage.getItem("bl.expanded"));
@@ -730,7 +730,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
-const CONTENT_H = { nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { win: 150, nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -915,6 +915,7 @@ function visibleSections() {
   const initialSync = !!(si && si.syncing && (!everSynced || (n && n.initialblockdownload)));
   if (initialSync) return ["sync", "network"];
   let list = LAB ? SECTIONS : SECTIONS.filter((s) => !LAB_SECTIONS.has(s));
+  if (!winStatus()) list = list.filter((s) => s !== "win"); // YOUR WIN exists only once you've actually found a block
   if (!expanded.has("hashBuild")) list = list.filter((s) => !BUILD_CHILDREN.has(s) && !HASH_CHILDREN.has(s)); // HASH BUILD collapsed → hide the whole hashing subtree
   else if (!expanded.has("hashInside")) list = list.filter((s) => !HASH_CHILDREN.has(s)); // INSIDE THE HASH collapsed → fold just its dives
   return list;
@@ -1020,6 +1021,11 @@ function summary(s) {
   if (s === "ch") { return "e picks f or g, per bit"; }
   if (s === "maj") { return "majority vote of a, b, c"; }
   if (s === "bitOps") { return "rotate · XOR · AND · add"; }
+  if (s === "win") { const ws = winStatus(); if (!ws) return ""; const m = maturityNote(ws), h = `block #${Number(ws.height).toLocaleString()}`;
+    // While it's still settling, THAT is the headline — a maturity count would skip past "not reorg-safe yet".
+    return ws.status === "lost" ? `${h} — didn't make it`
+      : ws.status === "pending" ? `${h} — settling ${ws.confirmations || 0}/${ws.needs || 6}`
+      : m.done ? `${h} — spendable` : `${h} — ${m.have}/${m.need} to spendable`; }
   if (s === "sync") { const bv = backgroundVerify(); return bv ? `verifying history · ${(bv.progress * 100).toFixed(0)}%` : "gather → verify → link → prune"; }
   if (s === "updates") { return "download → hash → Bitcoin block → your node ✓"; }
   if (s === "network") { const parts = []; if (model.price) parts.push("BTC $" + Math.round(model.price).toLocaleString()); if (model.hashrateEh) parts.push(`${model.hashrateEh.toFixed(0)} EH/s`); return parts.join(" · ") || "—"; }
@@ -1863,6 +1869,7 @@ function drawContent(s, r) {
   if (s === "bitOps") return drawBitOps(r);
   if (s === "network") return drawNetwork(r);
   if (s === "broadcast") return drawBroadcast(r);
+  if (s === "win") return drawWin(r);
   if (s === "sync") return drawSync(r);
   if (s === "updates") return drawUpdates(r);
 }
@@ -2952,6 +2959,56 @@ function drawBackgroundVerify(r) {
   text("Uses extra CPU and memory while it runs — your computer quiets down to near-idle when it finishes.", left, r.y + 104, { size: 9.5, color: "rgba(255,180,80,0.55)", baseline: "middle" });
 }
 
+// The win record, kept where you can always find it. The bridge has published {height, hash, status,
+// confirmations, matures_in} on every poll since the feature existed, and the dashboard read it in exactly one
+// place — to decide whether to fire the celebration — and never showed it. Dismiss that animation and the
+// single most important thing this app can produce left no trace but a marker in the ticket timeline.
+function winStatus() {
+  const ws = model.node && model.node.miner && model.node.miner.win_status;
+  return ws && ws.height ? ws : null;
+}
+// Coinbase rewards cannot be SPENT until 100 blocks are built on top (~16-17h). Saying CONFIRMED at 6 without
+// saying this sent people to a wallet showing an unspendable balance, with nothing anywhere explaining why.
+function maturityNote(ws) {
+  const need = ws.maturity_needs || 100, have = Math.max(0, ws.confirmations || 0);
+  if (have >= need) return { done: true, text: `spendable now — matured past ${need} confirmations` };
+  const left = Math.max(0, need - have), mins = left * 10;
+  const eta = mins >= 120 ? `~${Math.round(mins / 60)} hours` : `~${mins} min`;
+  return { done: false, have, need, text: `spendable after ${need} confirmations · ${have} / ${need} · about ${eta} to go` };
+}
+
+function drawWin(r) {
+  const ws = winStatus();
+  if (!ws) return;
+  ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
+  const lost = ws.status === "lost", pending = ws.status === "pending";
+  const col = lost ? "255,120,110" : pending ? "255,210,110" : "90,235,150";
+  ctx.strokeStyle = `rgba(${col},0.35)`; ctx.lineWidth = 1; roundRect(r.x, r.y, r.w, r.h, 8); ctx.stroke();
+  const cx = r.x + r.w / 2;
+  const head = lost ? "This block didn't make it" : pending ? "You found a block — settling" : "You won a block";
+  text(head, cx, r.y + 24, { size: 17, weight: 700, color: `rgb(${col})`, align: "center", baseline: "middle" });
+  text(`block #${Number(ws.height).toLocaleString()}`, cx, r.y + 46, { size: 12, weight: 600, color: "rgba(255,255,255,0.7)", align: "center", baseline: "middle" });
+  text(ws.hash || "", cx, r.y + 64, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle", mono: true });
+
+  if (lost) {
+    text("another block reached that height first — a duplicate, or beaten by seconds. Your node kept mining.", cx, r.y + 92, { size: 11, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+    return;
+  }
+  const conf = Math.max(0, ws.confirmations || 0), need = ws.needs || 6;
+  text(pending ? `${conf} / ${need} confirmations — not safe from a reorg yet` : `${conf} confirmations — settled`,
+    cx, r.y + 88, { size: 11.5, weight: 600, color: "rgba(255,255,255,0.62)", align: "center", baseline: "middle" });
+
+  const m = maturityNote(ws);
+  text(m.done ? "3.125 BTC is in your wallet and spendable" : "3.125 BTC was paid to your address by the block itself — nobody sends it to you",
+    cx, r.y + 108, { size: 11, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  text(m.text, cx, r.y + 125, { size: 11, weight: 600, color: m.done ? "rgb(120,245,170)" : "rgba(255,210,110,0.9)", align: "center", baseline: "middle" });
+  if (!m.done) { // maturity bar — the countdown that makes an unspendable balance make sense
+    const bw = Math.min(360, r.w * 0.5), bx = cx - bw / 2, by = r.y + 138;
+    ctx.fillStyle = "rgba(255,255,255,0.12)"; roundRect(bx, by, bw, 5, 2.5); ctx.fill();
+    ctx.fillStyle = "rgba(255,210,110,0.85)"; roundRect(bx, by, Math.max(3, bw * (m.have / m.need)), 5, 2.5); ctx.fill();
+  }
+}
+
 function drawSync(r) {
   if (!reduceMotion) syncState.t += 1 / 60; // reduced-motion: freeze the sync particle flow / pulse
   ctx.fillStyle = "rgba(255,255,255,0.03)"; roundRect(r.x, r.y, r.w, r.h, 8); ctx.fill();
@@ -4019,7 +4076,15 @@ function drawCelebration() {
       if (done) text("✓", sx, sy, { size: 9, weight: 800, color: `rgba(10,7,2,${a})`, align: "center", baseline: "middle" });
       text(labels[i], sx, sy + 18, { size: 9.5, weight: cur ? 800 : 600, color: on ? `rgba(90,230,150,${a})` : `rgba(255,255,255,${0.42 * a})`, align: "center", baseline: "middle" });
     }
-    text(si2 < 3 ? "your block goes out via your node + direct P2P, then the network confirms it" : "settled — the reward is yours and can't be undone", cx, cy + 170, { size: 10, color: `rgba(255,255,255,${0.42 * a})`, align: "center", baseline: "middle" });
+    text(si2 < 3 ? "your block goes out via your node + direct P2P, then the network confirms it" : "settled — the reward is yours and can't be undone", cx, cy + 170, { size: 10, color: `rgba(255,255,255,${0.5 * a})`, align: "center", baseline: "middle" });
+    // Ending on "CONFIRMED" sent people to a wallet showing an unspendable balance for most of a day. The
+    // reward is real and already theirs; it just cannot MOVE until the coinbase matures at 100 blocks.
+    if (si2 >= 3) {
+      const wsC = winStatus(), mC = wsC ? maturityNote(wsC) : null;
+      text(mC && mC.done ? "spendable now — matured past 100 confirmations"
+        : `paid to your address by the block itself — spendable after 100 confirmations (~16 hours)${mC ? ` · ${mC.have} / ${mC.need}` : ""}`,
+        cx, cy + 188, { size: 10, weight: 600, color: `rgba(255,210,110,${0.85 * a})`, align: "center", baseline: "middle" });
+    }
   }
   text("✕  close", W - 48, 28, { size: 13, weight: 700, color: `rgba(255,255,255,${0.6 * a})`, align: "center", baseline: "middle" });
   text("click anywhere to dismiss", cx, H - 40, { size: 12, color: `rgba(255,255,255,${0.4 * a})`, align: "center", baseline: "middle" });
@@ -4081,7 +4146,8 @@ function render(ts) {
     if (f.content) try { drawContent(f.section, f.content); } catch (err) { text("— this panel hit an error —", f.content.x + f.content.w / 2, f.content.y + f.content.h / 2, { size: 13, color: "rgba(255,140,90,0.8)", align: "center", baseline: "middle" }); }
   }
   window.__drawn = headerHits.length; // how many panels this frame actually PAINTED (not just laid out) — the e2e suite asserts an outage never zeroes this
-  window.__summarySync = summary("sync"); // test hook: computed every frame, NOT inside the panel paint — the SYNC panel only repaints while on screen, so hooking it there went stale the moment it scrolled out of view
+  window.__summarySync = summary("sync");
+  window.__winSummary = winStatus() ? summary("win") : null; // test hook // test hook: computed every frame, NOT inside the panel paint — the SYNC panel only repaints while on screen, so hooking it there went stale the moment it scrolled out of view
   ctx.restore();
 
   // scrollbar indicator (fixed)

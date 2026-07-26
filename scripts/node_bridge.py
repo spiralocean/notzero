@@ -241,6 +241,10 @@ def scan_lottery_blocks(url, user, pw, depth=12):
 
 
 WIN_CONFIRMATIONS = 6  # a found block is only CELEBRATED once it's buried this deep — safe from reorgs
+# Consensus: a block's coinbase output cannot be SPENT until 100 blocks are built on top of it (~16-17 hours).
+# Nothing in the app used to mention this, so a win said CONFIRMED at 6 while the wallet showed an unspendable
+# balance for most of a day — the payoff moment contradicting what the user's wallet told them.
+COINBASE_MATURITY = 100
 _win_resolved = {}     # (height, hash) -> "confirmed" | "lost"  (terminal states cached; "pending" re-checked)
 
 
@@ -257,20 +261,26 @@ def win_status(url, user, pw, st, tip_height):
         return None
     height, our_hash = max(wins)  # the most recent found block (highest height) is the one that matters
     key = (height, our_hash)
+    # Confirmations are recomputed from the tip on every poll even for a settled win — they used to be frozen
+    # at WIN_CONFIRMATIONS once cached, which is fine for "is it safe?" but useless for the maturity countdown.
+    # The cache exists to skip the getblockhash RPC, and this arithmetic needs no RPC at all.
+    confs_now = max(0, tip_height - height + 1)
     if key in _win_resolved:
-        return {"height": height, "hash": our_hash, "status": _win_resolved[key], "confirmations": WIN_CONFIRMATIONS, "needs": WIN_CONFIRMATIONS}
+        st_ = _win_resolved[key]
+        return {"height": height, "hash": our_hash, "status": st_, "confirmations": 0 if st_ == "lost" else confs_now,
+                "needs": WIN_CONFIRMATIONS, "matures_in": max(0, COINBASE_MATURITY - confs_now), "maturity_needs": COINBASE_MATURITY}
     try:
         chain_hash = rpc(url, user, pw, "getblockhash", [height])
     except Exception:  # noqa: BLE001 — not at that height yet → submitted, awaiting first confirmation
-        return {"height": height, "hash": our_hash, "status": "pending", "confirmations": 0, "needs": WIN_CONFIRMATIONS}
+        return {"height": height, "hash": our_hash, "status": "pending", "confirmations": 0, "needs": WIN_CONFIRMATIONS, "matures_in": COINBASE_MATURITY, "maturity_needs": COINBASE_MATURITY}
     if chain_hash != our_hash:
         _win_resolved[key] = "lost"  # a different block holds this height — ours didn't make it
-        return {"height": height, "hash": our_hash, "status": "lost", "confirmations": 0, "needs": WIN_CONFIRMATIONS}
+        return {"height": height, "hash": our_hash, "status": "lost", "confirmations": 0, "needs": WIN_CONFIRMATIONS, "matures_in": 0, "maturity_needs": COINBASE_MATURITY}
     confs = max(0, tip_height - height + 1)
     if confs >= WIN_CONFIRMATIONS:
         _win_resolved[key] = "confirmed"  # settled — cache so we don't RPC every poll
-        return {"height": height, "hash": our_hash, "status": "confirmed", "confirmations": confs, "needs": WIN_CONFIRMATIONS}
-    return {"height": height, "hash": our_hash, "status": "pending", "confirmations": confs, "needs": WIN_CONFIRMATIONS}  # in the chain, still settling
+        return {"height": height, "hash": our_hash, "status": "confirmed", "confirmations": confs, "needs": WIN_CONFIRMATIONS, "matures_in": max(0, COINBASE_MATURITY - confs), "maturity_needs": COINBASE_MATURITY}
+    return {"height": height, "hash": our_hash, "status": "pending", "confirmations": confs, "needs": WIN_CONFIRMATIONS, "matures_in": max(0, COINBASE_MATURITY - confs), "maturity_needs": COINBASE_MATURITY}  # in the chain, still settling
 
 
 def consensus_alert(w):

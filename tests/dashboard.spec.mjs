@@ -474,3 +474,51 @@ test("network: the panel grows for the node resource row instead of squashing th
   console.log(`   panel height: miner-only ${hMiner} → with node row ${hBoth}`);
   expect(hBoth - hMiner).toBe(19); // exactly one row taller, so the charts keep their space
 });
+
+// A win must stay reachable after the celebration is dismissed, and must say when the reward is SPENDABLE.
+// The bridge published win_status on every poll and the dashboard read it only to decide whether to fire the
+// celebration — so dismissing that animation left no trace of the most important thing the app can produce.
+// And "CONFIRMED" at 6 confirmations, with no mention of the 100-block coinbase maturity, sent people to a
+// wallet showing an unspendable balance for most of a day.
+const winNode = (ws) => ({
+  ts: Math.floor(Date.now() / 1000), reachable: true, blocks: 959582, headers: 959582, verificationprogress: 1,
+  initialblockdownload: false, size_on_disk: 4.8e9, pruned: true, core_version: "31.1.0",
+  miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() }, win_status: ws },
+});
+
+test("win: no YOUR WIN panel until there is a win", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.69" }) }));
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(winNode(null)) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(300);
+  expect(await page.evaluate(() => !!(window.__frames && window.__frames.win))).toBe(false);
+});
+
+for (const [name, ws, expected] of [
+  ["still settling", { height: 959581, hash: "0".repeat(64), status: "pending", confirmations: 2, needs: 6, matures_in: 98, maturity_needs: 100 }, "settling 2/6"],
+  ["maturing", { height: 959500, hash: "0".repeat(64), status: "confirmed", confirmations: 47, needs: 6, matures_in: 53, maturity_needs: 100 }, "47/100 to spendable"],
+  ["spendable", { height: 959100, hash: "0".repeat(64), status: "confirmed", confirmations: 483, needs: 6, matures_in: 0, maturity_needs: 100 }, "spendable"],
+  ["lost", { height: 959400, hash: "0".repeat(64), status: "lost", confirmations: 0, needs: 6, matures_in: 0, maturity_needs: 100 }, "didn't make it"],
+]) {
+  test(`win: the record survives and reports "${expected}" (${name})`, async ({ page }) => {
+    test.setTimeout(60_000);
+    await page.emulateMedia({ reducedMotion: "reduce" });
+    await page.addInitScript(() => { Math.random = () => 0.4; });
+    await installMocks(page);
+    await page.addInitScript(() => localStorage.setItem("bl.expanded", JSON.stringify(["win"])));
+    await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.69" }) }));
+    await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(winNode(ws)) }));
+    await page.goto("/");
+    await page.waitForFunction(() => window.__winSummary != null, null, { timeout: 20000 });
+    const sum = await page.evaluate(() => window.__winSummary);
+    console.log(`   ${name}: ${JSON.stringify(sum)}`);
+    expect(sum).toContain(expected);
+    expect(sum).toContain("959");                                   // the block height is always there to look up
+    expect(await page.evaluate(() => !!window.__frames.win)).toBe(true); // present with no celebration on screen
+  });
+}
