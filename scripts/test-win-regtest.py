@@ -105,6 +105,11 @@ def main():
                "rpc_url": f"http://127.0.0.1:{RPC_PORT}", "rpc_user": "t", "rpc_pass": "t", "rpc_cookie": ""}
         (appdir / "config.json").write_text(json.dumps(cfg))
         env = {**os.environ, "LOTTERY_DATA_DIR": str(appdir)}
+        # Set it on OUR environment too, BEFORE importing lottery_miner: the module resolves APP_SUPPORT,
+        # STATE_FILE, CONFIG and LOG_FILE at import time, so patching lm.APP_SUPPORT afterwards leaves
+        # LOG_FILE pointing at the default. On macOS that path happens to exist and this passed; on Linux CI
+        # it does not, and rescue's first log_daemon() call died with FileNotFoundError.
+        os.environ["LOTTERY_DATA_DIR"] = str(appdir)
 
         # --- 1. mine until the one-hash-per-block ticket actually wins -------------------------------------
         # `--once` runs the real path (getblocktemplate -> coinbase -> merkle -> header hash -> check_win ->
@@ -166,7 +171,6 @@ def main():
             # Simulate a crash between finding and resolving: put it back as pending and let rescue run.
             pending = appdir / f"won_block_{h}.hex"
             hexf.rename(pending)
-            lm.APP_SUPPORT = appdir            # the module caches this at import
             lm.log_daemon._quiet = True
             lm.rescue_pending_won_blocks(f"http://127.0.0.1:{RPC_PORT}", "t", "t", "", p2p_enabled=False)
             for _ in range(40):                # the resubmit runs on its own thread
