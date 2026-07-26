@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.69
+## Unreleased — next: 0.1.70
+
+## 0.1.69
 
 **Miner — important**
 - **Fixed a bug that would have thrown away a winning block.** The check deciding whether a hash wins read it
