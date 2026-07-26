@@ -10,6 +10,9 @@ version number and bump `desktop/package.json`.
 - **Fixes the squashed graphs and overlapping labels in NETWORK.** The node CPU/RAM line added in 0.1.68 was
   drawn without making the panel any taller, and that panel sizes its charts from whatever space is left over
   — so the new row came straight out of the graphs. The panel now grows to fit it.
+- **Your node's resource line says when the extra usage ends, not just that it's happening.** It read "higher
+  while it verifies history", which described the present and left the obvious question — for how long? —
+  unanswered. It now says the usage will drop when the check finishes, and shows how far along that is.
 
 ## 0.1.68
 

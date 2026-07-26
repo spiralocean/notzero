@@ -3654,8 +3654,13 @@ function drawNetwork(r) {
     const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : "";
     text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19;
     if (mp.node) {
+      // Say it will DROP, and how far along it is. "higher while it verifies history" described the present
+      // and left the obvious question — for how long? — unanswered, which is the whole reason someone reads
+      // this line. A number they can watch move is the reassurance; the state on its own isn't.
       const bv = backgroundVerify();
-      const why = bv ? " — higher while it verifies history" : model.node.initialblockdownload ? " — higher while it syncs" : "";
+      const ibd = model.node.initialblockdownload ? (model.node.verificationprogress || 0) * 100 : 0;
+      const why = bv ? ` — will drop when it finishes verifying history · ${(bv.progress * 100).toFixed(0)}% complete`
+        : ibd ? ` — will drop when it finishes syncing · ${ibd.toFixed(0)}% complete` : "";
       const gb = mp.node.mem_mb >= 1024 ? `${(mp.node.mem_mb / 1024).toFixed(1)} GB` : `${Math.round(mp.node.mem_mb)} MB`;
       text(`⛁ your node uses ~${mp.node.cpu}% CPU · ${gb} RAM${disk}${why}`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" }); y += 19;
     }
