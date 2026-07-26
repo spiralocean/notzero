@@ -37,6 +37,18 @@ if ! python3 "$ROOT/tests/test_check_win.py"; then
 fi
 echo ""
 
+# Gate: the payout address must become the right script. Runs ALWAYS — no node, no opt-out. This is
+# hand-rolled bech32 and base58; derive the wrong scriptPubKey and a won block pays a script the user does
+# not control, silently and irreversibly. Vectors are Core's own validateaddress output on mainnet.
+echo "── gate: payout addresses derive the right script…"
+if ! python3 "$ROOT/tests/test_payout_script.py"; then
+  echo "" >&2
+  echo "✋ a payout address derives the wrong script — refusing to build." >&2
+  echo "   A won block would pay someone else." >&2
+  exit 1
+fi
+echo ""
+
 # Gate: don't ship a miner whose found block would be rejected. verify-block.py asks the local node to
 # validate the exact block this miner would submit (getblocktemplate proposal mode). It needs a reachable
 # node; in an environment without one (e.g. CI), set SKIP_BLOCK_VERIFY=1 to build UNVERIFIED binaries.

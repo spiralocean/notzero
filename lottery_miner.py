@@ -590,8 +590,10 @@ def _bech32_decode(address: str) -> tuple[int, bytes]:
     if hrp != "bc" or _bech32_polymod(_bech32_hrp_expand(hrp) + data) != expected:
         raise ValueError("Invalid bech32 checksum")
     program = _convertbits(data[1:-6], 5, 8, False)
-    if witness_version == 0 and len(program) != 20:
-        raise ValueError("P2WPKH (bc1q...) program must be 20 bytes")
+    # BIP-141: witness v0 is 20 bytes (P2WPKH) or 32 (P2WSH). Only 20 was allowed, so a perfectly valid P2WSH
+    # receive address was refused — verified against Core, which accepts both.
+    if witness_version == 0 and len(program) not in (20, 32):
+        raise ValueError("segwit v0 program must be 20 bytes (P2WPKH) or 32 (P2WSH)")
     if witness_version == 1 and len(program) != 32:
         raise ValueError("Taproot (bc1p...) program must be 32 bytes")
     if witness_version > 1:
@@ -601,7 +603,13 @@ def _bech32_decode(address: str) -> tuple[int, bytes]:
 
 def address_to_script_pubkey(address: str) -> bytes:
     address = address.strip()
-    if address.startswith(("bc1", "tb1")):
+    # BIP-173 addresses are case-insensitive, but MIXED case is invalid — and QR codes encode bech32 in
+    # UPPERCASE because it packs better, so "scan the QR, paste it in" produced an uppercase address that this
+    # rejected (the prefix test ran before _bech32_decode's lower()). Core accepts it; so must we.
+    low = address.lower()
+    if low.startswith(("bc1", "tb1")):
+        if address != low and address != address.upper():
+            raise ValueError("Mixed-case bech32 address — copy it exactly as your wallet shows it")
         witness_version, program = _bech32_decode(address)
         # OP_0 for v0 (P2WPKH), OP_1 for v1 (P2TR / taproot); then push the program
         opcode = 0x00 if witness_version == 0 else 0x50 + witness_version

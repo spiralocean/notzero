@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.70
 
+**Miner**
+- **Payout addresses copied from a QR code now work.** Bech32 addresses are case-insensitive and QR codes
+  encode them in uppercase, but setup rejected an uppercase address as invalid. Scanning your wallet's QR and
+  pasting the result is an obvious thing to do, and it didn't work.
+- **P2WSH addresses are accepted.** A valid `bc1q…` receive address 32 bytes long was refused; only the
+  20-byte kind was allowed.
+- Every supported address type is now checked against Bitcoin Core itself — the exact script your reward
+  would be paid to, for native segwit, taproot, legacy and P2SH addresses. That check runs on every build.
+
 ## 0.1.69
 
 **Miner — important**

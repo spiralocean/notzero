@@ -137,6 +137,34 @@ def main():
         say(rpc("getblockhash", [h]) == our_hash, f"block {h} in the chain IS our hash")
         say(won["coinbase"]["vout"][0]["value"] > 0, f"its coinbase pays {won['coinbase']['vout'][0]['value']} BTC to our address")
 
+        # --- 2b. THE PAYOUT ADDRESS ROUND-TRIP --------------------------------------------------------------
+        # address_to_script_pubkey is hand-rolled bech32 + base58. If it derives the wrong script, you win a
+        # block, the network accepts it, and the reward goes somewhere you don't control — silently, and only
+        # ever discovered by winning. Comparing our derivation to itself proves nothing, so Core decodes it
+        # back: give it OUR bytes and ask which address they pay. It must be the one we started from.
+        print()
+        for kind in ("bech32", "bech32m", "p2sh-segwit", "legacy"):
+            try:
+                a = rpc("getnewaddress", ["", kind], wallet="t")
+            except Exception:
+                print(f"  – {kind}: not offered by this Core build, skipped")
+                continue
+            try:
+                ours = lm.address_to_script_pubkey(a).hex()
+            except Exception as e:
+                say(False, f"{kind}: our derivation raised {type(e).__name__} for {a}")
+                continue
+            back = rpc("decodescript", [ours])
+            got = back.get("address") or (back.get("addresses") or [None])[0]
+            say(got == a, f"{kind}: our script decodes back to the same address ({a[:18]}…)")
+            if got != a:
+                print(f"      ours -> {ours}")
+                print(f"      Core reads that as {got}")
+        # and the address the block actually paid, checked the same way
+        paid = won["coinbase"]["vout"][0]["scriptPubKey"]
+        say((paid.get("address") or "") == PAYOUT,
+            f"the block's coinbase pays exactly the configured payout address ({PAYOUT[:18]}…)")
+
         # --- 3. win_status through settling, confirmation and maturity -------------------------------------
         import node_bridge as nb
         st = {"last_attempt": {"won": True, "mode": "live", "height": h, "hash_hex": our_hash}, "history": []}
