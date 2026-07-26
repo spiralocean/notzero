@@ -29,7 +29,10 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO / "scripts"))
 sys.path.insert(0, str(REPO))
 
-RPC_PORT = 18449                       # off the regtest default so a real regtest node isn't disturbed
+RPC_PORT = 18449
+P2P_PORT = 18450                       # node A's p2p port
+RPC_PORT_B = 18452                     # a second node, used to prove the direct P2P fallback works
+P2P_PORT_B = 18453                       # off the regtest default so a real regtest node isn't disturbed
 PAYOUT = "bc1qw508d6qejxtdg4y5r3zarvary0c5xw7kv8f3t4"  # BIP-173 test vector; a coinbase may pay any script
 FAIL = []
 
@@ -79,7 +82,7 @@ def main():
     datadir.mkdir(parents=True), appdir.mkdir(parents=True)
     (datadir / "bitcoin.conf").write_text(
         "regtest=1\nserver=1\nfallbackfee=0.0001\n[regtest]\nrpcuser=t\nrpcpassword=t\n"
-        f"rpcport={RPC_PORT}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nlisten=0\n")
+        f"rpcport={RPC_PORT}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nport={P2P_PORT}\nlisten=1\nbind=127.0.0.1\n")
     node = subprocess.Popen([bitcoind, f"-datadir={datadir}"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
     try:
@@ -202,6 +205,86 @@ def main():
 
         # --- 4. and the node agrees the coins are actually spendable now -----------------------------------
         say(rpc("gettxoutsetinfo")["height"] >= h + 100, "the chain is deep enough that the reward has matured")
+
+        # --- 5. the DIRECT P2P FALLBACK -------------------------------------------------------------------
+        # When your own node's submitblock is failing, the block still has to reach the network — the miner
+        # pushes it peer-to-peer itself. That path had never been run. Proven here against a second node that
+        # is DISCONNECTED, so the only way it can learn of the block is our own broadcast.
+        print()
+        ddb = work / "nodeB"; ddb.mkdir(parents=True)
+        (ddb / "bitcoin.conf").write_text(
+            "regtest=1\nserver=1\n[regtest]\nrpcuser=t\nrpcpassword=t\n"
+            f"rpcport={RPC_PORT_B}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nport={P2P_PORT_B}\nlisten=1\nbind=127.0.0.1\n")
+        nodeB = subprocess.Popen([bitcoind, f"-datadir={ddb}"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        try:
+            def rpcB(method, params=None):
+                url = f"http://127.0.0.1:{RPC_PORT_B}"
+                pl = json.dumps({"jsonrpc": "1.0", "id": "t", "method": method, "params": params or []}).encode()
+                rq = urllib.request.Request(url, data=pl, headers={"Content-Type": "application/json",
+                                                                   "Authorization": "Basic " + base64.b64encode(b"t:t").decode()})
+                with urllib.request.urlopen(rq, timeout=30) as r:
+                    body = json.loads(r.read().decode())
+                if body.get("error"):
+                    raise RuntimeError(body["error"])
+                return body["result"]
+
+            for _ in range(60):
+                try:
+                    rpcB("getblockchaininfo"); break
+                except Exception:
+                    time.sleep(0.5)
+
+            rpcB("addnode", [f"127.0.0.1:{P2P_PORT}", "onetry"])   # sync B up to A, then cut the link
+            target = rpc("getblockcount")
+            for _ in range(60):
+                if rpcB("getblockcount") >= target: break
+                time.sleep(0.5)
+            say(rpcB("getblockcount") == target, f"second node synced to height {target}")
+            try: rpcB("disconnectnode", [f"127.0.0.1:{P2P_PORT}"])
+            except Exception: pass
+            for _ in range(20):
+                if not rpcB("getpeerinfo"): break
+                time.sleep(0.5)
+            say(not rpcB("getpeerinfo"), "…then disconnected — it can only learn of a new block from us")
+
+            # Win a block whose PARENT is B's tip. The nonce is deterministic per height, so retrying the
+            # same height needs a different --seed; generating filler blocks instead (as the main loop does)
+            # would advance A past the disconnected B and the block would arrive as prev-blk-not-found.
+            tipT = rpc("getblockcount")
+            newwon = None
+            for i in range(1, 41):
+                rr = subprocess.run([sys.executable, str(REPO / "lottery_miner.py"), "--once", "--mode", "live",
+                                     "--seed", f"p2p-test-{i}"], env=env, capture_output=True, text=True, timeout=180)
+                if rpc("getblockcount") > tipT:
+                    bh2 = rpc("getblockhash", [tipT + 1])
+                    if rpc("getblock", [bh2, 2])["tx"][0]["vout"][0]["scriptPubKey"]["hex"] == our_script:
+                        newwon = bh2; break
+            say(bool(newwon), f"mined a second block at {tipT + 1}, directly on the second node's tip")
+            if newwon:
+                say(rpcB("getblockcount") < rpc("getblockcount"), "the second node does NOT have it yet (link is cut)")
+                block_hex2 = rpc("getblock", [newwon, 0])
+                import p2p_broadcast as p2p
+                p2p.MAGIC = b"\xfa\xbf\xb5\xda"   # regtest message-start; mainnet bytes wouldn't be understood
+                sent = p2p.broadcast_block(block_hex2, log=None, max_peers=1, timeout=8,
+                                           extra_peers=[("127.0.0.1", P2P_PORT_B)])
+                say(sent >= 1, f"broadcast_block delivered to {sent} peer(s) over raw P2P")
+                landed = False
+                for _ in range(30):
+                    try:
+                        rpcB("getblockheader", [newwon]); landed = True; break
+                    except Exception:
+                        time.sleep(0.5)
+                say(landed, "the second node accepted the block — delivered with no RPC, no relay, just P2P")
+                if not landed:
+                    log = (ddb / "regtest" / "debug.log")
+                    if log.exists():
+                        print("      node B's own log, last lines mentioning the peer/block:")
+                        keep = [l for l in log.read_text(errors="replace").splitlines()
+                                if any(k in l.lower() for k in ("block", "peer", "invalid", "reject", "misbehav", "connect"))][-12:]
+                        for l in keep: print("       ", l[:150])
+        finally:
+            try: rpcB("stop"); nodeB.wait(timeout=30)
+            except Exception: nodeB.kill()
 
     finally:
         try:

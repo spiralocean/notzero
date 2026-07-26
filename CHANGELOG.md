@@ -7,6 +7,14 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.70
 
 **Miner**
+- **Fixed a coinbase encoding that would have made a won block unacceptable.** The block height written into
+  the coinbase has to be encoded as a signed number; without a trailing byte in certain ranges it reads as
+  negative and the network rejects the block outright — and the app would then retry it forever. Bitcoin's
+  current height isn't in an affected range and won't be for over a century, so no real block was at risk,
+  but the encoding is now correct for every height and checked on every build.
+- **The direct peer-to-peer fallback now reports honestly.** When your own node can't submit a found block,
+  the app pushes it to the network itself. That worked, but a peer going quiet afterwards was counted as a
+  failure — so a block that had been delivered looked undelivered, and the app would keep resending it.
 - **Payout addresses copied from a QR code now work.** Bech32 addresses are case-insensitive and QR codes
   encode them in uppercase, but setup rejected an uppercase address as invalid. Scanning your wallet's QR and
   pasting the result is an obvious thing to do, and it didn't work.

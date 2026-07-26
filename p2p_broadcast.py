@@ -119,16 +119,23 @@ def _handshake_and_send(ip: str, port: int, block_bytes: bytes, block_hash_inter
         # announce, then push the block; also answer a getdata by (re)sending it
         sock.sendall(_frame("inv", _varint(1) + struct.pack("<I", MSG_BLOCK) + block_hash_internal))
         sock.sendall(_frame("block", block_bytes))
+        # The block is on the wire from here. Stay a moment to answer a getdata, but a peer that simply goes
+        # quiet is NOT a failure: _recv_exact raises socket.timeout when the drain expires, and letting that
+        # escape made a delivered block count as a failed one. Verified on regtest — the peer accepted the
+        # block while this reported zero peers, which would have the resubmit loop retrying a landed block.
         sock.settimeout(3)
         end = time.time() + 4
-        while time.time() < end:
-            cmd, payload = _recv_msg(sock)
-            if cmd is None:
-                break
-            if cmd == "getdata":
-                sock.sendall(_frame("block", block_bytes))
-            elif cmd == "ping":
-                sock.sendall(_frame("pong", payload))
+        try:
+            while time.time() < end:
+                cmd, payload = _recv_msg(sock)
+                if cmd is None:
+                    break
+                if cmd == "getdata":
+                    sock.sendall(_frame("block", block_bytes))
+                elif cmd == "ping":
+                    sock.sendall(_frame("pong", payload))
+        except (socket.timeout, OSError):
+            pass
         return True
     finally:
         try:

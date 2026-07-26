@@ -629,10 +629,20 @@ def address_to_script_pubkey(address: str) -> bytes:
 
 
 def _encode_height(height: int) -> bytes:
+    """BIP34 block height for the coinbase scriptSig, as a minimally-encoded CScriptNum.
+
+    CScriptNum is SIGNED little-endian: if the most significant byte has its high bit set, a 0x00 sign byte
+    must follow or the value reads as negative. That byte was missing, so any height whose top byte is >= 0x80
+    produced a coinbase Core rejects with "bad-cb-height" — and the resubmit loop would then retry a block
+    that can never land. Mainnet is unaffected at today's ~959k (0x0EA3F2, top byte 0x0E) and stays that way
+    until height 8,388,608; regtest runs in exactly the affected range, which is how this surfaced.
+    """
     if height == 0:
         return bytes([0x01, 0x00])
-    raw = height.to_bytes((height.bit_length() + 7) // 8, "little")
-    return bytes([len(raw)]) + raw
+    raw = bytearray(height.to_bytes((height.bit_length() + 7) // 8, "little"))
+    if raw[-1] & 0x80:
+        raw.append(0x00)
+    return bytes([len(raw)]) + bytes(raw)
 
 
 def _serialize_varint(value: int) -> bytes:

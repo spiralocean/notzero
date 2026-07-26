@@ -37,6 +37,17 @@ if ! python3 "$ROOT/tests/test_check_win.py"; then
 fi
 echo ""
 
+# Gate: the BIP34 coinbase height must be a valid CScriptNum. Runs ALWAYS. A missing sign byte builds a
+# coinbase Core rejects with "bad-cb-height", and the resubmit loop then retries forever a block that can
+# never land. Mainnet is outside the affected range until height 8,388,608; regtest is inside it.
+echo "── gate: coinbase height encoding…"
+if ! python3 "$ROOT/tests/test_coinbase_height.py"; then
+  echo "" >&2
+  echo "✋ a coinbase height encodes wrong — refusing to build. A won block would be rejected." >&2
+  exit 1
+fi
+echo ""
+
 # Gate: the payout address must become the right script. Runs ALWAYS — no node, no opt-out. This is
 # hand-rolled bech32 and base58; derive the wrong scriptPubKey and a won block pays a script the user does
 # not control, silently and irreversibly. Vectors are Core's own validateaddress output on mainnet.
