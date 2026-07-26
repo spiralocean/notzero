@@ -706,7 +706,19 @@ def pick_nonce(block_height: int, machine_seed: str) -> int:
 
 
 def check_win(hash_bytes: bytes, target: int) -> bool:
-    return int.from_bytes(hash_bytes, "big") <= target
+    """Does this header hash beat the target? Consensus reads the double-SHA256 digest LITTLE-endian.
+
+    hash_block_header returns the raw digest, which is the internal byte order — the displayed block hash is
+    that digest REVERSED. This compared it "big", i.e. the wrong end of the hash, and was wrong in both
+    directions: a genuinely winning hash scored as a loss, and losing hashes scored as wins. The false wins
+    are the visible half (submitblock answers "high-hash"); the silent half is the one that matters, because
+    `won` is what gates the submit — a real block would have been found, displayed as JACKPOT by
+    hash_proximity (which reverses correctly, and is why the two disagreed), and then never submitted.
+
+    Verified against mainnet block 959,666: little-endian passes, big-endian does not. A block the network
+    accepted must pass, so little-endian is the consensus rule. See tests/test_check_win.py.
+    """
+    return int.from_bytes(hash_bytes, "little") <= target
 
 
 def get_tip_height() -> int:

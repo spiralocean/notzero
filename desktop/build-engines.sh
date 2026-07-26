@@ -23,6 +23,20 @@ fi
 echo "PyInstaller $(python3 -c 'import PyInstaller; print(PyInstaller.__version__)')  →  $OUT"
 mkdir -p "$OUT"
 
+# Gate: the win check must agree with consensus. Runs ALWAYS — no node, no network, no opt-out. check_win
+# compared the header digest big-endian while consensus reads it little-endian, so a genuine winning hash
+# scored as a loss; `won` gates submitblock, meaning a real block would have been found and silently never
+# submitted. At mainnet difficulty that is ~1 in 10^23, so it would never have surfaced until it cost someone
+# a block. Nothing about this needs a node, so nothing may skip it.
+echo "── gate: check_win agrees with consensus…"
+if ! python3 "$ROOT/tests/test_check_win.py"; then
+  echo "" >&2
+  echo "✋ the win check disagrees with consensus — refusing to build." >&2
+  echo "   A miner that cannot recognise a winning hash would throw away a real block." >&2
+  exit 1
+fi
+echo ""
+
 # Gate: don't ship a miner whose found block would be rejected. verify-block.py asks the local node to
 # validate the exact block this miner would submit (getblocktemplate proposal mode). It needs a reachable
 # node; in an environment without one (e.g. CI), set SKIP_BLOCK_VERIFY=1 to build UNVERIFIED binaries.

@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.69
 
+**Miner — important**
+- **Fixed a bug that would have thrown away a winning block.** The check deciding whether a hash wins read it
+  from the wrong end — comparing the block hash big-endian where Bitcoin's consensus rules read it
+  little-endian. It was wrong in both directions: a hash that genuinely won would have been scored as a loss,
+  and because that check is what triggers submitting the block, the block would have been found and then
+  silently never sent. (The dashboard would have shown JACKPOT while it happened, since the display code
+  reads the hash correctly — the two disagreed.) It could also declare wins on hashes that didn't qualify,
+  which the network rejects. At real difficulty either outcome is about a one-in-10^23 event, so nothing
+  would ever have revealed this until it cost somebody a block. Found by building a test that mines real
+  blocks on a private test network and follows one all the way through submission, confirmation and maturity.
+
 **Dashboard**
 - **A win no longer disappears when you dismiss the celebration.** Everything about a found block — its height,
   hash, confirmations, whether it settled or was beaten to the chain — lived only in the animation that plays
