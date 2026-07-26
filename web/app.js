@@ -744,6 +744,16 @@ try {
 } catch {}
 const LAB_SECTIONS = new Set(["shift", "churn", "sigma1", "ch", "maj"]);
 if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register breakout / shift-format churn)
+// Panel height, plus room for rows that only exist in some states. NETWORK lays its charts out with whatever
+// vertical space is left after the text rows (ch = r.y + r.h - y - 6), so a row added without a matching
+// height increase doesn't push the panel taller — it silently steals from the charts, squashing them and
+// running their labels together. Anything conditional drawn above those charts has to be declared here.
+const ROW_H = 19;
+function contentH(s) {
+  let h = CONTENT_H[s];
+  if (s === "network" && model.node && model.node.miner_proc && model.node.miner_proc.node) h += ROW_H; // the node's CPU/RAM row
+  return h;
+}
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
 // hides them all at once — the whole SHA-256 explainer folds into one section.
 const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "ch", "maj", "bitOps"]);
@@ -977,7 +987,7 @@ function layoutSections() {
     y += HEADER_H;
     let content = null;
     const open = expanded.has(s);
-    if (open) { const h = CONTENT_H[s]; content = { x: PAD + ind, y: y + 4, w: W - PAD * 2 - ind, h }; y += 4 + h; }
+    if (open) { const h = contentH(s); content = { x: PAD + ind, y: y + 4, w: W - PAD * 2 - ind, h }; y += 4 + h; }
     y += GAP;
     frames.push({ section: s, header, content });
   }

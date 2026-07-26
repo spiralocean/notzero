@@ -446,3 +446,31 @@ test("resources: the NETWORK panel reports the node as well as the miner", async
   const shot = await page.screenshot({ clip: { x: 0, y: 0, width: 1280, height: 900 } });
   expect(shot.length).toBeGreaterThan(1000);              // panel rendered without throwing on the new shape
 });
+
+// NETWORK lays its charts out with whatever height is left after the text rows, so a conditional row added
+// without a matching height increase silently squashes the charts and runs their labels together. The panel
+// must grow by exactly one row when the node's CPU/RAM line is present.
+test("network: the panel grows for the node resource row instead of squashing the charts", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.addInitScript(() => localStorage.setItem("bl.expanded", JSON.stringify(["network"])));
+  await page.route("**/config", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ exists: true, node_mode: "managed", platform: "darwin", app_version: "0.1.69" }) }));
+  const node = (mp) => ({
+    ts: Math.floor(Date.now() / 1000), reachable: true, blocks: 959582, headers: 959582, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 4.8e9, pruned: true, core_version: "31.1.0",
+    miner: { mode: "live", attempt: { attempted_at: new Date().toISOString() } }, miner_proc: mp,
+  });
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(node({ cpu: 0.4, mem_mb: 23.6 })) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__frames && window.__frames.network, null, { timeout: 20000 });
+  const hMiner = await page.evaluate(() => window.__frames.network.h);
+
+  await page.unroute("**/node.json*");
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(node({ cpu: 0.4, mem_mb: 23.6, node: { cpu: 37.6, mem_mb: 2736.1 } })) }));
+  await page.waitForFunction((h) => window.__frames.network.h !== h, hMiner, { timeout: 20000 });
+  const hBoth = await page.evaluate(() => window.__frames.network.h);
+  console.log(`   panel height: miner-only ${hMiner} → with node row ${hBoth}`);
+  expect(hBoth - hMiner).toBe(19); // exactly one row taller, so the charts keep their space
+});

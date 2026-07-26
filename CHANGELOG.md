@@ -6,6 +6,11 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.69
 
+**Dashboard**
+- **Fixes the squashed graphs and overlapping labels in NETWORK.** The node CPU/RAM line added in 0.1.68 was
+  drawn without making the panel any taller, and that panel sizes its charts from whatever space is left over
+  — so the new row came straight out of the graphs. The panel now grows to fit it.
+
 ## 0.1.68
 
 **Dashboard**
