@@ -54,8 +54,61 @@ jobs:
       - name: Verify pinned Bitcoin Core hashes against the PGP-signed SHA256SUMS
         run: node scripts/verify-core-pins.cjs
 
+  # The dashboard's BEHAVIOURAL tests. They existed for a day before anyone noticed CI never ran them, so a
+  # regression could ship green — which is how two layout bugs reached releases in a single day. The pixel
+  # snapshots skip themselves here (committed per-platform as …-darwin.png; a Linux runner would look for
+  # …-linux.png and fail every time), so this asserts logic, which is what CI can honestly check.
+  dashboard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: npm ci
+        run: npm ci
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Dashboard suite
+        env:
+          CI: "1"
+        run: npx playwright test --reporter=list
+
+  # The deepest test in the repo: mine a real block on a private chain and follow it all the way through
+  # submission, persistence, rescue, direct P2P delivery, settling and maturity. It found four defects in the
+  # win path in one day — check_win's byte order, the BIP34 height sign byte, the P2P false negative, and that
+  # the rescue loop terminates. It ran only when someone typed the command; now it gates every release.
+  win-path:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - name: Fetch the pinned Bitcoin Core
+        # Reads the version and hash straight out of node-provision.js, which exports both — the same pin the
+        # app itself verifies before it will run Core. No parsing of source text, so a reformat can't silently
+        # make this fetch something unverified.
+        run: |
+          set -euo pipefail
+          read -r V FILE WANT < <(node -e '
+            const p = require("./desktop/node-provision.js");
+            const a = p.CORE_ARTIFACTS["linux-x64"];
+            console.log(p.CORE_VERSION, a.file, a.sha256);
+          ')
+          echo "Core $V — $FILE"
+          curl -fsSL -o "$FILE" "https://bitcoincore.org/bin/bitcoin-core-$V/$FILE"
+          echo "$WANT  $FILE" | sha256sum -c -
+          tar -xzf "$FILE"
+          echo "$PWD/bitcoin-$V/bin" >> "$GITHUB_PATH"
+      - name: Full win path on regtest
+        run: python3 scripts/test-win-regtest.py
+
   release:
-    needs: verify-core
+    needs: [verify-core, dashboard, win-path]
     strategy:
       fail-fast: false
       matrix:

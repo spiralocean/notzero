@@ -15,8 +15,13 @@ async function openPanel(page, section) {
   return { x: Math.round(r.x - 8), y: Math.round(r.y - 46), width: Math.round(r.w + 16), height: Math.round(r.h + 54) };
 }
 
+// PIXEL COMPARISONS — local only. Snapshots are committed per-platform (…-darwin.png), so a Linux CI runner
+// looks for …-linux.png, finds nothing, and fails 100% of the time. Even on a macOS runner the fonts differ
+// from a developer's machine. These are a visual regression check for whoever is editing the canvas; the
+// BEHAVIOURAL tests below are the ones that belong in CI, and they assert logic, not pixels.
 for (const section of ["mempool", "closeness", "hashBuild", "network"]) {
   test(`panel: ${section}`, async ({ page }) => {
+    test.skip(!!process.env.CI, "pixel snapshot is host-font dependent — run locally");
     const clip = await openPanel(page, section);
     await expect(page).toHaveScreenshot(`panel-${section}.png`, { clip });
   });
@@ -29,6 +34,7 @@ for (const section of ["mempool", "closeness", "hashBuild", "network"]) {
 test.describe("celebration", () => {
 test.describe.configure({ retries: 2 });
 test("win celebration (preview)", async ({ page }) => {
+  test.skip(!!process.env.CI, "pixel snapshot is host-font dependent — run locally");
   test.setTimeout(90_000); // the screenshot alone budgets 20s for fonts.ready; the 30s default leaves no room under parallel load
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => { Math.random = () => 0.4; });

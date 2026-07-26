@@ -7,7 +7,16 @@ Ordered by leverage, not by size.
 
 ---
 
-## 1. The test suites don't run in CI
+## ~~1. The test suites don't run in CI~~ — DONE 2026-07-26
+
+Two jobs added to `release.yml`, and `release` now `needs: [verify-core, dashboard, win-path]`, so nothing
+publishes unless both are green. The pixel-snapshot tests skip themselves under `CI` (committed per-platform
+as `…-darwin.png`; a Linux runner looks for `…-linux.png` and fails every time) — 20 behavioural tests run,
+5 pixel tests stay local. Original note below, kept for the reasoning.
+
+<details><summary>original</summary>
+
+### The test suites don't run in CI
 
 **The 25 Playwright dashboard tests never execute in the release workflow.** `.github/workflows/release.yml`
 runs `verify-core`, the platform builds, the asar-require gate and the launch smoke test — and nothing else. So
@@ -28,6 +37,8 @@ already starts.
 day. Wiring the suite into CI without fixing that buys a workflow that fails at random, which trains everyone
 to ignore it. Fix or delete that test as part of this.
 
+</details>
+
 ---
 
 ## 2. A block containing real transactions has never been accepted
@@ -42,7 +53,14 @@ does. ~15 lines. Closes the last correctness gap in block construction.
 
 ---
 
-## 3. The regtest win harness doesn't run in CI
+## ~~3. The regtest win harness doesn't run in CI~~ — DONE 2026-07-26
+
+The `win-path` job fetches the pinned Core (version and sha256 read from `node-provision.js`'s exports — the
+same pin the app verifies before running Core) and runs the harness on every release. Original note below.
+
+<details><summary>original</summary>
+
+### The regtest win harness doesn't run in CI
 
 `scripts/test-win-regtest.py` is the deepest test in the repo — it found `check_win`'s byte order, the BIP34
 coinbase height sign byte, the P2P false-negative, and proved the rescue path terminates. It runs only when
@@ -51,6 +69,8 @@ invoked by hand.
 Fix: have CI fetch the pinned Bitcoin Core (the same tarball `node-provision.js` verifies) and run the harness
 before publishing. ~90s per release. Heavier than the others; also the most durable, since this is the code
 path the product exists for.
+
+</details>
 
 ---
 
@@ -68,7 +88,22 @@ plausible `miner_proc`. Would also have caught the psutil-never-installed bug, w
 
 ---
 
-## 5. Not code
+## 5. An update landing while the what's-new dialog is open
+
+With auto-update on, `update-downloaded` calls `quitAndInstall()` six seconds later regardless of what is on
+screen. The what's-new recap (`whatsNewDialog`) is shown parented to the window when one exists, which on
+macOS makes it a window-modal sheet. Quitting and relaunching with that sheet open is untested — and it is the
+same shape as the 0.1.33→0.1.34 stall, where `quitAndInstall` hung because the window hid instead of closing.
+
+Narrow: the dialog has to sit open for the ~2h until the next check, and a release has to land in that window.
+The failure would look like an update that hangs. Untested rather than known-broken.
+
+To answer the question that raised it: the "Got it" button gates nothing. It belongs to the recap shown AFTER
+an update installs; a user who never clicks it still receives every subsequent release.
+
+---
+
+## 6. Not code
 
 - **Cloudflare cache rules** for `dl.getnotzero.com`. Five rules, and the ORDER matters: `.ots` must precede
   `SHA256SUMS` or pending proofs freeze at the edge for a year — `.ots` files are NOT immutable,
