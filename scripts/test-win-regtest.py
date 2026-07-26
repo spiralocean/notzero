@@ -137,33 +137,44 @@ def main():
         say(rpc("getblockhash", [h]) == our_hash, f"block {h} in the chain IS our hash")
         say(won["coinbase"]["vout"][0]["value"] > 0, f"its coinbase pays {won['coinbase']['vout'][0]['value']} BTC to our address")
 
-        # --- 2b. THE PAYOUT ADDRESS ROUND-TRIP --------------------------------------------------------------
-        # address_to_script_pubkey is hand-rolled bech32 + base58. If it derives the wrong script, you win a
-        # block, the network accepts it, and the reward goes somewhere you don't control — silently, and only
-        # ever discovered by winning. Comparing our derivation to itself proves nothing, so Core decodes it
-        # back: give it OUR bytes and ask which address they pay. It must be the one we started from.
+        # --- 2b. the coinbase pays OUR script ---------------------------------------------------------------
+        # Compared as SCRIPT bytes, not as an address string: this node is regtest, so Core renders the very
+        # same script with a bcrt1 prefix and a string comparison would always fail. Whether that script is the
+        # right one for a given address is settled offline against Core's mainnet validateaddress, in
+        # tests/test_payout_script.py — a regtest node cannot answer it, since this code is mainnet-only.
+        say(won["coinbase"]["vout"][0]["scriptPubKey"]["hex"] == our_script,
+            "the coinbase pays exactly the script our payout address derives to")
+
+        # --- 2c. THE BLOCK SURVIVES, AND THE RESCUE PATH TERMINATES ----------------------------------------
+        # A won block is written to disk BEFORE submitting, so an RPC blip at the one moment that matters can
+        # never lose it, and a resubmit loop resumes on the next start. None of that had ever been exercised.
+        # The dangerous failure isn't only "never lands" — it's also "retries forever", because a resolved
+        # block is only stopped by being renamed off .hex.
         print()
-        for kind in ("bech32", "bech32m", "p2sh-segwit", "legacy"):
-            try:
-                a = rpc("getnewaddress", ["", kind], wallet="t")
-            except Exception:
-                print(f"  – {kind}: not offered by this Core build, skipped")
-                continue
-            try:
-                ours = lm.address_to_script_pubkey(a).hex()
-            except Exception as e:
-                say(False, f"{kind}: our derivation raised {type(e).__name__} for {a}")
-                continue
-            back = rpc("decodescript", [ours])
-            got = back.get("address") or (back.get("addresses") or [None])[0]
-            say(got == a, f"{kind}: our script decodes back to the same address ({a[:18]}…)")
-            if got != a:
-                print(f"      ours -> {ours}")
-                print(f"      Core reads that as {got}")
-        # and the address the block actually paid, checked the same way
-        paid = won["coinbase"]["vout"][0]["scriptPubKey"]
-        say((paid.get("address") or "") == PAYOUT,
-            f"the block's coinbase pays exactly the configured payout address ({PAYOUT[:18]}…)")
+        saved = sorted(appdir.glob("won_block_*"))
+        say(bool(saved), f"the block was persisted to disk ({', '.join(f.name for f in saved) or 'nothing'})")
+        if saved:
+            hexf = saved[0]
+            block_hex = hexf.read_text().strip()
+            say(lm._block_hash_from_hex(block_hex) == our_hash, "the saved hex is exactly the block that won")
+            say(rpc("submitblock", [block_hex]) == "duplicate",
+                "re-submitting the saved hex returns 'duplicate' — a complete, valid block, not a fragment")
+
+            # Simulate a crash between finding and resolving: put it back as pending and let rescue run.
+            pending = appdir / f"won_block_{h}.hex"
+            hexf.rename(pending)
+            lm.APP_SUPPORT = appdir            # the module caches this at import
+            lm.log_daemon._quiet = True
+            lm.rescue_pending_won_blocks(f"http://127.0.0.1:{RPC_PORT}", "t", "t", "", p2p_enabled=False)
+            for _ in range(40):                # the resubmit runs on its own thread
+                if not pending.exists():
+                    break
+                time.sleep(0.5)
+            resolved = [f.name for f in appdir.glob(f"won_block_{h}.*")]
+            say(not pending.exists(),
+                f"rescue resolved the pending block and stopped retrying ({', '.join(resolved) or 'still pending'})")
+            say(any(n.endswith((".duplicate", ".accepted")) for n in resolved),
+                "and recorded the outcome on disk rather than deleting the evidence")
 
         # --- 3. win_status through settling, confirmation and maturity -------------------------------------
         import node_bridge as nb
