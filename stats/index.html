@@ -110,8 +110,8 @@
   <section class="tiles" id="tiles"></section>
 
   <section class="panel">
-    <h2>Machines, by release</h2>
-    <p class="sub">Each machine fetches the installer once when it takes a release, so these are counts of computers — no polling cadence assumed, nothing inflated by restarts.</p>
+    <h2>Adoption</h2>
+    <p class="sub">Updates only ever jump to the newest release, so the last one a machine took is the one it runs. The top row is current adoption; the rows below it are how earlier rollouts went, dimmed because they're superseded rather than still populated.</p>
     <div class="plot" id="p-machines"></div>
     <div class="legend">
       <span><i class="swatch" style="background:var(--mac)"></i>macOS</span>
@@ -283,38 +283,48 @@ function drawBars(id, rows, pick, opts) {
 }
 
 // stacked horizontal bars: one row per release, segmented by platform
-function drawMachines(machines) {
+function drawMachines(machines, fleet) {
   const host = clear("p-machines");
-  if (!machines.length) { host.innerHTML = '<p class="sub">No installer fetches in this window.</p>'; return; }
+  if (!machines.length) { host.innerHTML = '<p class="sub">No installer fetches in this window — nothing updated.</p>'; return; }
   const rows = machines.slice(0, 6);
-  const W = 980, rowH = 44, T = 6, L = 74, R = 132;
+  const W = 980, rowH = 40, T = 64, L = 74, R = 150;
   const Hh = T + rows.length * rowH + 8;
   const max = Math.max(...rows.map((r) => r.total), 1);
-  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Machines that took each release, split by platform" });
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Adoption of each release across the fleet" });
   const tip = tooltip(host);
   const parts = [["mac", "var(--mac)", "macOS"], ["win", "var(--win)", "Windows"], ["linux", "var(--linux)", "Linux"]];
+
+  // Headline: the newest release against the fleet. This is the number that answers "did my fix land?".
+  const latest = rows[0], pct = fleet ? Math.round((latest.total / fleet) * 100) : 0;
+  const big = el("text", { x: 0, y: 30, class: "axis", fill: "var(--accent)", "font-size": "27", "font-weight": "600" });
+  big.textContent = `${latest.total} of ~${fleet}`; svg.appendChild(big);
+  const cap = el("text", { x: 0, y: 52, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
+  cap.textContent = `machines on ${latest.version}${fleet ? ` · ${pct}% of the fleet` : ""}`; svg.appendChild(cap);
+
   rows.forEach((r, i) => {
-    const y = T + i * rowH + 8, bh = 22;
-    const lb = el("text", { x: L - 12, y: y + bh / 2 + 4, class: "axis", "text-anchor": "end", fill: "var(--ink)", "font-size": "12.5" });
+    // Decay by age: the newest row is the live one, older rollouts fade. They aren't a population any more —
+    // every machine in them has since moved on, so showing them at equal weight overstated them.
+    const fade = i === 0 ? 1 : Math.max(0.22, 0.55 - (i - 1) * 0.09);
+    const y = T + i * rowH + 6, bh = 20, w = ((W - L - R) * r.total) / max;
+    const lb = el("text", { x: L - 12, y: y + bh / 2 + 4, class: "axis", "text-anchor": "end", fill: i === 0 ? "var(--ink)" : "var(--ink-3)", "font-size": "12.5" });
     lb.textContent = r.version; svg.appendChild(lb);
     let x = L;
     for (const [k, c, label] of parts) {
       if (!r[k]) continue;
-      const w = ((W - L - R) * r[k]) / max;
-      // 2px surface gap between segments so adjacent fills stay separable without relying on hue
-      const seg = el("rect", { x, y, width: Math.max(w - 2, 2), height: bh, rx: 3, fill: c });
+      const segW = ((W - L - R) * r[k]) / max;
+      const seg = el("rect", { x, y, width: Math.max(segW - 2, 2), height: bh, rx: 3, fill: c, opacity: fade });
       seg.style.cursor = "crosshair";
-      const cx = x + w / 2;
+      const cxs = x + segW / 2;
       seg.addEventListener("pointerenter", () => {
         const bb = svg.getBoundingClientRect();
-        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[k]} machine${r[k] === 1 ? "" : "s"}`, (cx / W) * bb.width, (y / Hh) * bb.height);
+        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[k]} machine${r[k] === 1 ? "" : "s"}`, (cxs / W) * bb.width, (y / Hh) * bb.height);
       });
       seg.addEventListener("pointerleave", () => tip.hide());
       svg.appendChild(seg);
-      x += w;
+      x += segW;
     }
-    const vl = el("text", { x: x + 10, y: y + bh / 2 + 4, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
-    vl.textContent = `${r.total} machine${r.total === 1 ? "" : "s"}`;
+    const vl = el("text", { x: x + 10, y: y + bh / 2 + 4, class: "axis", fill: i === 0 ? "var(--ink-2)" : "var(--ink-3)", "font-size": "12.5", opacity: i === 0 ? 1 : 0.75 });
+    vl.textContent = i === 0 ? `${r.total} — current` : `${r.total} · ${fleet ? Math.round((r.total / fleet) * 100) : 0}% took it`;
     svg.appendChild(vl);
   });
   host.appendChild(svg);
@@ -419,10 +429,10 @@ function render(d) {
 
   tiles(d);
   const machines = d.machines || [];
-  drawMachines(machines);
+  drawMachines(machines, t.machinesSeen);
   const newest = machines[0];
   $("mach-note").innerHTML = machines.length
-    ? `<b>At least ${t.machinesSeen} machines</b> are running notzero — the busiest single release here, since summing across releases would count one computer several times.${newest ? ` The newest, v${newest.version}, is at ${newest.total} so far and still climbing as machines check in.` : ""} A machine that stayed switched off through every release in this window doesn't appear at all, so this can only ever be an undercount.`
+    ? `Counts are machines that <b>took</b> each release — one installer fetch per machine, no polling cadence assumed. Fleet size is the busiest single release (~${t.machinesSeen}); summing across releases would count one computer several times.${newest ? ` A rollout keeps climbing for a couple of hours after a cut, so v${newest.version} reads low until machines check in.` : ""} A machine switched off through every release in this window is invisible here, so every number is a floor.`
     : "No installer fetches in this window — nothing updated in the last 24 hours.";
   drawInstalls(rows);
   drawBars("p-artifacts", rows, (r) => r.artifacts, { fill: "var(--accent-mark)", unit: "installer", label: true, marks: true, alt: "Installer downloads by hour" });
