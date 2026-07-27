@@ -131,15 +131,23 @@ plausible `miner_proc`. Would also have caught the psutil-never-installed bug, w
 
 ---
 
-## 5. An update landing while the what's-new dialog is open
+## ~~5. An update landing while the what's-new dialog is open~~ — DONE 2026-07-27
 
-With auto-update on, `update-downloaded` calls `quitAndInstall()` six seconds later regardless of what is on
-screen. The what's-new recap (`whatsNewDialog`) is shown parented to the window when one exists, which on
-macOS makes it a window-modal sheet. Quitting and relaunching with that sheet open is untested — and it is the
-same shape as the 0.1.33→0.1.34 stall, where `quitAndInstall` hung because the window hid instead of closing.
+The install now waits for the dialog to be dismissed instead of quitting out from under it, and the
+"restarting in a moment" notification and overlay moved behind the same gate — showing those while the app
+cannot in fact restart was the visible half of the bug. Policy is in `desktop/install-gate.js` (7 tests,
+injected timers) because `main.js` needs a live Electron app to run and that module needs nothing.
 
-Narrow: the dialog has to sit open for the ~2h until the next check, and a release has to land in that window.
-The failure would look like an update that hangs. Untested rather than known-broken.
+**This removed the possibility; it did not reproduce the failure.** Nobody has seen the hang on a real
+machine. If you ever want to confirm the original behaviour, it needs a packaged build, the recap open, and a
+release landing in the same window.
+
+Two decisions worth not re-litigating:
+
+- **No cap that installs anyway after N minutes.** It would reintroduce the same hang on a slower timer. An
+  un-dismissed dialog leaving the app on the old version is the same outcome as pressing "Later".
+- **A throwing `isBusy` installs rather than stalls** — a wedged updater is the thing being prevented, so an
+  unanswerable predicate must not be able to wedge it permanently.
 
 To answer the question that raised it: the "Got it" button gates nothing. It belongs to the recap shown AFTER
 an update installs; a user who never clicks it still receives every subsequent release.
@@ -173,6 +181,8 @@ an update installs; a user who never clicks it still receives every subsequent r
 | Direct P2P delivery to a disconnected peer | same | yes, every release |
 | Settles at 6 confirmations, matures at 100 | same | yes, every release |
 | The Windows process sampler runs and finds both processes | `tests/test_process_sampler.py` | yes, every release |
+| An update waits for an open dialog instead of quitting under it | `desktop/install-gate.test.js` | yes, every release |
+| The OTS proof parser and its node check | `desktop/ots-verify.test.js` | yes, every release |
 
 Three offline gates need no node and have no opt-out: a miner that cannot recognise a win, derives the wrong
 payout script, or encodes the height wrongly cannot be packaged.

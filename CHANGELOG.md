@@ -6,6 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.71
 
+**Updates**
+- **An update can no longer restart the app while a dialog is open.** If the "what's new" recap was still on
+  screen when the next update finished downloading, the app would try to quit and reinstall underneath it —
+  and on macOS that could leave the update wedged partway through, with the app needing a force quit. It now
+  waits until you've dismissed the dialog and installs then, which is what pressing "Later" would have done
+  anyway.
+
 ## 0.1.70
 
 **Miner**
