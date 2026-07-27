@@ -1,6 +1,25 @@
 import { test, expect } from "@playwright/test";
 import { installMocks } from "./fixtures.mjs";
 
+// Wait until the node payload has been APPLIED to the model, then let the canvas repaint from it.
+//
+// The footer tests below used to wait on the footer itself being non-empty, which is not the same thing: the
+// app paints "◷ demo — real Bitcoin network …" before /config and node.json land, so a non-empty check is
+// satisfied by that transient text and the assertion reads the pre-config footer. It failed exactly that way
+// in CI on 2026-07-27 — the run was green twice on the same dashboard code before it, so it flaked rather
+// than regressed. Waiting on a field only the mock supplies makes the precondition explicit.
+// `pred` is evaluated in the page, so it must be self-contained (no closure over test variables).
+async function nodeApplied(page, pred) {
+  // 30s, not the 20s used elsewhere in this file: measured locally, the node payload takes ~8s to be applied
+  // and the footer ~5.6s more after that, so a 20s budget leaves under 2.5x headroom on a loaded runner.
+  await page.waitForFunction(pred, null, { timeout: 30000 });
+  // …then wait out the pre-config line itself. Not a draw-count wait: under reduced motion the canvas stops
+  // repainting once settled, so "two more frames" can never arrive and every footer test times out.
+  await page.waitForFunction(
+    () => typeof window.__footerLeft === "string" && !/demo — real Bitcoin/.test(window.__footerLeft),
+    null, { timeout: 30000 });
+}
+
 // expand exactly one section, load with mocks + frozen randomness, return its rendered rect
 async function openPanel(page, section) {
   await page.emulateMedia({ reducedMotion: "reduce" }); // freeze rain + ceremonies before app.js reads matchMedia
@@ -211,8 +230,7 @@ test("footer: managed node syncing shows sync status, not practice mode", async 
     initialblockdownload: true, size_on_disk: 9.4e9, pruned: true, miner: { mode: "symbolic" },
   }) }));
   await page.goto("/");
-  await page.waitForFunction(() => window.__footerPill != null, null, { timeout: 20000 });
-  await page.waitForTimeout(300);
+  await nodeApplied(page, () => (window.__model?.node || {}).blocks === 900000);
   const pill = await page.evaluate(() => window.__footerPill);
   const left = await page.evaluate(() => window.__footerLeft);
   console.log(`   pill: ${JSON.stringify(pill)}\n   left: ${JSON.stringify(left)}`);
@@ -235,7 +253,7 @@ test("footer: managed node synced shows the payout again", async ({ page }) => {
     payout: { masked: "bc1qxs…fph2fn", is_default: false, valid: true, status: "ok" },
   }) }));
   await page.goto("/");
-  await page.waitForFunction(() => window.__footerLeft != null && window.__footerLeft !== "", null, { timeout: 20000 });
+  await nodeApplied(page, () => !!(window.__model?.node || {}).payout);
   const left = await page.evaluate(() => window.__footerLeft);
   console.log(`   synced left: ${JSON.stringify(left)}`);
   expect(left).toContain("payout");
