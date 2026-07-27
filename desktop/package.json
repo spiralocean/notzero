@@ -1,6 +1,6 @@
 {
   "name": "bitcoin-lottery-desktop",
-  "version": "0.1.70",
+  "version": "0.1.71",
   "private": true,
   "description": "Desktop app (Electron) for the Bitcoin Lottery — wraps the dashboard and (in later phases) downloads/manages bitcoind + runs the miner, so non-technical users never touch a terminal.",
   "main": "main.js",
