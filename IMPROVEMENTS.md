@@ -94,7 +94,28 @@ path the product exists for.
 
 ---
 
-## 4. The Windows process sampler has never executed
+## ~~4. The Windows process sampler has never executed~~ — DONE 2026-07-27
+
+It works. `tests/test_process_sampler.py` spawns processes named `miner.exe` and `bitcoind.exe` and requires
+the sampler to find both; the `win-sampler` job runs it on `windows-latest` and gates `release`. First run on
+a real Windows runner: 2 rows returned, both roles matched at 57.7 MB. The PowerShell branch was correct — but
+that was luck, not knowledge, since nothing had ever run it.
+
+Notes for anyone extending it:
+
+- **Matching differs per platform, so a fake process has to be built differently to be seen at all.** Windows
+  matches on `ProcessName`, which comes from the executable's *filename* and ignores argv — hence real
+  `miner.exe` files, copied next to `python.exe` so its DLLs resolve.
+- **POSIX gets a parser shape check, not fakes, and that is deliberate.** Linux `ps` reads
+  `/proc/pid/cmdline` so an argv[0] override works, but macOS `ps` reports the real exec path and the override
+  is invisible. An early draft "passed" on macOS purely because a real notzero install was running — it was
+  measuring the live app, not its own fakes.
+- It is a **separate job**, not a step inside the Windows build: that matrix is `fail-fast: false`, so a
+  failure there would let mac and Linux publish a version Windows never shipped.
+
+<details><summary>original</summary>
+
+### The Windows process sampler has never executed
 
 `_sample_processes()` in `scripts/node_bridge.py` has a PowerShell branch for Windows written blind. CI only
 ever *compiles* the bridge through PyInstaller; it never runs it. So that code has executed on no machine
@@ -105,6 +126,8 @@ Windows already was. But it is untested code shipping to users.
 
 Fix: a CI step on `windows-latest` that runs the bridge for a few seconds and asserts `node.json` parses with a
 plausible `miner_proc`. Would also have caught the psutil-never-installed bug, which shipped dead for weeks.
+
+</details>
 
 ---
 
@@ -149,6 +172,7 @@ an update installs; a user who never clicks it still receives every subsequent r
 | Rescue resubmits **and stops** (no infinite retry) | same | yes, every release |
 | Direct P2P delivery to a disconnected peer | same | yes, every release |
 | Settles at 6 confirmations, matures at 100 | same | yes, every release |
+| The Windows process sampler runs and finds both processes | `tests/test_process_sampler.py` | yes, every release |
 
 Three offline gates need no node and have no opt-out: a miner that cannot recognise a win, derives the wrong
 payout script, or encodes the height wrongly cannot be packaged.
