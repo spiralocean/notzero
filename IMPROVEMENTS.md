@@ -41,7 +41,25 @@ to ignore it. Fix or delete that test as part of this.
 
 ---
 
-## 2. A block containing real transactions has never been accepted
+## ~~2. A block containing real transactions has never been accepted~~ — DONE 2026-07-27
+
+The harness now refills the mempool before **every** attempt with three transactions — one spending a P2PKH
+coinbase (no witness, txid == wtxid) and two spending bech32 coinbases (witness, txid != wtxid) — and asserts
+the won block carried them, that the mix is present, and that the coinbase holds the segwit commitment. The
+node accepting the block is the proof: it recomputed both merkle trees from our bytes and agreed.
+
+Two things worth keeping in mind if this is ever reworked:
+
+- **The refill has to be inside the attempt loop.** A losing attempt ends with `generatetoaddress`, which
+  confirms the mempool away — filling once at the top would leave whichever attempt actually *wins* building
+  on an empty template again, which is the exact gap this closed.
+- **The P2PKH coinbases live in their own wallet.** Held alongside the bech32 ones they are just the oldest
+  coins in the pot, so coin selection reaches for them first and every "segwit" send comes out legacy. The
+  first run of this scored 0 segwit / 3 legacy for precisely that reason.
+
+<details><summary>original</summary>
+
+### A block containing real transactions has never been accepted
 
 `scripts/test-win-regtest.py` mines blocks against a near-empty mempool, so the witness commitment and a
 non-trivial merkle tree are only ever exercised by `verify-block.py`'s `getblocktemplate` **proposal** mode.
@@ -50,6 +68,8 @@ Proposal mode is a good check but it is not acceptance, and it explicitly skips 
 Fix: fund the regtest wallet, create a handful of transactions (at least one segwit, one legacy) so the
 template carries `default_witness_commitment` and several txids, then mine and submit as the harness already
 does. ~15 lines. Closes the last correctness gap in block construction.
+
+</details>
 
 ---
 
@@ -123,11 +143,12 @@ an update installs; a user who never clicks it still receives every subsequent r
 | The payout address derives the right script | `tests/test_payout_script.py` | yes, every build |
 | BIP34 coinbase height is a valid CScriptNum | `tests/test_coinbase_height.py` | yes, every build |
 | The built block would be accepted (PoW aside) | `scripts/verify-block.py` | yes, when a node is reachable |
-| A real block is submitted and accepted | `scripts/test-win-regtest.py` | manual |
-| The block survives to disk before submitting | same | manual |
-| Rescue resubmits **and stops** (no infinite retry) | same | manual |
-| Direct P2P delivery to a disconnected peer | same | manual |
-| Settles at 6 confirmations, matures at 100 | same | manual |
+| A real block is submitted and accepted | `scripts/test-win-regtest.py` | yes, every release |
+| …carrying real transactions, segwit **and** legacy, with a live witness commitment | same | yes, every release |
+| The block survives to disk before submitting | same | yes, every release |
+| Rescue resubmits **and stops** (no infinite retry) | same | yes, every release |
+| Direct P2P delivery to a disconnected peer | same | yes, every release |
+| Settles at 6 confirmations, matures at 100 | same | yes, every release |
 
 Three offline gates need no node and have no opt-out: a miner that cannot recognise a win, derives the wrong
 payout script, or encodes the height wrongly cannot be packaged.

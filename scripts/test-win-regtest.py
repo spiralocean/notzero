@@ -81,7 +81,9 @@ def main():
     datadir, appdir = work / "node", work / "app"
     datadir.mkdir(parents=True), appdir.mkdir(parents=True)
     (datadir / "bitcoin.conf").write_text(
-        "regtest=1\nserver=1\nfallbackfee=0.0001\n[regtest]\nrpcuser=t\nrpcpassword=t\n"
+        # fallbackfee lives INSIDE [regtest]: Core ignores a network-only setting written above the section
+        # header (it only warns), and without it sendtoaddress fails on a chain with no fee history.
+        "regtest=1\nserver=1\n[regtest]\nrpcuser=t\nrpcpassword=t\nfallbackfee=0.0001\n"
         f"rpcport={RPC_PORT}\nrpcbind=127.0.0.1\nrpcallowip=127.0.0.1\nport={P2P_PORT}\nlisten=1\nbind=127.0.0.1\n")
     node = subprocess.Popen([bitcoind, f"-datadir={datadir}"], stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
 
@@ -97,9 +99,45 @@ def main():
             print("bitcoind never became reachable"); return 2
 
         rpc("createwallet", ["t"])
-        addr = rpc("getnewaddress", [], wallet="t")
-        rpc("generatetoaddress", [110, addr])     # a chain deep enough for getblocktemplate
+        # The P2PKH coinbases go in their OWN wallet. Held alongside the bech32 ones they are simply the
+        # oldest coins in the pot, so coin selection reaches for them first and every "segwit" send comes out
+        # legacy — which is exactly what the first run of this showed: 0 segwit, 3 legacy.
+        rpc("createwallet", ["legacy"])
+        addr = rpc("getnewaddress", [], wallet="t")                            # bech32 → spends as a segwit input
+        legacy_addr = rpc("getnewaddress", ["", "legacy"], wallet="legacy")    # P2PKH → spends with no witness
+        taproot_addr = rpc("getnewaddress", ["", "bech32m"], wallet="t")
+        # Two runs of coinbases, so the mempool can be filled with a MIX of spend types. Spending a bech32
+        # coinbase produces a witness input (txid != wtxid); spending a P2PKH one produces none (txid ==
+        # wtxid). A block carrying both is what makes the two merkle trees distinguishable: the block's own
+        # root is built from txids, the witness commitment from wtxids, and with only one kind of input
+        # present those are the same list — the miner could confuse them and every test would still pass.
+        rpc("generatetoaddress", [50, legacy_addr])
+        rpc("generatetoaddress", [110, addr])     # a chain deep enough for getblocktemplate, and matures the above
         print(f"regtest chain at height {rpc('getblockcount')}\n")
+
+        # Mature P2PKH coinbases, spent one per attempt. Held as explicit outpoints rather than left to wallet
+        # coin selection: a wallet send would create CHANGE at the wallet's default type (bech32), so the
+        # second legacy spend onward would quietly become segwit and the mix would disappear after attempt 1.
+        legacy_coins = []
+        for i in range(1, 51):
+            cb = rpc("getblock", [rpc("getblockhash", [i]), 2])["tx"][0]
+            pay = next(o for o in cb["vout"] if o["value"] > 0)   # vout 1 is the witness commitment, value 0
+            legacy_coins.append((cb["txid"], pay["n"], pay["value"]))
+
+        def fill_mempool():
+            """Put real transactions in the mempool so the next getblocktemplate is not empty.
+
+            Called before EVERY attempt, not once at the top: a losing attempt ends with generatetoaddress,
+            which confirms the mempool away, so whichever attempt actually wins would otherwise be building
+            on an empty template again — precisely the gap this is here to close."""
+            txid, vout, value = legacy_coins.pop()
+            raw = rpc("createrawtransaction", [[{"txid": txid, "vout": vout}],
+                                               {legacy_addr: round(value - 0.001, 8)}])
+            signed = rpc("signrawtransactionwithwallet", [raw], wallet="legacy")
+            rpc("sendrawtransaction", [signed["hex"]])
+            rpc("sendtoaddress", [taproot_addr, 0.5], wallet="t")
+            rpc("sendtoaddress", [addr, 0.25], wallet="t")
+            return rpc("getmempoolinfo")["size"]
 
         cfg = {"version": 1, "mode": "live", "payout_address": PAYOUT, "coinbase_tag": "",
                "rpc_url": f"http://127.0.0.1:{RPC_PORT}", "rpc_user": "t", "rpc_pass": "t", "rpc_cookie": ""}
@@ -120,6 +158,7 @@ def main():
         print("mining (regtest target ≈ 2^255, so ~1 in 2 per hash)…")
         won = None
         for attempt in range(1, 41):
+            pending = fill_mempool()
             before = rpc("getblockcount")
             r = subprocess.run([sys.executable, str(REPO / "lottery_miner.py"), "--once", "--mode", "live"],
                                env=env, capture_output=True, text=True, timeout=180)
@@ -129,7 +168,7 @@ def main():
                 cb = rpc("getblock", [bh, 2])["tx"][0]
                 if cb["vout"][0]["scriptPubKey"]["hex"] == our_script:
                     won = {"height": after, "hash_hex": bh, "coinbase": cb, "out": (r.stdout or "") + (r.stderr or "")}
-                    print(f"  won on attempt {attempt}: block {after}")
+                    print(f"  won on attempt {attempt}: block {after} (built on a {pending}-transaction mempool)")
                     break
             if "high-hash" in ((r.stdout or "") + (r.stderr or "")):
                 say(False, "submitblock rejected a block the miner thought it won (high-hash) — check_win disagrees with consensus")
@@ -153,7 +192,24 @@ def main():
         say(won["coinbase"]["vout"][0]["scriptPubKey"]["hex"] == our_script,
             "the coinbase pays exactly the script our payout address derives to")
 
-        # --- 2c. THE BLOCK SURVIVES, AND THE RESCUE PATH TERMINATES ----------------------------------------
+        # --- 2c. IT CARRIED REAL TRANSACTIONS ---------------------------------------------------------------
+        # Until this existed, every block the harness submitted came off a near-empty mempool, so the merkle
+        # tree was one or two levels of the coinbase against itself and the witness commitment covered nothing.
+        # `verify-block.py` exercises a full template, but only through getblocktemplate PROPOSAL mode, which
+        # is a validity opinion rather than acceptance. Here the node has already accepted the block above —
+        # which means it recomputed both trees from the bytes we sent and agreed with us.
+        print()
+        blk = rpc("getblock", [our_hash, 2])
+        body = blk["tx"][1:]
+        say(len(body) >= 2, f"the won block carries {len(body)} transactions besides the coinbase")
+        wit = [t for t in body if any(v.get("txinwitness") for v in t["vin"])]
+        leg = [t for t in body if not any(v.get("txinwitness") for v in t["vin"])]
+        say(bool(wit) and bool(leg),
+            f"…{len(wit)} of them segwit and {len(leg)} legacy, so txid and wtxid really diverge inside it")
+        commitment = [o for o in blk["tx"][0]["vout"] if o["scriptPubKey"]["hex"].startswith("6a24aa21a9ed")]
+        say(bool(commitment), "and its coinbase carries the segwit commitment over those witnesses")
+
+        # --- 2d. THE BLOCK SURVIVES, AND THE RESCUE PATH TERMINATES ----------------------------------------
         # A won block is written to disk BEFORE submitting, so an RPC blip at the one moment that matters can
         # never lose it, and a resubmit loop resumes on the next start. None of that had ever been exercised.
         # The dangerous failure isn't only "never lands" — it's also "retries forever", because a resolved
