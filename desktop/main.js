@@ -39,6 +39,8 @@ process.on("unhandledRejection", showStartupError);
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
+const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
+let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
 // on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
 // missing/broken module can never crash startup (0.1.30 shipped without ots-verify.js and died on launch). If it
@@ -473,8 +475,12 @@ function whatsNewDialog({ fromVer, toVer, title, buttons, extraDetail }) {
       if (clipped) notes = notes.replace(/\s+$/, "") + "\n  … — tap “See Full Notes” for everything since your version";
       const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
       const opts = { type: "info", noLink: true, title, message: title, detail: (notes ? notes + "\n\n" : "") + (extraDetail || ""), buttons, defaultId: 0, cancelId: buttons.length - 1 };
-      try { (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then((r) => resolve(r.response)).catch(() => resolve(-1)); }
-      catch (_) { resolve(-1); }
+      // Count it while it is on screen: a pending update must not quitAndInstall() out from under it (see
+      // install-gate.js). This is the only dialog a user can sit in front of for hours.
+      modalDepth++;
+      const done = (v) => { modalDepth = Math.max(0, modalDepth - 1); resolve(v); };
+      try { (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then((r) => done(r.response)).catch(() => done(-1)); }
+      catch (_) { done(-1); }
     });
   });
 }
@@ -526,12 +532,22 @@ function initAutoUpdate() {
       try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download's fingerprint didn't match the checksum published for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
       return; // do not install a download we can't vouch for
     }
-    try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
-    try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
-    // isQuitting FIRST: quitAndInstall() closes the window BEFORE firing before-quit, and win.on("close") hides
-    // (doesn't quit) the window on macOS unless isQuitting is set — so without this the app never terminates and
-    // Squirrel's ShipIt hangs forever waiting to swap the bundle (the 0.1.33→0.1.34 mac auto-update stall).
-    setTimeout(() => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) {} }, 6000); // a beat longer so the message is readable before the relaunch
+    // Held while a modal dialog is on screen. The what's-new recap is parented to the window, so on macOS it is
+    // a window-modal sheet — and quitAndInstall() closes the window FIRST, so anything stopping that close
+    // wedges ShipIt exactly like the 0.1.33→0.1.34 stall below. Waiting costs nothing: the old version keeps
+    // running and the update lands the moment the dialog is dismissed. See desktop/install-gate.js.
+    deferWhileBusy({
+      isBusy: () => modalDepth > 0,
+      onIdle: () => {
+        try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
+        try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
+      },
+      // isQuitting FIRST: quitAndInstall() closes the window BEFORE firing before-quit, and win.on("close") hides
+      // (doesn't quit) the window on macOS unless isQuitting is set — so without this the app never terminates and
+      // Squirrel's ShipIt hangs forever waiting to swap the bundle (the 0.1.33→0.1.34 mac auto-update stall).
+      run: () => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) {} },
+      delayMs: 6000, // a beat longer so the message is readable before the relaunch
+    });
   });
   const check = () => { autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => {}); }; // re-read the pref each check so a toggle takes effect
   // Jitter the FIRST check. The recurring interval needs none — each client's phase comes from its own launch
