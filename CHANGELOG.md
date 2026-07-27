@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.70
+## Unreleased — next: 0.1.71
+
+## 0.1.70
 
 **Miner**
 - **Fixed a coinbase encoding that would have made a won block unacceptable.** The block height written into
