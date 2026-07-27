@@ -107,8 +107,26 @@ jobs:
       - name: Full win path on regtest
         run: python3 scripts/test-win-regtest.py
 
+  # The bridge's Windows process sampler is a PowerShell pipeline that had executed on no machine anywhere:
+  # CI compiled the bridge through PyInstaller but never RAN it, so the branch shipped to users unexecuted.
+  # That is exactly how psutil shipped dead for weeks. This spawns processes named miner.exe / bitcoind.exe
+  # and makes the sampler find them, so the code path runs before it reaches anyone.
+  #
+  # A separate job rather than a step inside the Windows build: the build matrix is fail-fast: false, so a
+  # failure there would let mac and Linux publish a version Windows never shipped. As a `needs` of release it
+  # blocks all three.
+  win-sampler:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Process sampler on Windows
+        run: python tests/test_process_sampler.py
+
   release:
-    needs: [verify-core, dashboard, win-path]
+    needs: [verify-core, dashboard, win-path, win-sampler]
     strategy:
       fail-fast: false
       matrix:
