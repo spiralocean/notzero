@@ -546,3 +546,52 @@ for (const [name, ws, expected] of [
     expect(await page.evaluate(() => !!window.__frames.win)).toBe(true); // present with no celebration on screen
   });
 }
+
+// The ambient view opens by itself once the machine has been idle for a while. This is the control for people
+// who don't want to wait for that — it sits with the other view controls (motion, text size) rather than in
+// the bottom-right corner where its predecessor was an unlabelled floating button nobody found.
+//
+// Only the desktop app can honour it: /ambient-open is served by the app's local HTTP server, so on the public
+// demo the control must not be drawn at all rather than drawn and dead.
+test("ambient: the control opens the view without waiting for the idle timer", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  let posts = 0;
+  await page.route("**/ambient-open", (r) => { posts += r.request().method() === "POST" ? 1 : 0; return r.fulfill({ status: 200, contentType: "application/json", body: '{"ok":true}' }); });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__ambientHit, null, { timeout: 20000 });
+  const hit = await page.evaluate(() => window.__ambientHit);
+  console.log(`   ambient control at ${JSON.stringify(hit)}`);
+
+  // It sits on the same row as the motion toggle and after the text-size control — i.e. in the cluster, not
+  // floating off on its own. Asserting the relationship, not pixel coordinates, so the row can be restyled.
+  const { motion, zoom } = await page.evaluate(() => ({ motion: window.__motionHit, zoom: window.__zoomInHit }));
+  if (motion && zoom) {
+    expect(hit.y).toBe(motion.y);
+    expect(hit.x).toBeGreaterThan(zoom.x + zoom.w);
+  }
+
+  await page.mouse.click(hit.x + hit.w / 2, hit.y + hit.h / 2);
+  await expect.poll(() => posts, { timeout: 5000 }).toBe(1);
+});
+
+test("ambient: no control on the public site, where nothing could answer it", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await installMocks(page);
+  // app.js gates the control on location.hostname, so the page has to be SERVED from a public-looking host.
+  // Overriding window.location.hostname from an init script does not work — Location's properties are not
+  // configurable in Chromium, defineProperty throws, addInitScript swallows it, and the test then "passes"
+  // against a stub that never applied. So serve the real files under a non-localhost origin instead.
+  await page.route("http://demo.getnotzero.com/**", async (r) => {
+    const path = new URL(r.request().url()).pathname;
+    const res = await r.fetch({ url: `http://localhost:8799${path === "/" ? "/index.html" : path}` });
+    await r.fulfill({ response: res });
+  });
+  await page.goto("http://demo.getnotzero.com/");
+  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 20000 });
+  expect(await page.evaluate(() => window.location.hostname)).toBe("demo.getnotzero.com"); // the premise held
+  expect(await page.evaluate(() => window.__ambientHit)).toBeFalsy();
+});

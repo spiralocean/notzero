@@ -765,12 +765,13 @@ let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover h
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
 let broadcastBurstUntil = 0; // BROADCAST panel fires an intense "block found" burst for a window after a win
-let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null, zoomOutHit = null, zoomInHit = null;
+let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit = null, gearHit = null, blockPreviewHit = null, motionHit = null, zoomOutHit = null, zoomInHit = null, ambientHit = null;
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
-// the ambient-view FAB (index.html) is pinned bottom-right on localhost only; reserve room so the footer's version doesn't sit under it
+// The ambient view is opened through /ambient-open, which only the desktop app's local server answers — so the
+// control is drawn on localhost only and never appears on the public demo, where it could not do anything.
 const HAS_AMBIENT_BTN = location.hostname === "127.0.0.1" || location.hostname === "localhost";
 let consensusHit = null; // hit region for the "network rule change" banner (Core's `warnings` canary) → click checks for an update
 let fakeWarn = ""; // ?fakewarn= preview override for the consensus banner (so the UI can be seen without a real fork)
@@ -3879,6 +3880,7 @@ function drawMotionToggle() {
   text(lbl, x + w / 2, y + h / 2, { size: 11, weight: 600, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle", mono: true });
   if (hover) text("click to cycle motion · full → calm → off (off is lightest on older machines)", x + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
   motionHit = { x, y, w, h };
+  window.__motionHit = motionHit; // test hook: lets a test assert the control ROW's layout, not pixel positions
 }
 // visible text-size control (top-left, next to the motion toggle) so users discover they can enlarge the UI
 // without hunting for browser zoom. A−  110%  A+ — click either end; the level is remembered across sessions.
@@ -3897,7 +3899,29 @@ function drawZoomControl() {
   const pct = Math.round(userScale * 100) + "%", pw = Math.max(30, ctx.measureText(pct).width + 10);
   text(pct, x + pw / 2, y + h / 2, { size: 10, weight: 700, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle", mono: true }); x += pw;
   zoomInHit = seg(x, "A+", userScale < 1.6);
+  window.__zoomInHit = zoomInHit; // test hook: the right-hand end of the cluster, which the ambient control follows
   if (inHit(zoomOutHit, mouseX, mouseY) || inHit(zoomInHit, mouseX, mouseY)) text("text size — make everything bigger or smaller (remembered)", startX, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+}
+// Ambient view launcher (top-left, after the text-size control). Deliberately ICON-ONLY: it sits beside the
+// other view controls, where someone looks for this kind of thing, and says what it is on hover in the same
+// way the motion toggle does. It replaces a bottom-right floating button that was unlabelled AND parked in
+// the one corner nobody scans — the same subtlety, somewhere it can actually be found.
+//
+// The idle timer opens this view on its own after ambient.idleSeconds; this is the "don't make me wait" path.
+// It POSTs the same /ambient-open the old button did, so it lands in openAmbient(manual = true) — which never
+// auto-closes and never locks on wake, unlike an idle-triggered one.
+function drawAmbientButton() {
+  if (!HAS_AMBIENT_BTN) return;
+  const y = 11, h = 20, w = 24, x = (zoomInHit ? zoomInHit.x + zoomInHit.w : PAD) + 12;
+  const hover = inHit({ x, y, w, h }, mouseX, mouseY);
+  ctx.fillStyle = `rgba(255,255,255,${hover ? 0.1 : 0.045})`; roundRect(x, y, w, h, 5); ctx.fill();
+  ctx.strokeStyle = `rgba(${ACCENT},${hover ? 0.5 : 0.2})`; ctx.lineWidth = 1; roundRect(x, y, w, h, 5); ctx.stroke();
+  text("◉", x + w / 2, y + h / 2, { size: 12, weight: 700, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle" });
+  // Anchored at the left margin, like the motion toggle's hint — starting it under the control itself runs the
+  // line straight into the BITCOIN LOTTERY title, since this sits at the right-hand end of the cluster.
+  if (hover) text("ambient view — full-screen calm mode, now rather than after the idle wait (Esc returns)", PAD + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+  ambientHit = { x, y, w, h };
+  window.__ambientHit = ambientHit; // test hook: the control's rect, so a test never hunts for it by pixel
 }
 
 // top-center liveness pill — answers "is it actually submitting tickets?" at a glance, so a user never has
@@ -4193,7 +4217,7 @@ function render(ts) {
   // wrong and nothing is blocked; the extra clause is the "why is my machine busy" answer, with a time.
   else if (backgroundVerify()) { const bv = backgroundVerify(), eta = backgroundVerifyEta(bv); fmsg = `◉ LIVE solo mining · verifying history ${(bv.progress * 100).toFixed(0)}%${eta ? ` · ${eta}` : ""} · ${ver}`; fcol = "rgba(90,220,140,0.95)"; }
   else { fmsg = `◉ LIVE solo mining — submits a block if it wins · ${ver}`; fcol = "rgba(90,220,140,0.95)"; } // ◉ (not ●) so LIVE differs from the amber 'synced' state by shape, not only colour
-  text(fmsg, W - PAD - (HAS_AMBIENT_BTN ? 30 : 0), H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // clear the ambient FAB (bottom-right) so the version isn't hidden behind it
+  text(fmsg, W - PAD, H - 14, { size: 13, weight: 700, color: fcol, align: "right", baseline: "middle" }); // the bottom-right corner is the version's again now the ambient control moved up beside the other view controls
   window.__footerPill = fmsg; // test hook: the right-hand status string
   let leftMsg = "";
   if (syncDemo) {
@@ -4243,7 +4267,7 @@ function render(ts) {
   // scrim behind the fixed TOP controls (status pill, preview/motion/size) so scrolled panel content doesn't
   // collide with them once the header has scrolled up out of view. Mirrors the footer scrim. Only when scrolled.
   if (scrollY > 0) { const tGrad = ctx.createLinearGradient(0, 0, 0, 42); tGrad.addColorStop(0, "rgba(5,4,10,0.97)"); tGrad.addColorStop(0.62, "rgba(5,4,10,0.82)"); tGrad.addColorStop(1, "rgba(5,4,10,0)"); ctx.fillStyle = tGrad; ctx.fillRect(0, 0, W, 42); }
-  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawOfflineNotice(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
+  if (!celebration.active) { drawMinerStatus(); drawPreviewTrigger(); drawUpdatePill(); drawGear(); drawMotionToggle(); drawZoomControl(); drawAmbientButton(); drawOfflineNotice(); drawBestToast(); if (!drawOwnWinStatus(ws)) drawNetWinBadge(netWins); } // your own pending/lost block takes priority over a network-win badge
   drawCelebration(); // on top of everything
   drawSyncedBanner(); // the brief "caught up — now mining" banner after sync completes
   drawConsensusBanner(); // persistent "network rule change detected" banner when the node flags unknown consensus rules
@@ -4305,6 +4329,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
   if (inHit(zoomOutHit, e.offsetX, e.offsetY)) { setUserScale(userScale - 0.1); return; } // text size −
   if (inHit(zoomInHit, e.offsetX, e.offsetY)) { setUserScale(userScale + 0.1); return; } // text size +
+  if (inHit(ambientHit, e.offsetX, e.offsetY)) { fetch("/ambient-open", { method: "POST" }).catch(() => {}); return; } // open the ambient view now, rather than waiting for the idle timer
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
   if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
   if (inHit(consensusHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "network rule change" banner → check for an update that handles the new rules
@@ -4356,7 +4381,7 @@ canvas.addEventListener("mousemove", (ev) => { const e = ptr(ev);
   mouseX = e.offsetX; mouseY = e.offsetY;
   hoverSection = sectionAt(e.offsetX, e.offsetY + scrollY);
   const cyc = e.offsetY + scrollY, churnBtn = expanded.has("churn") && (inHit(churnPlayHit, e.offsetX, cyc) || inHit(churnBackHit, e.offsetX, cyc) || inHit(churnFwdHit, e.offsetX, cyc)), foldBtn = expanded.has("fold") && (inHit(foldPlayHit, e.offsetX, cyc) || inHit(foldBackHit, e.offsetX, cyc) || inHit(foldFwdHit, e.offsetX, cyc)), updBtn = expanded.has("updates") && (inHit(updPlayHit, e.offsetX, cyc) || inHit(updBackHit, e.offsetX, cyc) || inHit(updFwdHit, e.offsetX, cyc));
-  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(zoomOutHit, e.offsetX, e.offsetY) || inHit(zoomInHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY) || inHit(consensusHit, e.offsetX, e.offsetY));
+  canvas.classList.toggle("clickable", !!hoverSection || churnBtn || foldBtn || updBtn || celebration.active || inHit(winPreviewHit, e.offsetX, e.offsetY) || inHit(blockPreviewHit, e.offsetX, e.offsetY) || inHit(gearHit, e.offsetX, e.offsetY) || inHit(motionHit, e.offsetX, e.offsetY) || inHit(zoomOutHit, e.offsetX, e.offsetY) || inHit(zoomInHit, e.offsetX, e.offsetY) || inHit(ambientHit, e.offsetX, e.offsetY) || inHit(netWinHit, e.offsetX, e.offsetY) || inHit(bestToastHit, e.offsetX, e.offsetY) || inHit(winStatusHit, e.offsetX, e.offsetY) || inHit(updatePillHit, e.offsetX, e.offsetY) || inHit(consensusHit, e.offsetX, e.offsetY));
 });
 canvas.addEventListener("wheel", (ev) => { const e = ptr(ev);
   if (maxScroll <= 0) return;

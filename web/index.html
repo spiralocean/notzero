@@ -26,34 +26,10 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
     #stage { display: block; width: 100vw; height: 100vh; cursor: default; }
     #stage.clickable { cursor: pointer; }
-    #ambient-btn {
-      position: fixed; right: 18px; bottom: 18px; z-index: 10;
-      width: 40px; height: 40px; border-radius: 999px;
-      border: 1px solid rgba(150,180,220,.18); background: rgba(14,20,32,.55); color: #8a97ab;
-      cursor: pointer; display: none; place-items: center;
-      -webkit-backdrop-filter: blur(10px); backdrop-filter: blur(10px);
-      opacity: .5; transition: opacity .2s, color .2s, background .2s;
-    }
-    #ambient-btn:hover { opacity: 1; color: #dfe6ef; background: rgba(20,28,44,.75); }
-    #ambient-btn svg { width: 20px; height: 20px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; }
   </style>
 </head>
 <body>
   <canvas id="stage"></canvas>
-  <button id="ambient-btn" title="Ambient view" aria-label="Open ambient view">
-    <svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M5 5l1.6 1.6M17.4 17.4L19 19M19 5l-1.6 1.6M6.6 17.4L5 19"/></svg>
-  </button>
   <script type="module" src="./app.js"></script>
-  <script>
-    // Ambient-view launcher — only in the desktop app (localhost has the server + /ambient-open); hidden on the public site.
-    (function(){
-      var h = location.hostname, isApp = (h === "127.0.0.1" || h === "localhost");
-      var b = document.getElementById("ambient-btn");
-      if (!b) return;
-      if (!isApp) { b.remove(); return; }
-      b.style.display = "grid";
-      b.addEventListener("click", function(){ fetch("/ambient-open", { method: "POST" }).catch(function(){}); });
-    })();
-  </script>
 </body>
 </html>
