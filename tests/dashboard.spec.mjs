@@ -594,4 +594,8 @@ test("ambient: no control on the public site, where nothing could answer it", as
   await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 20000 });
   expect(await page.evaluate(() => window.location.hostname)).toBe("demo.getnotzero.com"); // the premise held
   expect(await page.evaluate(() => window.__ambientHit)).toBeFalsy();
+  // The app keeps polling after the assertions are done, so a proxied request can still be in flight when the
+  // test ends — and route.fetch() then rejects with "Test ended", failing the RUN while every test reports
+  // passed. Which is exactly how this looked in CI: "22 passed" next to a red job. Drop the handler first.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
 });
