@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.72
+## Unreleased — next: 0.1.73
+
+## 0.1.72
+
+**Dashboard**
+- **You can start the ambient view whenever you want, without waiting for it.** The full-screen ambient view
+  appears on its own once the machine has been idle for a while, and there was a button to open it early —
+  but it was an unlabelled circle tucked into the bottom-right corner, next to the version number, and
+  essentially nobody found it. It now sits at the top left with the other view controls (motion, text size),
+  and tells you what it is when you hover it. It's still there in the menu, and on ⌘⇧A.
 
 ## 0.1.71
 
