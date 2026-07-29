@@ -4,7 +4,17 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.73
+## Unreleased — next: 0.1.74
+
+## 0.1.73
+
+**Dashboard**
+- **After your computer sleeps, the block timer no longer shows nonsense.** Waking a machine that has been
+  asleep leaves your node with blocks to catch up on, and during that catch-up the app was treating the last
+  block your node happened to have as though it were the newest block on the network. NEXT BLOCK would read
+  something like "+146 min since last block" and then count *downwards* as the node worked through the
+  backlog. While your node is behind, the app now takes the current block from the network instead, and
+  switches back to your own node the moment it has caught up.
 
 ## 0.1.72
 
