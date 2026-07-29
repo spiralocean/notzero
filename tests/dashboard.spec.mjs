@@ -599,3 +599,41 @@ test("ambient: no control on the public site, where nothing could answer it", as
   // passed. Which is exactly how this looked in CI: "22 passed" next to a red job. Drop the handler first.
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
+
+// Regression, reported off a real overnight sleep (2026-07-29): the Intel mac woke, NEXT BLOCK read "+146 min
+// since last block", and then COUNTED DOWN — 146, then 100. Nothing counts: elapsed is recomputed every frame
+// as now − model.block.timestamp, so a falling number means the block being measured from kept being replaced
+// by a newer one that was still in the past. That is a node chewing through the blocks it missed.
+//
+// The tip was rendered as current because both sides gated only on initialblockdownload, and Core latches that
+// flag to false once the node has ever caught up — bitcoind keeps running across a sleep, so a node hours
+// behind still reports false. A node whose headers lead its blocks is BEHIND and its tip must not be used.
+test("node tip: a node that is behind (headers ahead of blocks) is not treated as the tip", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  let tipHashHits = 0;
+  await page.route("**/api/blocks/tip/hash", (r) => { tipHashHits++; return r.continue(); });
+  // Exactly the woken-laptop shape: NOT in IBD, but 62 blocks behind, offering a stale tip_block.
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: 1718901234, reachable: true, blocks: 960001, headers: 960063, verificationprogress: 0.9999,
+    initialblockdownload: false, size_on_disk: 9.8e9, pruned: true, core_version: "31.1.0",
+    tip_block: { id: "0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee", height: 960001, version: 671088640,
+      previousblockhash: "00000000000000000000164c0521899c2ace28639352efb1e6f7faa1f1ab0d6fd",
+      merkle_root: "f576d43263ff8056c3cfa68d456e059d02d48d09413ead2e58ef020ffd0c3dc0",
+      timestamp: 1718901000, bits: 386089497, nonce: 12345, tx_count: 4001, difficulty: 1.26e14 },
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.node && window.__model.node.tip_block, null, { timeout: 20000 });
+  const base = tipHashHits;
+  await page.evaluate(() => window.__refresh());
+  await page.waitForTimeout(800);
+
+  // It must go to mempool.space for the tip rather than trusting the stale local one…
+  expect(tipHashHits).toBeGreaterThan(base);
+  // …and the stale block must not be what NEXT BLOCK is measuring from.
+  const h = await page.evaluate(() => window.__model.block && window.__model.block.height);
+  console.log(`   tip height in use: ${h} (the stale local tip was 960001)`);
+  expect(h).not.toBe(960001);
+});

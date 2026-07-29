@@ -51,6 +51,18 @@ echo ""
 # Gate: the payout address must become the right script. Runs ALWAYS — no node, no opt-out. This is
 # hand-rolled bech32 and base58; derive the wrong scriptPubKey and a won block pays a script the user does
 # not control, silently and irreversibly. Vectors are Core's own validateaddress output on mainnet.
+# Gate: the node's own tip is published only when it IS the network's tip. A machine that sleeps wakes with
+# bitcoind still running, so initialblockdownload stays latched false while the node is hours behind — and the
+# dashboard then draws an old block as "now", with the NEXT BLOCK overrun counting DOWN as it catches up.
+echo "── gate: a stale local tip is not published as the chain tip…"
+if ! python3 "$ROOT/tests/test_tip_current.py"; then
+  echo "" >&2
+  echo "✋ a node that is behind would be treated as caught up — refusing to build." >&2
+  echo "   The dashboard would show an old block as the current tip." >&2
+  exit 1
+fi
+echo ""
+
 echo "── gate: payout addresses derive the right script…"
 if ! python3 "$ROOT/tests/test_payout_script.py"; then
   echo "" >&2

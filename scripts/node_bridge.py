@@ -369,6 +369,33 @@ def core_version(subversion):
     return s
 
 
+CATCHUP_TOLERANCE = 1  # headers legitimately lead blocks by one for the seconds between a header and its block
+
+
+def tip_is_current(chain):
+    """Is this node's tip the NETWORK's tip, or is it still working through a backlog?
+
+    Deliberately NOT `initialblockdownload`. That flag answers "am I doing the INITIAL sync": Core only counts
+    a tip as stale past 24h, and it latches to false once the node has ever caught up, for the remaining life
+    of the process. A laptop that sleeps overnight wakes with bitcoind still running, the flag still false, and
+    a tip hours behind — so we published a stale block as the current tip, and the dashboard rendered
+    "+146 min since last block" and then COUNTED DOWN as the node caught up, because each poll landed on a
+    newer block that was still in the past. Reported off a real overnight sleep, 2026-07-29.
+
+    Headers are tiny and sync in seconds while blocks lag behind them, so headers-vs-blocks is precisely "the
+    network has blocks I have not processed yet".
+
+    Deliberately NOT a tip-age check either: a genuinely long inter-block gap is the very thing the NEXT BLOCK
+    panel exists to show, and an age rule would hide the real tip exactly when the display is most interesting.
+    """
+    if chain.get("initialblockdownload", False):
+        return False
+    blocks, headers = chain.get("blocks"), chain.get("headers")
+    if not isinstance(blocks, int) or not isinstance(headers, int):
+        return False  # can't tell → don't claim it is current; the dashboard falls back to mempool.space
+    return headers - blocks <= CATCHUP_TOLERANCE
+
+
 def tip_block_from_core(cb):
     """Core getblock(hash, 1) -> the block-header shape the dashboard uses for its tip.
 
@@ -438,7 +465,7 @@ def build(url, user, pw, cookie=""):
     # snapshot chainstate is already at the tip and mining), which is exactly the window we need to explain.
     verifying = background_validation(url, user, pw) if node_ok else None
     tip_block = None
-    if node_ok and not chain.get("initialblockdownload", False):  # mempool isn't shown during sync — skip its 2 RPC calls so a busy node doesn't stall the poll
+    if node_ok and tip_is_current(chain):  # mempool isn't shown while behind — skip its 2 RPC calls so a busy node doesn't stall the poll
         # the tip block's full header, so the dashboard can render NEXT BLOCK / VERIFY / the ticket straight from
         # YOUR node instead of fetching it from mempool.space every 30s. Only when synced — during IBD the local
         # tip is meaningless. getblock verbosity 1 = header + txids (no tx bodies), a light call.

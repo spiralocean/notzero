@@ -414,6 +414,12 @@ async function applyTipBlock(blk) {
 function nodeTip() {
   const n = model.node;
   if (!n || n.reachable === false || n.initialblockdownload) return null;
+  // The same guard as the bridge's tip_is_current(). initialblockdownload is NOT enough: a node whose machine
+  // slept is not in IBD (Core latches that flag false once caught up) yet can be hundreds of blocks behind,
+  // and its tip is then a hours-old block this would render as "now" — the NEXT BLOCK overrun counting DOWN
+  // as the node catches up. Checked here as well as in the bridge because node.json on disk can have been
+  // written by an older bridge than the dashboard reading it.
+  if (typeof n.blocks === "number" && typeof n.headers === "number" && n.headers - n.blocks > 1) return null;
   const tb = n.tip_block;
   if (!tb || tb.id == null || tb.bits == null || tb.height == null) return null;
   return tb;
