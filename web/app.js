@@ -882,10 +882,10 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-// seconds: hold the quote, then morph to the next. 3.6 because the band now crosses the ENTIRE viewport plus its
-// own width at each end (~1580px at 1280 wide, vs ~1145 when it only spanned the text), and this keeps it at the
-// ~440 px/s that looked right — holding the duration instead would have silently sped the band up by 38%.
-const Q_HOLD = 11, Q_DECODE = 3.6;
+// seconds: hold the quote, then morph to the next. 2.2 rather than the 3.6 the constant-speed crossing needed:
+// with Q_PACE the margins are covered at ~1077 px/s and the text at ~359, so the approach costs 0.51s instead of
+// 1.12s while each character actually gets LONGER to morph (0.42s, up from 0.34s).
+const Q_HOLD = 11, Q_DECODE = 2.2;
 // Random order, every quote once before any repeats, and no repeat close to the seam between passes.
 // See quote-bag.js for why the seam needed its own guard and what it was doing before.
 const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
@@ -913,6 +913,7 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 // Position-keyed, the band crosses the screen at one constant speed regardless.
 const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
 const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
+const Q_PACE = 0.5;           // 0 = constant speed; k<1 keeps it monotonic. (1+k)x at the edges, (1-k)x mid-text
 function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -932,7 +933,16 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
   // the two held states. Travel therefore scales with the window, so a wider window means a faster band rather
   // than a longer transition.
   const travel0 = -Q_HEAD_PX, travel1 = W + Q_HEAD_PX;
-  const headX = travel0 + p * (travel1 - travel0);
+  // Non-linear pacing: quick across the empty margins, slowing over the text. Both the viewport and the quote
+  // are centred, so "slow in the middle" IS "slow over the text" — which avoids splitting the travel into
+  // segments and the velocity jumps at their joins.
+  //
+  //   g(p) = p + (k/2pi)·sin(2pi·p)   →   g'(p) = 1 + k·cos(2pi·p)
+  //
+  // so the band runs at (1+k)× at both ends and (1-k)× in the middle, with speed varying continuously and no
+  // stop-start. g(0)=0 and g(1)=1 exactly, so the endpoints are untouched and remain the two held states.
+  const g = p + (Q_PACE / (2 * Math.PI)) * Math.sin(2 * Math.PI * p);
+  const headX = travel0 + g * (travel1 - travel0);
   // Glyphs in the empty margins either side of the text — the stream arriving and departing. Drawn first so a
   // real character always sits on top of one. Alpha is sin(pi*s), so they fade in and out rather than blinking.
   if (p > 0 && p < 1) {
