@@ -94,6 +94,21 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
     <p><strong>The builds happen in the open too.</strong> Installers aren't produced on a laptop and uploaded — pushing a version tag triggers a <a href="https://github.com/spiralocean/notzero/actions/workflows/release.yml" target="_blank" rel="noopener">public GitHub Actions workflow</a> that builds all three platforms from that commit. Anyone can open the run for a version and read what produced the files, including the tests that had to pass first.</p>
     <p style="color:var(--dim); font-size:14.5px">Honest scope, because this is the one people assume goes further than it does: the fingerprint proves the file is the one we published, and the workflow shows it was built in public from a named commit. Neither lets you rebuild the installer yourself and confirm you get <em>byte-for-byte identical</em> output — that's called a reproducible build, and notzero doesn't have it yet. It's the remaining gap between "built in the open" and "provably this code, nothing else".</p>
 
+    <h2 id="ask"><span class="step">5.</span> Can't read code? Have something else read it for you</h2>
+    <p>Most people can't read Python, and shouldn't have to. That doesn't mean taking our word for what's in it — the repo is public, so you can point an AI assistant at <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">github.com/spiralocean/notzero</a> and ask it directly. Anything that can browse a repository, or that you can hand a local clone to, will do.</p>
+    <p><strong>Vague prompts get vague answers.</strong> "Check this for security issues" tends to produce confident-sounding filler. Ask the things you actually care about, which all have definite answers in the code:</p>
+    <div class="card files">
+      <p style="margin-top:0">→ Does this ever send my payout address, or anything else about me, off my machine?</p>
+      <p>→ Does it contain, generate, or ever touch a private key or a wallet seed?</p>
+      <p>→ What does it download and run, and how does it check what it downloaded before running it?</p>
+      <p>→ Does it phone home, report usage, or include any analytics or telemetry?</p>
+      <p style="margin-bottom:0">→ If I found a block, which code decides where the reward gets paid?</p>
+    </div>
+    <div class="card warn">
+      <p style="margin-top:0"><strong>What this is and isn't.</strong> It's a second opinion you control — not an audit. An AI can miss a real problem, and can be wrong with complete confidence; nobody has signed off on its answer and no one is accountable for it. It also only tells you about the code on GitHub, which <a href="#source">step 4</a> explains is not yet the same thing as the installer you downloaded. Treat it as a way to reduce how much you have to take on faith — a disagreement with anything we've claimed is exactly the signal worth having — and not as a clean bill of health.</p>
+      <p style="margin-bottom:0; color:var(--dim); font-size:14.5px">Worth knowing: notzero is written with heavy AI assistance. An AI reviewing AI-written code may share its blind spots, so this is a weaker check than a human who knows Bitcoin reading the same files — which is also something you're free to arrange.</p>
+    </div>
+
     <h2 id="since"><span class="step">✦</span> How long notzero has existed — proof, not a claim</h2>
     <p>The same mechanism dates the project itself. notzero's <strong>earliest release</strong> was timestamped onto the Bitcoin blockchain in <strong>block 957,017</strong>, mined <strong>July 7, 2026</strong>. Because a Bitcoin timestamp can't be backdated, that block is permanent, independently-checkable proof that notzero existed by then — you don't have to take our word for how long it's been around.</p>
     <p style="color:var(--dim); font-size:14.5px">Honest scope: a timestamp proves a thing existed <em>by</em> a given block — an upper bound on age. Our work began a little earlier, but this is the oldest point provable trustlessly on Bitcoin, so it's the date we stand on.</p>
