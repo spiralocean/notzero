@@ -882,10 +882,10 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-// seconds: hold the quote, then morph to the next. 2.6 rather than the original 1.7 because the glyph band has
-// to cross the text plus a margin at each end — ~1145px, so ~440 px/s — and at 1.7 that crossing read as a
-// blink rather than a stream.
-const Q_HOLD = 11, Q_DECODE = 2.6;
+// seconds: hold the quote, then morph to the next. 3.6 because the band now crosses the ENTIRE viewport plus its
+// own width at each end (~1580px at 1280 wide, vs ~1145 when it only spanned the text), and this keeps it at the
+// ~440 px/s that looked right — holding the duration instead would have silently sped the band up by 38%.
+const Q_HOLD = 11, Q_DECODE = 3.6;
 // Random order, every quote once before any repeats, and no repeat close to the seam between passes.
 // See quote-bag.js for why the seam needed its own guard and what it was doing before.
 const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
@@ -912,7 +912,6 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 // depend on the quote's length; a 38-character quote and a 61-character one would decode at different rates.
 // Position-keyed, the band crosses the screen at one constant speed regardless.
 const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
-const Q_MARGIN_COLS = 14;     // glyph columns beyond the text, so the stream is seen arriving and departing
 const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
 function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
@@ -927,11 +926,12 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
   const sxF = W / 2 - (from.length * charW) / 2 + charW / 2;
   const sxT = W / 2 - (to.length * charW) / 2 + charW / 2;
   const ease = p * p * (3 - 2 * p);                                  // smoothstep: no hard start or stop
-  // The head's travel spans the text plus a margin plus its own width at each end, so at p=0 no column has been
-  // touched and at p=1 every column has been passed — the endpoints are exactly the two held states.
-  const gridL = Math.min(sxF, sxT), gridR = Math.max(sxF + (from.length - 1) * charW, sxT + (to.length - 1) * charW);
-  const marginPx = Q_MARGIN_COLS * charW;
-  const travel0 = gridL - marginPx - Q_HEAD_PX, travel1 = gridR + marginPx + Q_HEAD_PX;
+  // The band starts fully OFF-SCREEN left and ends fully off-screen right — it crosses the whole viewport, not
+  // just the text. At p=0 the trailing edge is still past x=0 and at p=1 the leading edge is past W, so no
+  // column has been touched at the start and every column has been passed at the end: the endpoints are exactly
+  // the two held states. Travel therefore scales with the window, so a wider window means a faster band rather
+  // than a longer transition.
+  const travel0 = -Q_HEAD_PX, travel1 = W + Q_HEAD_PX;
   const headX = travel0 + p * (travel1 - travel0);
   // Glyphs in the empty margins either side of the text — the stream arriving and departing. Drawn first so a
   // real character always sits on top of one. Alpha is sin(pi*s), so they fade in and out rather than blinking.
