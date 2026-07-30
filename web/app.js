@@ -909,18 +909,27 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const charW = ctx.measureText("0").width, n = Math.max(from.length, to.length);
-  const sxFrom = W / 2 - (from.length * charW) / 2 + charW / 2;
-  const sxTo = W / 2 - (to.length * charW) / 2 + charW / 2;
-  const ease = p * p * (3 - 2 * p);                                  // smoothstep: no hard start or stop to the slide
-  const sx = sxFrom + (sxTo - sxFrom) * ease;
+  // Columns are matched from the CENTRE out, not from index 0, and each character keeps its own exact centred
+  // position. Lerping one whole-field origin to the other (the previous approach) dragged every character
+  // sideways whenever the lengths differed — a short→long change read as the quote sliding in from the left.
+  // Centre-aligning leaves at most a half-character residual between the two grids, and even that is eased, so
+  // characters resolve essentially in place.
+  const offF = Math.round((n - from.length) / 2), offT = Math.round((n - to.length) / 2);
+  const sxF = W / 2 - (from.length * charW) / 2 + charW / 2;
+  const sxT = W / 2 - (to.length * charW) / 2 + charW / 2;
+  const ease = p * p * (3 - 2 * p);                                  // smoothstep: no hard start or stop
   for (let i = 0; i < n; i++) {
-    const fc = from[i] || "", tc = to[i] || "";
+    const fi = i - offF, ti = i - offT;
+    const fc = fi >= 0 && fi < from.length ? from[fi] : "";
+    const tc = ti >= 0 && ti < to.length ? to[ti] : "";
     const th = (revealThresh(seed + 1, i) / Q_TH_MAX) * (1 - Q_BAND); // own moment, scattered — not left-to-right
     const m = Math.max(0, Math.min(1, (p - th) / Q_BAND));
     const aF = fc && fc !== " " ? 1 : 0, aT = tc && tc !== " " ? 1 : 0;
     const a = (aF + (aT - aF) * m) * alpha;
     if (a <= 0.004) continue;                                        // nothing to draw either side — never a pop
-    const x = sx + i * charW;
+    // A column present in only one quote stays exactly where that quote puts it, so it fades without drifting.
+    const xF = aF ? sxF + fi * charW : null, xT = aT ? sxT + ti * charW : null;
+    const x = xF === null ? xT : xT === null ? xF : xF + (xT - xF) * ease;
     const tint = Math.sin(Math.PI * m);                              // 0 at both ends, 1 mid-morph
     if (m <= 0 || m >= 1) {
       ctx.fillStyle = `rgba(255,255,255,${a})`;
