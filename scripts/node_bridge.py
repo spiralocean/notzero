@@ -396,6 +396,47 @@ def tip_is_current(chain):
     return headers - blocks <= CATCHUP_TOLERANCE
 
 
+RECENT_BLOCKS_N = 75                      # ~12 h of chain — the window the dashboard's arrival timeline draws
+_recent_blocks = {"tip": None, "by_h": {}}  # height -> (hash, time); survives across polls so this stays cheap
+
+
+def recent_block_times(url, user, pw, tip_hash, tip_height):
+    """[{height, time}] for the last RECENT_BLOCKS_N blocks, oldest first. [] if it can't be built.
+
+    Why from the node at all: the dashboard's block-times histogram and arrival timeline were drawn entirely
+    from mempool.space — five external requests per cycle, and nothing to show when that host is down, on a
+    panel whose other half already reads from your own node. Timestamps live in the block HEADERS, which every
+    node keeps (a pruned node discards block bodies, never headers), so there is no reason to ask a stranger.
+
+    Walks back from the tip following previousblockhash rather than calling getblockhash per height — one RPC
+    per block instead of two. The cache makes the steady state ~2 calls per NEW block: the new tip is unknown,
+    its parent is already cached, and the walk stops there. A reorg is handled by the same test — a height whose
+    cached (hash, time) no longer matches is overwritten and the walk continues past it.
+    """
+    if _recent_blocks["tip"] == tip_hash and _recent_blocks["by_h"]:
+        pass                                   # tip unchanged → nothing to fetch, just re-emit below
+    else:
+        by_h, h, steps = _recent_blocks["by_h"], tip_hash, 0
+        while h and steps < RECENT_BLOCKS_N:
+            try:
+                hdr = rpc(url, user, pw, "getblockheader", [h])
+            except Exception:  # noqa: BLE001 — partial history is still useful; emit what we have
+                break
+            ht, t, prev = hdr.get("height"), hdr.get("time"), hdr.get("previousblockhash")
+            if ht is None or t is None:
+                break
+            if by_h.get(ht) == (h, t):
+                break                          # this block is already known, so everything below it is too
+            by_h[ht] = (h, t)
+            h, steps = prev, steps + 1
+        _recent_blocks["tip"] = tip_hash
+        # drop anything that has fallen out of the window so the dict can't grow without bound
+        cutoff = (tip_height or 0) - RECENT_BLOCKS_N
+        for ht in [k for k in by_h if k <= cutoff]:
+            del by_h[ht]
+    return [{"height": ht, "time": _recent_blocks["by_h"][ht][1]} for ht in sorted(_recent_blocks["by_h"])]
+
+
 def tip_block_from_core(cb):
     """Core getblock(hash, 1) -> the block-header shape the dashboard uses for its tip.
 
@@ -464,7 +505,7 @@ def build(url, user, pw, cookie=""):
     # Deliberately outside the IBD guard: the assumeutxo catch-up runs while the node reports NOT in IBD (the
     # snapshot chainstate is already at the tip and mining), which is exactly the window we need to explain.
     verifying = background_validation(url, user, pw) if node_ok else None
-    tip_block = None
+    tip_block, recent_blocks = None, []
     if node_ok and tip_is_current(chain):  # mempool isn't shown while behind — skip its 2 RPC calls so a busy node doesn't stall the poll
         # the tip block's full header, so the dashboard can render NEXT BLOCK / VERIFY / the ticket straight from
         # YOUR node instead of fetching it from mempool.space every 30s. Only when synced — during IBD the local
@@ -473,6 +514,13 @@ def build(url, user, pw, cookie=""):
             tip_block = tip_block_from_core(rpc(url, user, pw, "getblock", [chain["bestblockhash"], 1]))
         except Exception:  # noqa: BLE001 — cosmetic; the dashboard falls back to mempool.space for the tip
             tip_block = None
+        # Recent block arrival times, so the NEXT BLOCK histogram + arrival timeline come from YOUR chain rather
+        # than five mempool.space requests per cycle. Gated on tip_is_current for the same reason as tip_block:
+        # a node still catching up would supply a stale window and the timeline would draw the wrong ten hours.
+        try:
+            recent_blocks = recent_block_times(url, user, pw, chain["bestblockhash"], chain.get("blocks"))
+        except Exception:  # noqa: BLE001 — cosmetic; the dashboard falls back to mempool.space
+            recent_blocks = []
         # mempool: transactions flowing in while the next block is mined (the "data coming in")
         try:
             mp = rpc(url, user, pw, "getmempoolinfo")
@@ -587,6 +635,7 @@ def build(url, user, pw, cookie=""):
         "core_version": core_version(netinfo.get("subversion")),
         "subversion": (netinfo.get("subversion") or ""),  # the raw string, for support questions
         "tip_block": tip_block,  # full tip header (synced only) → dashboard renders the tip from the node, not mempool.space
+        "recent_blocks": recent_blocks,  # [{height,time}] last ~75 headers (synced only) → block-times histogram + arrival timeline, no external fetch
         "mempool": mempool,
         "nettotals": nettotals,
         "miner": miner,

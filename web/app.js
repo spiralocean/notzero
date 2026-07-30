@@ -300,7 +300,41 @@ function refreshSlow() {
 
 // Recent inter-block intervals (minutes) for the NEXT BLOCK distribution. Bitcoin block times are a Poisson
 // process — ~exponential, memoryless — so the histogram makes "10 min is an average, not a schedule" visible.
+// Turn a list of {height, timestamp} (either source) into the two things NEXT BLOCK draws: the intervals the
+// histogram buckets, and the arrivals the timeline places. Only CONSECUTIVE heights are differenced, and
+// implausible gaps are dropped — miner timestamps can run slightly backwards or far ahead of the real time.
+function applyBlockHistory(list) {
+  const h = list.filter((b) => b && b.height != null && b.timestamp != null).sort((a, b) => a.height - b.height);
+  if (h.length < 4) return false;
+  const iv = [];
+  for (let i = 1; i < h.length; i++) {
+    if (h[i].height !== h[i - 1].height + 1) continue;
+    const d = (h[i].timestamp - h[i - 1].timestamp) / 60;
+    if (d >= 0 && d < 180) iv.push(d);
+  }
+  model.blockHistory = h;
+  if (iv.length >= 12) model.blockTimes = iv;
+  return true;
+}
+// The node's own last ~75 headers, when it is current. Same guard as nodeTip(): a node that is behind would
+// hand over a stale window and the timeline would draw the wrong ten hours.
+function nodeBlockHistory() {
+  const n = model.node;
+  if (!nodeTip()) return null;
+  const rb = n && n.recent_blocks;
+  if (!Array.isArray(rb) || rb.length < 12) return null;
+  return rb.map((b) => ({ height: b.height, timestamp: b.time }));
+}
+let nodeProbed = false; // has node.json been fetched even once? (either answered or 404'd)
 async function pollBlockTimes() {
+  // Your own node first: block timestamps live in the headers, which every node keeps (a pruned node drops
+  // block bodies, never headers). When it can answer, these five mempool.space requests don't happen at all.
+  const local = nodeBlockHistory();
+  if (local && applyBlockHistory(local)) return;
+  // At boot this runs before the first node.json has landed, so "no node history" cannot yet be distinguished
+  // from "no node". Fetching then would spend the external requests a node was about to make unnecessary —
+  // so wait to be told. pollNode kicks this off the moment it knows there is nothing local to use.
+  if (!nodeProbed) return;
   try {
     const first = await (await fetch(`${API}/v1/blocks`)).json();
     if (!Array.isArray(first) || !first.length) return;
@@ -308,14 +342,8 @@ async function pollBlockTimes() {
     const more = await Promise.all([15, 30, 45, 60].map((d) => fetch(`${API}/v1/blocks/${tip - d}`).then((r) => r.json()).catch(() => [])));
     const byH = new Map();
     for (const b of [first, ...more].flat()) if (b && b.height != null && b.timestamp != null) byH.set(b.height, b.timestamp);
-    const heights = [...byH.keys()].sort((a, b) => a - b), iv = [];
-    // only diff CONSECUTIVE heights; drop clock-skew anomalies (miner timestamps can go slightly backward / far ahead)
-    for (let i = 1; i < heights.length; i++) if (heights[i] === heights[i - 1] + 1) { const d = (byH.get(heights[i]) - byH.get(heights[i - 1])) / 60; if (d >= 0 && d < 180) iv.push(d); }
-    if (iv.length >= 12) model.blockTimes = iv;
-    // Keep the timestamps too, not just the gaps between them. The histogram only needs intervals, but a
-    // histogram cannot show ORDER — two blocks a minute apart and two ten hours apart fall in the same bucket.
-    // The timeline strip needs to place each block in real time, so retain (height, timestamp) as well.
-    model.blockHistory = heights.map((h) => ({ height: h, timestamp: byH.get(h) }));
+    // Same shaping as the node path — one place decides what counts as a usable interval.
+    applyBlockHistory([...byH].map(([height, timestamp]) => ({ height, timestamp })));
   } catch (_) {}
 }
 // Same-origin feed from your local node (written by the bridge from bitcoind:
@@ -329,6 +357,14 @@ async function pollNode() {
     // remember the last moment the node was genuinely up + has chain data, so a brief drop (e.g. the engines
     // restarting when you save settings) can show "reconnecting…" instead of a scary "no node connected".
     if (model.node && model.node.reachable !== false && ((model.node.headers || 0) > 0 || (model.node.blocks || 0) > 0)) model.nodeLastOk = Date.now();
+    // The node ships its own recent headers, so refresh the block-times history here on the 3s cadence rather
+    // than waiting for pollBlockTimes' 300s timer — a new block shows up on the timeline almost immediately.
+    { const local = nodeBlockHistory();
+      if (local) applyBlockHistory(local);
+      // First probe finished. If the node cannot supply the history, release pollBlockTimes to go get it now
+      // rather than leaving the histogram empty until its next 120s tick.
+      const firstProbe = !nodeProbed; nodeProbed = true;
+      if (firstProbe && !local) pollBlockTimes(); }
     // desktop managed mode: poll the app's own provisioning feed so the dashboard can narrate the REAL setup phase
     // (downloading Core, loading snapshot %, syncing…) and surface any error — not just a generic "starting".
     if (isDesktop && nodeMode === "managed") { try { const sr = await fetch("./node-status", { cache: "no-store" }); nodeSetup = sr.ok ? await sr.json() : nodeSetup; } catch { /* keep the last known phase on a blip */ } }

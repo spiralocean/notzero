@@ -681,3 +681,49 @@ test("next block: the arrival timeline renders, including a back-to-back pair", 
   const shortest = await page.evaluate(() => Math.min(...window.__model.blockTimes));
   expect(shortest).toBeLessThan(1.5);
 });
+
+// The block-times histogram and the arrival timeline used to come entirely from mempool.space — five requests a
+// cycle, and nothing to draw when that host is down, on a panel whose other half already read from your own
+// node. Block timestamps live in the headers, which every node keeps (a pruned node drops bodies, never
+// headers), so when the node publishes them the external fetches must not happen AT ALL.
+test("block history: a current node supplies it, with no per-height fetches", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  // Count the two callers separately. The per-height walk (/v1/blocks/{h} x4) is the history fetch the node
+  // replaces. The bare /v1/blocks stays: refresh() uses it for pool names and lottery-tag detection, which are
+  // mempool.space's own analysis of the coinbase and something a bare node cannot reproduce.
+  let byHeight = 0, base = 0;
+  await page.unroute("**/api/v1/blocks*");
+  await page.route(/\/api\/v1\/blocks\/\d+/, (r) => { byHeight++; return r.fulfill({ status: 200, contentType: "application/json", body: "[]" }); });
+  await page.route(/\/api\/v1\/blocks(\?|$)/, (r) => { base++; return r.fulfill({ status: 200, contentType: "application/json", body: "[]" }); });
+
+  const gaps = [11, 7, 14, 22, 1, 9, 10, 3, 18, 12, 6, 10, 10, 4, 13, 8, 10, 2, 10];
+  const top = 961000, start = top - gaps.length;
+  const now = Math.floor(Date.now() / 1000);
+  let t = now - (gaps.reduce((a, b) => a + b, 0) * 60) - 300;
+  const recent = [{ height: start, time: t }];
+  gaps.forEach((g, i) => { t += g * 60; recent.push({ height: start + i + 1, time: t }); });
+
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: now, reachable: true, blocks: top, headers: top, verificationprogress: 0.99999,
+    initialblockdownload: false, size_on_disk: 9.8e9, pruned: true, core_version: "31.1.0",
+    recent_blocks: recent,
+    tip_block: { id: "0000000000000000000147034958af1652b2b91bba607beacc5e72a56f0fb5ee", height: top, version: 671088640,
+      previousblockhash: "00000000000000000000164c0521899c2ace28639352efb1e6f7faa1f1ab0d6fd",
+      merkle_root: "f576d43263ff8056c3cfa68d456e059d02d48d09413ead2e58ef020ffd0c3dc0",
+      timestamp: now - 300, bits: 386089497, nonce: 12345, tx_count: 4001, difficulty: 1.26e14 },
+  }) }));
+
+  await page.goto("/");
+  await page.waitForFunction(() => window.__timeline, null, { timeout: 20000 });
+  await page.waitForTimeout(1500);   // let pollBlockTimes' first run come and go
+  const tl = await page.evaluate(() => window.__timeline);
+  const bt = await page.evaluate(() => window.__model.blockTimes.length);
+  console.log(`   timeline from node: ${JSON.stringify(tl)}  intervals: ${bt}  per-height fetches: ${byHeight}  base /v1/blocks: ${base}`);
+
+  expect(tl.ticks).toBe(recent.length);   // drawn from the node's headers
+  expect(bt).toBe(gaps.length);           // histogram fed from the same data
+  expect(byHeight).toBe(0);               // the point: no external walk for headers the node already has
+});
