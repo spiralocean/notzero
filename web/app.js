@@ -882,40 +882,55 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-// seconds: hold the quote, then the transition — which is now TWO halves (the old one dissolves, the new one
-// resolves), so it gets more time; at the old 1.7 each half would be well under a second and read as a blink.
+// seconds: hold the quote, then morph to the next. 2.6 rather than the original 1.7 because each column now
+// spends Q_BAND of the transition (~1s) mid-morph instead of snapping between states — at 1.7 the churn read
+// as a blink rather than a dissolve.
 const Q_HOLD = 11, Q_DECODE = 2.6;
 // Random order, every quote once before any repeats, and no repeat close to the seam between passes.
 // See quote-bag.js for why the seam needed its own guard and what it was doing before.
 const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
-// One quote's characters, each resolving (dir "in") or dissolving (dir "out") at its own moment.
-// `q` runs 0→1 across the half-transition; pass anything ≥1.1 with dir "in" for a settled quote.
-function drawQuoteChars(str, q, alpha, seed, dir) {
+// A quote changing over, as ONE continuous morph. Every column runs old char → churning glyph → new char on
+// its own scattered schedule, and nothing ever pops into or out of existence:
+//
+//   * one interpolated layout, not two. The quotes differ in length and each is centred on its own width, so
+//     the earlier two-half version swapped layouts at the midpoint — every column jumped sideways at once, and
+//     columns at the ends appeared or vanished outright. The centring is now lerped across the whole transition.
+//   * columns cover max(from,to) length, and PRESENCE is a lerped alpha rather than a draw/skip decision. A
+//     column that exists in only one of the two quotes — including where one has a space and the other a
+//     letter — fades in or out instead of blinking on or off.
+//   * the accent tint rises and falls with sin(pi*m), so the glyph phase has no hard colour switch at either
+//     end; a settled character is the same white it was while held.
+//
+// Passing the same string as `from` and `to` with p = 0 renders a settled quote, so the hold state and the
+// transition share one code path and cannot drift apart.
+const Q_BAND = 0.38;          // how much of the transition one column spends mid-morph
+const Q_TH_MAX = 0.82;        // revealThresh()'s ceiling — rescaled below so th + Q_BAND never exceeds 1
+function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const total = str.length, charW = ctx.measureText("0").width, startX = W / 2 - (total * charW) / 2 + charW / 2;
-  for (let i = 0; i < total; i++) {
-    if (str[i] === " ") continue;
-    const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char has its own moment → scattered, not left-to-right
-    // "out" is the mirror of "in": the character holds, breaks into an accent glyph, then falls back to noise.
-    const settled = dir === "out" ? q < th : q >= th + 0.1;
-    const glyph = dir === "out" ? q < th + 0.1 : q >= th;
-    if (settled) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(str[i], x, 86); }
-    else if (glyph) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86); }
-    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 86); }
+  const charW = ctx.measureText("0").width, n = Math.max(from.length, to.length);
+  const sxFrom = W / 2 - (from.length * charW) / 2 + charW / 2;
+  const sxTo = W / 2 - (to.length * charW) / 2 + charW / 2;
+  const ease = p * p * (3 - 2 * p);                                  // smoothstep: no hard start or stop to the slide
+  const sx = sxFrom + (sxTo - sxFrom) * ease;
+  for (let i = 0; i < n; i++) {
+    const fc = from[i] || "", tc = to[i] || "";
+    const th = (revealThresh(seed + 1, i) / Q_TH_MAX) * (1 - Q_BAND); // own moment, scattered — not left-to-right
+    const m = Math.max(0, Math.min(1, (p - th) / Q_BAND));
+    const aF = fc && fc !== " " ? 1 : 0, aT = tc && tc !== " " ? 1 : 0;
+    const a = (aF + (aT - aF) * m) * alpha;
+    if (a <= 0.004) continue;                                        // nothing to draw either side — never a pop
+    const x = sx + i * charW;
+    const tint = Math.sin(Math.PI * m);                              // 0 at both ends, 1 mid-morph
+    if (m <= 0 || m >= 1) {
+      ctx.fillStyle = `rgba(255,255,255,${a})`;
+      ctx.fillText(m >= 1 ? tc : fc, x, 86);
+    } else {
+      const r = 255, g = Math.round(255 + (153 - 255) * tint), b = Math.round(255 + (26 - 255) * tint);
+      ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
+      ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86);
+    }
   }
-}
-// A quote changing: the outgoing one dissolves into matrix glyphs character by character, and the incoming one
-// resolves out of them the same way. Before this the outgoing quote simply VANISHED the frame the decode began
-// — the new text materialised over a gap where the old one had been, which is the cut.
-//
-// Two halves rather than a cross-morph because the two quotes are different lengths and each is centred on its
-// own width. A per-character morph between them would slide every glyph sideways mid-flight; splitting at the
-// midpoint means the layout changes at the exact moment nothing but noise is on screen, so the width change
-// reads as churn rather than as a jump.
-function drawQuoteTransition(from, to, p, alpha, seedFrom, seedTo) {
-  if (p < 0.5) drawQuoteChars(from, p * 2, alpha, seedFrom, "out");
-  else drawQuoteChars(to, (p - 0.5) * 2, alpha, seedTo, "in");
 }
 const VERSION = "web v0.118.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
@@ -4279,8 +4294,9 @@ function render(ts) {
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   // quoteIdx is still the OUTGOING quote during "decode" — it only becomes quoteNext once the transition ends.
-  if (quotePhase === "hold") drawQuoteChars(quoteText(quoteIdx), 2, quoteAlpha, quoteIdx, "in");
-  else drawQuoteTransition(quoteText(quoteIdx), quoteText(quoteNext), quoteT / Q_DECODE, quoteAlpha, quoteIdx, quoteNext);
+  // hold = the same morph parked at p=0 with from === to, so held and transitioning share one path.
+  if (quotePhase === "hold") drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteIdx), 0, quoteAlpha, quoteIdx);
+  else drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteNext), Math.min(1, quoteT / Q_DECODE), quoteAlpha, quoteIdx);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 107, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
