@@ -209,10 +209,17 @@ test("mempool gating: collapsed + node count = no mempool-group calls; expanding
   // now EXPAND the mempool panel → the group must be fetched on demand
   const before = { proj: hits["/api/v1/fees/mempool-blocks"]||0, fees: hits["/api/v1/fees/recommended"]||0 };
   await page.evaluate(() => { window.__expand && window.__expand("mempool"); });
-  await page.waitForTimeout(800);
-  const projAfter = (hits["/api/v1/fees/mempool-blocks"]||0) - before.proj, feesAfter = (hits["/api/v1/fees/recommended"]||0) - before.fees;
-  console.log("   after expanding:", JSON.stringify({ proj: projAfter, fees: feesAfter }), "(should be >= 1)");
-  expect(projAfter + feesAfter).toBeGreaterThanOrEqual(1);
+  // POLL rather than sleep-then-assert. This waited a flat 800ms and then checked, which asserts "the fetch had
+  // happened by an arbitrary deadline" instead of "the fetch happens" — under parallel-worker CPU contention it
+  // sometimes had not, and the test failed the whole run. Observed 2026-07-30; it passed 3/3 in isolation
+  // immediately afterwards, which is the signature of a deadline that is too tight rather than a real defect.
+  // A poll still fails loudly if the behaviour regresses: it times out having never seen the call.
+  await expect.poll(
+    () => ((hits["/api/v1/fees/mempool-blocks"] || 0) - before.proj) + ((hits["/api/v1/fees/recommended"] || 0) - before.fees),
+    { timeout: 15000, message: "expanding MEMPOOL must fetch the mempool group on demand" },
+  ).toBeGreaterThanOrEqual(1);
+  console.log("   after expanding:", JSON.stringify({
+    proj: (hits["/api/v1/fees/mempool-blocks"]||0) - before.proj, fees: (hits["/api/v1/fees/recommended"]||0) - before.fees }));
 });
 
 // A managed node mid-sync is NOT "practice mode" — the app is setting a node up. The footer must show the real
@@ -628,10 +635,13 @@ test("node tip: a node that is behind (headers ahead of blocks) is not treated a
   await page.waitForFunction(() => window.__model && window.__model.node && window.__model.node.tip_block, null, { timeout: 20000 });
   const base = tipHashHits;
   await page.evaluate(() => window.__refresh());
-  await page.waitForTimeout(800);
 
-  // It must go to mempool.space for the tip rather than trusting the stale local one…
-  expect(tipHashHits).toBeGreaterThan(base);
+  // It must go to mempool.space for the tip rather than trusting the stale local one. Polled, not slept-then-
+  // asserted: a flat wait tests "it had happened by an arbitrary deadline", which is how the mempool-gating
+  // test in this file failed a run under parallel-worker load. This still fails loudly on a regression — it
+  // times out having never seen the fetch.
+  await expect.poll(() => tipHashHits, { timeout: 15000, message: "a node that is behind must not supply the tip" })
+    .toBeGreaterThan(base);
   // …and the stale block must not be what NEXT BLOCK is measuring from.
   const h = await page.evaluate(() => window.__model.block && window.__model.block.height);
   console.log(`   tip height in use: ${h} (the stale local tip was 960001)`);
