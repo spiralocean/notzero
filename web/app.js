@@ -1,6 +1,7 @@
 // Bitcoin Lottery — browser dashboard (cross-platform port of the macOS viz).
 // Self-contained: public chain/price data from mempool.space + a client-side
 // SHA-256 hash visualization (Web Crypto). No backend.
+import { makeQuoteBag } from "./quote-bag.js";
 
 const API = "https://mempool.space/api";
 const ACCENT = "255, 153, 26";          // brand orange
@@ -841,28 +842,40 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-const Q_HOLD = 11, Q_DECODE = 1.7; // seconds: show the quote, then decode the next out of glyphs
-// shuffle-bag: random order, but every quote is shown once before any repeats
-let quoteBag = [];
-function nextQuoteIdx(curr) {
-  if (!quoteBag.length) {
-    quoteBag = QUOTES.map((_, i) => i).filter((i) => i !== curr); // refill (skip the current so it doesn't repeat back-to-back)
-    for (let i = quoteBag.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [quoteBag[i], quoteBag[j]] = [quoteBag[j], quoteBag[i]]; }
-  }
-  return quoteBag.pop();
-}
-// render a quote mid-transition: the target resolves left-to-right out of scrambling matrix glyphs
-function drawDecodeQuote(to, p, alpha, seed) {
+// seconds: hold the quote, then the transition — which is now TWO halves (the old one dissolves, the new one
+// resolves), so it gets more time; at the old 1.7 each half would be well under a second and read as a blink.
+const Q_HOLD = 11, Q_DECODE = 2.6;
+// Random order, every quote once before any repeats, and no repeat close to the seam between passes.
+// See quote-bag.js for why the seam needed its own guard and what it was doing before.
+const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
+// One quote's characters, each resolving (dir "in") or dissolving (dir "out") at its own moment.
+// `q` runs 0→1 across the half-transition; pass anything ≥1.1 with dir "in" for a settled quote.
+function drawQuoteChars(str, q, alpha, seed, dir) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const total = to.length, charW = ctx.measureText("0").width, startX = W / 2 - (total * charW) / 2 + charW / 2;
+  const total = str.length, charW = ctx.measureText("0").width, startX = W / 2 - (total * charW) / 2 + charW / 2;
   for (let i = 0; i < total; i++) {
-    if (to[i] === " ") continue;
-    const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char resolves at its own moment → scattered, not left-to-right
-    if (p >= th + 0.1) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(to[i], x, 86); }                                    // resolved
-    else if (p >= th) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86); }        // decoding now
-    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 86); }          // not yet decoded
+    if (str[i] === " ") continue;
+    const x = startX + i * charW, th = revealThresh(seed + 1, i); // each char has its own moment → scattered, not left-to-right
+    // "out" is the mirror of "in": the character holds, breaks into an accent glyph, then falls back to noise.
+    const settled = dir === "out" ? q < th : q >= th + 0.1;
+    const glyph = dir === "out" ? q < th + 0.1 : q >= th;
+    if (settled) { ctx.fillStyle = `rgba(255,255,255,${alpha})`; ctx.fillText(str[i], x, 86); }
+    else if (glyph) { ctx.fillStyle = `rgba(${ACCENT},0.9)`; ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86); }
+    else { ctx.fillStyle = `rgba(70,190,140,${alpha * 0.8})`; ctx.fillText("0123456789abcdef"[(frame + i * 5) % 16], x, 86); }
   }
+}
+// A quote changing: the outgoing one dissolves into matrix glyphs character by character, and the incoming one
+// resolves out of them the same way. Before this the outgoing quote simply VANISHED the frame the decode began
+// — the new text materialised over a gap where the old one had been, which is the cut.
+//
+// Two halves rather than a cross-morph because the two quotes are different lengths and each is centred on its
+// own width. A per-character morph between them would slide every glyph sideways mid-flight; splitting at the
+// midpoint means the layout changes at the exact moment nothing but noise is on screen, so the width change
+// reads as churn rather than as a jump.
+function drawQuoteTransition(from, to, p, alpha, seedFrom, seedTo) {
+  if (p < 0.5) drawQuoteChars(from, p * 2, alpha, seedFrom, "out");
+  else drawQuoteChars(to, (p - 0.5) * 2, alpha, seedTo, "in");
 }
 const VERSION = "web v0.118.0";
 // masked owner wallet shown when there's no daemon/payout at all (e.g. GitHub Pages with no node).
@@ -2637,7 +2650,9 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   };
   scan(concatBox, p1, y1);                               // concatenation → 1st hash
   scan({ x: rowX, w: rowW, y: y1 }, p2, y2);             // 1st hash → 2nd hash
-  text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", rowX, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  // Centred on the panel, like every other caption here. These two row labels were the only left-aligned text
+  // in the section, which read as a misalignment against the centred headings above and below them.
+  text(grind ? "SHA-256, churning…" : "1st SHA-256 — of the concatenation above", cx, y1 - 14, { size: 10, weight: 600, color: `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   hashRow(h1, p1, y1, 0, "rgba(255,255,255,0.62)");
   // highlight the finished hash — ONLY once the 2nd SHA-256 has fully completed (the hold phase, after the
   // reveal finishes), never during the reveal. Drawn BEFORE the label + glyphs so its glow sits behind them.
@@ -2652,7 +2667,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
     ctx.strokeStyle = `rgba(${ACCENT},${done * (0.65 + 0.3 * pulse)})`; ctx.lineWidth = 1.8; roundRect(hX, hY, hW, hH, 7); ctx.stroke();
     ctx.restore();
   }
-  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", rowX, y2 - 16, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, baseline: "middle" });
+  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", cx, y2 - 16, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
   text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 28, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   // #6: what makes the hash random
@@ -4154,7 +4169,9 @@ function render(ts) {
   text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 68, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
-  drawDecodeQuote(quotePhase === "hold" ? quoteText(quoteIdx) : quoteText(quoteNext), quotePhase === "hold" ? 2 : quoteT / Q_DECODE, quoteAlpha, quotePhase === "hold" ? quoteIdx : quoteNext);
+  // quoteIdx is still the OUTGOING quote during "decode" — it only becomes quoteNext once the transition ends.
+  if (quotePhase === "hold") drawQuoteChars(quoteText(quoteIdx), 2, quoteAlpha, quoteIdx, "in");
+  else drawQuoteTransition(quoteText(quoteIdx), quoteText(quoteNext), quoteT / Q_DECODE, quoteAlpha, quoteIdx, quoteNext);
   const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
   if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 107, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
 
@@ -4283,7 +4300,7 @@ function render(ts) {
   quoteT += 1 / 60;
   if (quotePhase === "hold") { if (quoteT > Q_HOLD) { quotePhase = "decode"; quoteT = 0; quoteNext = nextQuoteIdx(quoteIdx); } }
   else if (quoteT > Q_DECODE) { quotePhase = "hold"; quoteT = 0; quoteIdx = quoteNext; }
-  window.__q = { phase: quotePhase, idx: quoteIdx, next: quoteNext, bag: quoteBag.length };
+  window.__q = { phase: quotePhase, idx: quoteIdx, next: quoteNext, bag: nextQuoteIdx.remaining() };
   // (the next frame is already scheduled at the top of render so the throttle/early-return path keeps looping)
 }
 
@@ -4402,6 +4419,10 @@ window.addEventListener("resize", requestRender);
 
 // ---- boot ----
 window.__model = model; window.__refresh = refresh; // test hooks (like __frames above) — let the e2e suite read live state / force a refetch
+// Test hook: place the quote rotation at a chosen point in its cycle and repaint. A test cannot simply WAIT for
+// a transition — headless Chromium reports the page hidden, which cancels the rAF loop (see requestRender), so
+// quoteT never advances and the 11s hold never elapses. This drives the frame directly instead.
+window.__quoteJump = (phase, t, next) => { quotePhase = phase; quoteT = t; if (next != null) quoteNext = next; requestRender(); };
 window.__expand = (s) => { if (!expanded.has(s)) { expanded.add(s); saveExpanded(); if (s === "mempool" || s === "merkle") refresh(); requestRender(); } }; // e2e: simulate opening a panel (fires the on-open fetch)
 resize();
 pollNode();

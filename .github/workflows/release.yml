@@ -107,19 +107,22 @@ jobs:
       - name: Full win path on regtest
         run: python3 scripts/test-win-regtest.py
 
-  # The desktop main-process unit tests (node:test, no Electron, no network). They existed and ran NOWHERE —
-  # ots-verify.test.js was not referenced by any workflow or build script, so it had the same problem the
-  # dashboard suite had: written once, never run again. Seconds to run, and it covers logic that only executes
-  # on a user's machine during an update.
-  desktop-unit:
+  # Pure unit tests (node:test — no Electron, no browser, no network), from both packages. They existed and ran
+  # NOWHERE: ots-verify.test.js was referenced by no workflow and no build script, so it had the same problem the
+  # dashboard suite had, written once and never run again. Seconds to run, and they cover logic that otherwise
+  # only executes on a user's machine.
+  #
+  # Both globs are needed and they are NOT interchangeable: desktop/ is its own package (CommonJS, require),
+  # while web/ inherits the root package.json's "type": "module" and so is ESM.
+  unit:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - name: Desktop unit tests
-        run: node --test desktop/*.test.js
+      - name: Unit tests (desktop + web)
+        run: node --test desktop/*.test.js web/*.test.js
 
   # The bridge's Windows process sampler is a PowerShell pipeline that had executed on no machine anywhere:
   # CI compiled the bridge through PyInstaller but never RAN it, so the branch shipped to users unexecuted.
@@ -140,7 +143,7 @@ jobs:
         run: python tests/test_process_sampler.py
 
   release:
-    needs: [verify-core, dashboard, desktop-unit, win-path, win-sampler]
+    needs: [verify-core, dashboard, unit, win-path, win-sampler]
     strategy:
       fail-fast: false
       matrix:
