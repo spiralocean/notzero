@@ -882,9 +882,9 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-// seconds: hold the quote, then morph to the next. 2.6 rather than the original 1.7 because each column now
-// spends Q_BAND of the transition (~1s) mid-morph instead of snapping between states — at 1.7 the churn read
-// as a blink rather than a dissolve.
+// seconds: hold the quote, then morph to the next. 2.6 rather than the original 1.7 because the glyph band has
+// to cross the text plus a margin at each end — ~1145px, so ~440 px/s — and at 1.7 that crossing read as a
+// blink rather than a stream.
 const Q_HOLD = 11, Q_DECODE = 2.6;
 // Random order, every quote once before any repeats, and no repeat close to the seam between passes.
 // See quote-bag.js for why the seam needed its own guard and what it was doing before.
@@ -903,12 +903,17 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 //
 // Passing the same string as `from` and `to` with p = 0 renders a settled quote, so the hold state and the
 // transition share one code path and cannot drift apart.
-// The reveal SWEEPS left→right like a machine decoding the line, rather than each column picking its own random
-// moment. Q_BAND is narrower than the scattered version used (0.38) because with an ordered sweep the band sets
-// the width of the decode head: active columns ≈ Q_BAND/(1-Q_BAND) of the line, so 0.18 keeps the head at ~22%
-// instead of smearing across two thirds of it.
-const Q_BAND = 0.18;          // how much of the transition one column spends mid-morph
-const Q_JITTER = 0.05;        // ragged the head slightly, so it decodes rather than wiping like a progress bar
+// A BAND OF GLYPHS travels left→right and does the work: text ahead of it is still the old quote, text behind it
+// is the new one, and inside it everything is churning glyphs. The band starts beyond the left end of the line
+// and finishes beyond the right, so it visibly arrives from outside the text and leaves the same way — the
+// glyph columns extend into the empty margins for exactly that reason.
+//
+// Keyed on the head's X POSITION rather than on column index. Index-keyed sweeps make the head's apparent speed
+// depend on the quote's length; a 38-character quote and a 61-character one would decode at different rates.
+// Position-keyed, the band crosses the screen at one constant speed regardless.
+const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
+const Q_MARGIN_COLS = 14;     // glyph columns beyond the text, so the stream is seen arriving and departing
+const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
 function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -922,14 +927,38 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
   const sxF = W / 2 - (from.length * charW) / 2 + charW / 2;
   const sxT = W / 2 - (to.length * charW) / 2 + charW / 2;
   const ease = p * p * (3 - 2 * p);                                  // smoothstep: no hard start or stop
+  // The head's travel spans the text plus a margin plus its own width at each end, so at p=0 no column has been
+  // touched and at p=1 every column has been passed — the endpoints are exactly the two held states.
+  const gridL = Math.min(sxF, sxT), gridR = Math.max(sxF + (from.length - 1) * charW, sxT + (to.length - 1) * charW);
+  const marginPx = Q_MARGIN_COLS * charW;
+  const travel0 = gridL - marginPx - Q_HEAD_PX, travel1 = gridR + marginPx + Q_HEAD_PX;
+  const headX = travel0 + p * (travel1 - travel0);
+  // Glyphs in the empty margins either side of the text — the stream arriving and departing. Drawn first so a
+  // real character always sits on top of one. Alpha is sin(pi*s), so they fade in and out rather than blinking.
+  if (p > 0 && p < 1) {
+    // Columns are generated from the BAND's current position, not from a fixed range around the text. Anchoring
+    // them to the text left the band travelling through empty space for the first quarter of the transition with
+    // nothing to draw, so the stream was invisible until it reached the first character.
+    const k0 = Math.ceil((headX - Q_HEAD_PX - sxT) / charW), k1 = Math.floor((headX - sxT) / charW);
+    for (let k = k0; k <= k1; k++) {
+      if (k >= 0 && k < n) continue;                                  // real columns are handled below
+      const x = sxT + k * charW, sBand = (headX - x) / Q_HEAD_PX;
+      if (sBand <= 0 || sBand >= 1) continue;
+      const ga = Math.sin(Math.PI * sBand) * alpha * 0.5;
+      if (ga <= 0.004) continue;
+      ctx.fillStyle = `rgba(70,190,140,${ga})`;
+      ctx.fillText(CYBER[(frame * 2 + (k + 99) * 9) % CYBER.length], x, 86);
+    }
+  }
   for (let i = 0; i < n; i++) {
     const fi = i - offF, ti = i - offT;
     const fc = fi >= 0 && fi < from.length ? from[fi] : "";
     const tc = ti >= 0 && ti < to.length ? to[ti] : "";
-    const sweep = n > 1 ? i / (n - 1) : 0;                            // left edge first, right edge last
-    const jit = (hrand(seed * 17.3 + i * 3.7) - 0.5) * Q_JITTER;      // deterministic per (quote, column)
-    const th = Math.max(0, Math.min(1 - Q_BAND, (sweep + jit) * (1 - Q_BAND)));
-    const m = Math.max(0, Math.min(1, (p - th) / Q_BAND));
+    // Where this column sits relative to the passing band. Jitter is in PIXELS here, so a long and a short
+    // quote get the same ragged edge rather than one proportional to their length.
+    const colX = sxT + i * charW;
+    const jit = (hrand(seed * 17.3 + i * 3.7) - 0.5) * Q_JITTER_PX;
+    const m = Math.max(0, Math.min(1, (headX - colX - jit) / Q_HEAD_PX));
     const aF = fc && fc !== " " ? 1 : 0, aT = tc && tc !== " " ? 1 : 0;
     const a = (aF + (aT - aF) * m) * alpha;
     if (a <= 0.004) continue;                                        // nothing to draw either side — never a pop
