@@ -915,10 +915,15 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
 const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
 const Q_PACE = 0.85;          // 0 = constant speed; k<1 keeps it monotonic. (1+k)x at the edges, (1-k)x mid-text
-function drawQuoteMorph(from, to, p, alpha, seed) {
-  ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
+const Q_SRC_LAG = 50;         // px the attribution's head trails the quote's, so the source lands just after it
+// `line` describes WHICH line is being rewritten: {y, size, rgb}. The attribution goes through the very same
+// band as the quote, one line lower and slightly behind, so the header has a single rule — the band rewrites
+// whatever it passes — instead of the quote morphing while its source blinks on and off underneath.
+function drawQuoteMorph(from, to, p, alpha, seed, line) {
+  ctx.font = `600 ${line.size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   const charW = ctx.measureText("0").width, n = Math.max(from.length, to.length);
+  if (n === 0) return;   // neither side has anything on this line — don't stream glyphs across a blank row
   // Columns are matched from the CENTRE out, not from index 0, and each character keeps its own exact centred
   // position. Lerping one whole-field origin to the other (the previous approach) dragged every character
   // sideways whenever the lengths differed — a short→long change read as the quote sliding in from the left.
@@ -943,7 +948,7 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
   // so the band runs at (1+k)× at both ends and (1-k)× in the middle, with speed varying continuously and no
   // stop-start. g(0)=0 and g(1)=1 exactly, so the endpoints are untouched and remain the two held states.
   const g = p + (Q_PACE / (2 * Math.PI)) * Math.sin(2 * Math.PI * p);
-  const headX = travel0 + g * (travel1 - travel0);
+  const headX = travel0 + g * (travel1 - travel0) - (line.lag || 0);
   // Glyphs in the empty margins either side of the text — the stream arriving and departing. Drawn first so a
   // real character always sits on top of one. Alpha is sin(pi*s), so they fade in and out rather than blinking.
   if (p > 0 && p < 1) {
@@ -958,7 +963,7 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
       const ga = Math.sin(Math.PI * sBand) * alpha * 0.5;
       if (ga <= 0.004) continue;
       ctx.fillStyle = `rgba(70,190,140,${ga})`;
-      ctx.fillText(CYBER[(frame * 2 + (k + 99) * 9) % CYBER.length], x, 86);
+      ctx.fillText(CYBER[(frame * 2 + (k + 99) * 9) % CYBER.length], x, line.y);
     }
   }
   for (let i = 0; i < n; i++) {
@@ -978,14 +983,16 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
     const x = xF === null ? xT : xT === null ? xF : xF + (xT - xF) * ease;
     const tint = Math.sin(Math.PI * m);                              // 0 at both ends, 1 mid-morph
     if (m <= 0 || m >= 1) {
-      ctx.fillStyle = `rgba(255,255,255,${a})`;
-      ctx.fillText(m >= 1 ? tc : fc, x, 86);
+      ctx.fillStyle = `rgba(${line.rgb},${a})`;
+      ctx.fillText(m >= 1 ? tc : fc, x, line.y);
     } else {
-      // Phosphor green while unresolved, white once settled — the terminal-decrypt cue, and it separates
-      // "not known yet" from "this is the text". sin(pi*m) means no colour switch at either end.
-      const r = Math.round(255 + (70 - 255) * tint), g = Math.round(255 + (190 - 255) * tint), b = Math.round(255 + (140 - 255) * tint);
+      // Phosphor green while unresolved, settling to the line's own colour — the terminal-decrypt cue, and it
+      // separates "not known yet" from "this is the text". sin(pi*m) means no colour switch at either end.
+      // Both lines churn the same green, so the band reads as one thing crossing two rows.
+      const [lr, lg, lb] = line.rgb.split(",").map(Number);
+      const r = Math.round(lr + (70 - lr) * tint), g = Math.round(lg + (190 - lg) * tint), b = Math.round(lb + (140 - lb) * tint);
       ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
-      ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86);
+      ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, line.y);
     }
   }
 }
@@ -4352,10 +4359,22 @@ function render(ts) {
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   // quoteIdx is still the OUTGOING quote during "decode" — it only becomes quoteNext once the transition ends.
   // hold = the same morph parked at p=0 with from === to, so held and transitioning share one path.
-  if (quotePhase === "hold") drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteIdx), 0, quoteAlpha, quoteIdx);
-  else drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteNext), Math.min(1, quoteT / Q_DECODE), quoteAlpha, quoteIdx);
-  const qsrc = quoteSrc(quoteIdx); // attribution shown once the quote has settled
-  if (quotePhase === "hold" && qsrc) text("— " + qsrc, W / 2, 107, { size: 12, weight: 600, color: `rgba(${ACCENT}, 0.72)`, align: "center", baseline: "middle" });
+  const QUOTE_LINE = { y: 86, size: 16, rgb: "255,255,255" };
+  // The attribution rides the SAME band, one line down and Q_SRC_LAG behind, so the source lands just after the
+  // quote it belongs to. It used to be drawn only during "hold", which meant it blinked on the instant a
+  // transition ended and off the instant the next began — and since only 27 of the 70 quotes carry a source,
+  // most changeovers were an attribution appearing out of nothing or vanishing. Morphing "" ↔ "— Source" needs
+  // no special case: an absent column is presence 0, which the existing alpha lerp already fades.
+  const SRC_LINE = { y: 107, size: 12, rgb: ACCENT.replace(/\s/g, ""), lag: Q_SRC_LAG };
+  const srcText = (i) => { const v = quoteSrc(i); return v ? "— " + v : ""; }; // the dash morphs in with the name
+  const qp = Math.min(1, quoteT / Q_DECODE);
+  if (quotePhase === "hold") {
+    drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteIdx), 0, quoteAlpha, quoteIdx, QUOTE_LINE);
+    drawQuoteMorph(srcText(quoteIdx), srcText(quoteIdx), 0, 0.72, quoteIdx, SRC_LINE);
+  } else {
+    drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteNext), qp, quoteAlpha, quoteIdx, QUOTE_LINE);
+    drawQuoteMorph(srcText(quoteIdx), srcText(quoteNext), qp, 0.72, quoteIdx, SRC_LINE);
+  }
 
   headerHits = []; ticketHits = []; youHit = null; bestHit = null;
   // NOTE: an unreachable mempool.space (model.error) does NOT gate this loop — it used to replace every panel
