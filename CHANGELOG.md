@@ -4,7 +4,29 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.74
+## Unreleased — next: 0.1.75
+
+## 0.1.74
+
+**Dashboard**
+- **NEXT BLOCK now shows when the recent blocks actually arrived.** The panel could tell you how long blocks
+  typically take, but not when they turned up — so a burst of blocks in a few minutes looked identical to the
+  same blocks spread over hours. There's now a rolling strip along the bottom: one mark per block, placed in
+  real time, with the still-unfinished block as the space at the right that grows while you watch. Blocks
+  genuinely do arrive in clusters and then keep you waiting, and now you can see it.
+- **Those block times come from your own node.** They used to be fetched from mempool.space every cycle, on a
+  panel whose other half already read from your node. Block timestamps are part of the block headers your node
+  already keeps, so there was no reason to ask anyone else — and the panel now keeps working when
+  mempool.space doesn't.
+- **The quote at the top changes over properly.** It used to cut: the old one vanished and the new one appeared
+  in its place. Now a band of characters sweeps in from off-screen, dissolving the old quote and leaving the
+  new one behind it, moving quickly across empty space and slowing over the text. The source line follows just
+  behind the quote it belongs to instead of blinking on and off.
+- **Quotes no longer repeat before you've seen them all.** They were shuffled, but nothing connected one pass
+  to the next, so a quote could come back around after only a couple of others.
+- **HASH BUILD tidy-up.** The two "1st/2nd SHA-256" labels are centred like everything else in that section,
+  the highlight box around your block's hash is centred on the hash rather than sitting slightly low, and the
+  label above it no longer touches the box.
 
 ## 0.1.73
 
