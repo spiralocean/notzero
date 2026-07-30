@@ -882,10 +882,11 @@ function lotteryWins() {
 let scrollY = 0, maxScroll = 0, scrollToSection = null; // scrollToSection: bring a panel into view on the next frame (e.g. "preview a block" → the mempool harvest)
 const FOOTER_PAD = 44; // bottom clearance under the scrollable content so the fixed footer never sits on a panel
 let clock = 0, quoteIdx = (Math.random() * QUOTES.length) | 0, quoteT = 0, frame = 0, quoteNext = 1, quotePhase = "hold"; // random start so refresh doesn't always begin at the first quote
-// seconds: hold the quote, then morph to the next. 2.2 rather than the 3.6 the constant-speed crossing needed:
-// with Q_PACE the margins are covered at ~1077 px/s and the text at ~359, so the approach costs 0.51s instead of
-// 1.12s while each character actually gets LONGER to morph (0.42s, up from 0.34s).
-const Q_HOLD = 11, Q_DECODE = 2.2;
+// seconds: hold the quote, then morph to the next. Q_DECODE is not chosen freely — it is bisected against
+// Q_PACE to hold the middle column's morph at 0.351s, the rate that already looked right. Raising the pacing
+// contrast alone would have sped the TEXT up too; pairing it with a shorter duration buys faster margins at an
+// unchanged decode. 0.85/1.73s is where the returns flatten: k=0.90 gives no further gain.
+const Q_HOLD = 11, Q_DECODE = 1.73;
 // Random order, every quote once before any repeats, and no repeat close to the seam between passes.
 // See quote-bag.js for why the seam needed its own guard and what it was doing before.
 const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
@@ -913,7 +914,7 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 // Position-keyed, the band crosses the screen at one constant speed regardless.
 const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
 const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
-const Q_PACE = 0.5;           // 0 = constant speed; k<1 keeps it monotonic. (1+k)x at the edges, (1-k)x mid-text
+const Q_PACE = 0.85;          // 0 = constant speed; k<1 keeps it monotonic. (1+k)x at the edges, (1-k)x mid-text
 function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
