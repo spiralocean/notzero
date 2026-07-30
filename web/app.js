@@ -236,7 +236,7 @@ function expectedEvery(l2) {
 function coinFlips(bits) { const n = Math.round(bits); return `${n} coin-flip${n === 1 ? "" : "s"} landing heads in a row`; }
 
 // ---- model ----
-const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, chainOkAt: 0, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
+const model = { tipHeight: null, block: null, txCount: null, price: null, hashrateEh: null, difficulty: null, diffAdjust: null, miningSeries: null, ticket: null, error: null, chainOkAt: 0, priceHistory: [], hashrateHistory: [], recentBlocks: [], blockTimes: [], blockHistory: [], node: null, nodeLastOk: 0, mempool: null, bwHistory: [], recentTxs: [], fees: null };
 // true right after the node briefly dropped but was up moments ago (e.g. the miner + bridge restarting when
 // you save settings) — used to show a calm "reconnecting…" instead of "no node connected" for a grace window.
 function nodeReconnecting() { return isDesktop && model.nodeLastOk > 0 && (Date.now() - model.nodeLastOk) < 20000; }
@@ -312,6 +312,10 @@ async function pollBlockTimes() {
     // only diff CONSECUTIVE heights; drop clock-skew anomalies (miner timestamps can go slightly backward / far ahead)
     for (let i = 1; i < heights.length; i++) if (heights[i] === heights[i - 1] + 1) { const d = (byH.get(heights[i]) - byH.get(heights[i - 1])) / 60; if (d >= 0 && d < 180) iv.push(d); }
     if (iv.length >= 12) model.blockTimes = iv;
+    // Keep the timestamps too, not just the gaps between them. The histogram only needs intervals, but a
+    // histogram cannot show ORDER — two blocks a minute apart and two ten hours apart fall in the same bucket.
+    // The timeline strip needs to place each block in real time, so retain (height, timestamp) as well.
+    model.blockHistory = heights.map((h) => ({ height: h, timestamp: byH.get(h) }));
   } catch (_) {}
 }
 // Same-origin feed from your local node (written by the bridge from bitcoind:
@@ -737,7 +741,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
-const CONTENT_H = { win: 150, nextBlock: 170, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { win: 150, nextBlock: 214, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -1896,7 +1900,9 @@ function drawContent(s, r) {
 
 function drawNextBlock(r) {
   if (!model.block) { text("waiting…", r.x + r.w / 2, r.y + r.h / 2, { size: 18, color: "#888", align: "center", baseline: "middle" }); return; }
-  const cx = r.x + 78, cy = r.y + r.h / 2, rad = 52;
+  // Everything above the timeline is laid out against a FIXED top zone, not against r.h. The panel grew to
+  // make room for the strip; measuring from r.h would drift the ring downward and stretch the histogram bars.
+  const topH = 170, cx = r.x + 78, cy = r.y + topH / 2, rad = 52;
   const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp));
   const over = elapsed > 600; // past the ~10-min estimate — count UP the overrun (long blocks are normal: Poisson)
   const progress = Math.min(1, elapsed / 600);
@@ -1935,7 +1941,7 @@ function drawNextBlock(r) {
     if (hw > 200) {
       const BW = 3, NB = 11, SPAN = NB * BW, buckets = new Array(NB).fill(0); // 3-min buckets: 0–3, 3–6, … 27–30, 30+
       for (const v of bt) buckets[Math.min(NB - 1, Math.floor(v / BW))]++;
-      const maxC = Math.max(1, ...buckets), bw = hw / NB, hBot = r.y + r.h - 50, hTop = r.y + 40, hH = hBot - hTop;
+      const maxC = Math.max(1, ...buckets), bw = hw / NB, hBot = r.y + topH - 50, hTop = r.y + 40, hH = hBot - hTop;
       const mean = bt.reduce((a, b) => a + b, 0) / bt.length;
       text(`block times · last ${bt.length} blocks · avg ${mean.toFixed(1)} min`, hx, r.y + 20, { size: 11, weight: 600, color: "rgba(255,255,255,0.6)", baseline: "middle" });
       for (let i = 0; i < NB; i++) {
@@ -1956,8 +1962,75 @@ function drawNextBlock(r) {
         text(nowTxt, mx + (rightSide ? -5 : 5), hTop + 3, { size: 9.5, weight: 700, color: over ? "rgba(255,216,150,1)" : "rgba(150,235,255,1)", align: rightSide ? "right" : "left", baseline: "middle" }); }
     }
   }
-  if (over) text(`long blocks are normal — each inner ring = another 10-min window (now in #${intervals + 1}) · ~37% run past 10, ~5% past 30`, r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
-  else if (model.blockTimes && model.blockTimes.length >= 12) text("Block times are memoryless — 10 min is an average, not a schedule. Same dice as your hash lottery: each try is independent.", r.x + 192, r.y + r.h - 16, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  if (over) text(`long blocks are normal — each inner ring = another 10-min window (now in #${intervals + 1}) · ~37% run past 10, ~5% past 30`, r.x + 192, r.y + topH - 16, { size: 11, color: "rgba(255,180,80,0.72)", baseline: "middle" });
+  else if (model.blockTimes && model.blockTimes.length >= 12) text("Block times are memoryless — 10 min is an average, not a schedule. Same dice as your hash lottery: each try is independent.", r.x + 192, r.y + topH - 16, { size: 11, color: "rgba(255,255,255,0.5)", baseline: "middle" });
+  drawBlockTimeline(r, r.y + topH, elapsed, over);
+}
+
+// WHEN the recent blocks arrived — the one thing the histogram above cannot show. A histogram drops order, so
+// two blocks a minute apart and two ten hours apart land in the same bucket; here the first reads as a cluster
+// and the second as a gap. Right edge is NOW, so the empty space after the last tick is the block currently
+// being mined, widening while you watch — the same quantity the countdown ring on the left is counting.
+function drawBlockTimeline(r, top, elapsed, over) {
+  const h = model.blockHistory;
+  if (!Array.isArray(h) || h.length < 4) return;
+  const x0 = r.x + 24, x1 = r.x + r.w - 24, w = x1 - x0;
+  if (w < 220) return;                                  // too narrow to read; the panel above still stands alone
+  const yTop = top + 20, yBot = r.y + r.h - 16, mid = (yTop + yBot) / 2, half = (yBot - yTop) / 2;
+  const now = Date.now() / 1000, t0 = h[0].timestamp, span = Math.max(1800, now - t0);
+  const at = (ts) => x0 + ((ts - t0) / span) * w;
+  const hours = span / 3600;
+
+  text(`when they arrived · last ${h.length} blocks over ~${hours < 2 ? hours.toFixed(1) : Math.round(hours)} h`,
+    x0, top + 8, { size: 11, weight: 600, color: "rgba(255,255,255,0.6)", baseline: "middle" });
+
+  // hour gridlines, walked back from now so "now" is always exactly on the right edge
+  const step = hours > 8 ? 2 : hours > 4 ? 1 : 0.5;
+  for (let k = step; k < hours; k += step) {
+    const gx = at(now - k * 3600);
+    if (gx < x0 + 8) break;
+    ctx.strokeStyle = "rgba(255,255,255,0.055)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(gx, yTop); ctx.lineTo(gx, yBot); ctx.stroke();
+    text(`${k % 1 ? k.toFixed(1) : k}h`, gx, yBot + 9, { size: 8.5, color: "rgba(255,255,255,0.3)", align: "center", baseline: "middle" });
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(x0, mid + 0.5); ctx.lineTo(x1, mid + 0.5); ctx.stroke();
+
+  // the gap that hasn't closed yet — shaded, and it grows in real time
+  const lastX = at(h[h.length - 1].timestamp);
+  ctx.fillStyle = over ? "rgba(255,180,80,0.10)" : `rgba(${ACCENT},0.10)`;
+  ctx.fillRect(lastX, yTop, Math.max(1, x1 - lastX), yBot - yTop);
+
+  // one tick per block. A SHORT preceding gap draws taller and brighter, so a burst is visible at a glance
+  // rather than being something you have to measure.
+  let hov = null;
+  for (let i = 0; i < h.length; i++) {
+    const bx = at(h[i].timestamp);
+    if (bx < x0 - 1) continue;
+    const gapMin = i ? (h[i].timestamp - h[i - 1].timestamp) / 60 : 10;
+    const q = Math.max(0, Math.min(1, 1 - gapMin / 20));  // 1 = back-to-back, 0 = 20 min or longer
+    const th = half * (0.40 + 0.60 * q);
+    ctx.strokeStyle = `rgba(${ACCENT},${(0.34 + 0.52 * q).toFixed(3)})`;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath(); ctx.moveTo(bx, mid - th); ctx.lineTo(bx, mid + th); ctx.stroke();
+    if (Math.abs(mouseX - bx) < 4 && mouseY > yTop - 6 && mouseY < yBot + 6) hov = { b: h[i], gapMin, bx };
+  }
+
+  // "now" edge
+  ctx.strokeStyle = over ? "rgba(255,190,90,0.85)" : `rgba(${ACCENT},0.85)`; ctx.lineWidth = 1.5;
+  ctx.beginPath(); ctx.moveTo(x1, yTop - 3); ctx.lineTo(x1, yBot + 3); ctx.stroke();
+  text("now", x1, yBot + 9, { size: 8.5, weight: 700, color: over ? "rgba(255,200,120,0.9)" : `rgba(${ACCENT},0.9)`, align: "right", baseline: "middle" });
+
+  if (hov) {
+    const t = new Date(hov.b.timestamp * 1000);
+    const lbl = `#${hov.b.height.toLocaleString()} · ${String(t.getHours()).padStart(2, "0")}:${String(t.getMinutes()).padStart(2, "0")} · ${hov.gapMin.toFixed(1)} min gap`;
+    ctx.font = "700 9.5px ui-sans-serif, system-ui, -apple-system, Segoe UI, sans-serif";
+    const tw = ctx.measureText(lbl).width, right = hov.bx + tw + 12 > x1;
+    const bxl = right ? hov.bx - 6 - tw : hov.bx + 6;
+    ctx.fillStyle = "rgba(8,6,12,0.92)"; roundRect(bxl - 4, yTop - 6, tw + 8, 15, 4); ctx.fill();
+    text(lbl, hov.bx + (right ? -6 : 6), yTop + 1, { size: 9.5, weight: 700, color: "rgba(220,240,255,0.95)", align: right ? "right" : "left", baseline: "middle" });
+  }
+  window.__timeline = { ticks: h.length, spanH: +(span / 3600).toFixed(2), lastGapMin: +((now - h[h.length - 1].timestamp) / 60).toFixed(1) }; // test hook
 }
 
 // ---- MEMPOOL: live tx flow — pending transactions stream in, pool, then feed the next block ----

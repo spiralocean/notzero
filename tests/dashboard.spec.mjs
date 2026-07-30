@@ -637,3 +637,47 @@ test("node tip: a node that is behind (headers ahead of blocks) is not treated a
   console.log(`   tip height in use: ${h} (the stale local tip was 960001)`);
   expect(h).not.toBe(960001);
 });
+
+// NEXT BLOCK's histogram shows the SHAPE of block times but drops their order, so two blocks a minute apart and
+// two ten hours apart fall in the same bucket. The timeline strip restores order — prompted by watching two
+// blocks land back-to-back on the ambient screen, which the histogram had no way to show.
+//
+// The shared fixture's blocks carry no `timestamp`, so pollBlockTimes() discards them all and neither the
+// histogram nor the strip can render. This test supplies timestamped, consecutive blocks of its own.
+test("next block: the arrival timeline renders, including a back-to-back pair", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+
+  const gaps = [11, 7, 14, 22, 1, 9, 10, 3, 18, 12, 6, 10, 10, 4, 13, 8, 10, 2, 10]; // minutes, oldest→newest
+  const start = 954470 - gaps.length;
+  const now = Math.floor(Date.now() / 1000);
+  let t = now - (gaps.reduce((a, b) => a + b, 0) * 60) - 300;
+  const blocks = [{ height: start, timestamp: t }];
+  gaps.forEach((g, i) => { t += g * 60; blocks.push({ height: start + i + 1, timestamp: t }); });
+  const payload = [...blocks].reverse().map((b) => ({ ...b, tx_count: 2500, size: 1_500_000, extras: { pool: { name: "TestPool" } } }));
+  // Replace the shared handler outright instead of layering another route over it. Relying on registration
+  // order alone, an earlier run of this test saw 75 blocks spanning 41 days rather than the 20 supplied here —
+  // the two handlers disagreed about which requests they answered. unroute + an explicit regex covering both
+  // /v1/blocks and /v1/blocks/{height} removes the ambiguity, and `served` proves it actually answered.
+  await page.unroute("**/api/v1/blocks*");
+  let served = 0;
+  await page.route(/\/api\/v1\/blocks(\/\d+)?(\?|$)/, (r) => { served++; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(payload) }); });
+
+  await page.goto("/");
+  await page.waitForFunction(() => window.__timeline, null, { timeout: 20000 });
+  const tl = await page.evaluate(() => window.__timeline);
+  const bt = await page.evaluate(() => window.__model.blockTimes.length);
+  const frame = await page.evaluate(() => window.__frames.nextBlock);
+  expect(served).toBeGreaterThan(0); // the override really answered; nothing leaked to the live API
+  console.log(`   timeline: ${JSON.stringify(tl)}  intervals: ${bt}  panel h: ${frame.h}`);
+
+  expect(tl.ticks).toBe(blocks.length);              // every block placed, not just the ones with long gaps
+  expect(tl.spanH).toBeGreaterThan(2);               // ~3h of history from these gaps
+  expect(bt).toBe(gaps.length);                      // the histogram still gets its intervals
+  expect(frame.h).toBeGreaterThanOrEqual(214);       // the panel actually grew to make room for the strip
+  // The 1-minute gap must survive into the data the strip draws from — that is the whole point of the feature.
+  const shortest = await page.evaluate(() => Math.min(...window.__model.blockTimes));
+  expect(shortest).toBeLessThan(1.5);
+});
