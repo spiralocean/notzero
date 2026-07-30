@@ -903,8 +903,12 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 //
 // Passing the same string as `from` and `to` with p = 0 renders a settled quote, so the hold state and the
 // transition share one code path and cannot drift apart.
-const Q_BAND = 0.38;          // how much of the transition one column spends mid-morph
-const Q_TH_MAX = 0.82;        // revealThresh()'s ceiling — rescaled below so th + Q_BAND never exceeds 1
+// The reveal SWEEPS left→right like a machine decoding the line, rather than each column picking its own random
+// moment. Q_BAND is narrower than the scattered version used (0.38) because with an ordered sweep the band sets
+// the width of the decode head: active columns ≈ Q_BAND/(1-Q_BAND) of the line, so 0.18 keeps the head at ~22%
+// instead of smearing across two thirds of it.
+const Q_BAND = 0.18;          // how much of the transition one column spends mid-morph
+const Q_JITTER = 0.05;        // ragged the head slightly, so it decodes rather than wiping like a progress bar
 function drawQuoteMorph(from, to, p, alpha, seed) {
   ctx.font = "600 16px ui-monospace, SFMono-Regular, Menlo, monospace";
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
@@ -922,7 +926,9 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
     const fi = i - offF, ti = i - offT;
     const fc = fi >= 0 && fi < from.length ? from[fi] : "";
     const tc = ti >= 0 && ti < to.length ? to[ti] : "";
-    const th = (revealThresh(seed + 1, i) / Q_TH_MAX) * (1 - Q_BAND); // own moment, scattered — not left-to-right
+    const sweep = n > 1 ? i / (n - 1) : 0;                            // left edge first, right edge last
+    const jit = (hrand(seed * 17.3 + i * 3.7) - 0.5) * Q_JITTER;      // deterministic per (quote, column)
+    const th = Math.max(0, Math.min(1 - Q_BAND, (sweep + jit) * (1 - Q_BAND)));
     const m = Math.max(0, Math.min(1, (p - th) / Q_BAND));
     const aF = fc && fc !== " " ? 1 : 0, aT = tc && tc !== " " ? 1 : 0;
     const a = (aF + (aT - aF) * m) * alpha;
@@ -935,7 +941,9 @@ function drawQuoteMorph(from, to, p, alpha, seed) {
       ctx.fillStyle = `rgba(255,255,255,${a})`;
       ctx.fillText(m >= 1 ? tc : fc, x, 86);
     } else {
-      const r = 255, g = Math.round(255 + (153 - 255) * tint), b = Math.round(255 + (26 - 255) * tint);
+      // Phosphor green while unresolved, white once settled — the terminal-decrypt cue, and it separates
+      // "not known yet" from "this is the text". sin(pi*m) means no colour switch at either end.
+      const r = Math.round(255 + (70 - 255) * tint), g = Math.round(255 + (190 - 255) * tint), b = Math.round(255 + (140 - 255) * tint);
       ctx.fillStyle = `rgba(${r},${g},${b},${a})`;
       ctx.fillText(CYBER[(frame * 2 + i * 9) % CYBER.length], x, 86);
     }
