@@ -2847,7 +2847,15 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
   const done = ph.name === "hold" ? Math.min(1, ph.p / 0.04) : 0;
   if (done > 0) {
     const pulse = 0.5 + 0.5 * Math.sin(frame / 22);
-    const hX = rowX - 12, hY = y2 - 9, hW = rowW + 24, hH = 22; // wraps the glyph row, clear of the label above
+    // Centre the box on the GLYPHS, not on y2. Two things were off: the box used to start 9px above a 22px box,
+    // putting its centre at y2+2; and canvas's "middle" baseline centres the EM BOX, which for digits — no
+    // descenders — sits above their visual centre, so even an exactly-y2-centred box reads low. Measuring the
+    // rendered bounds fixes both and survives the different monospace fonts each platform substitutes.
+    const hX = rowX - 12, hH = 22, hW = rowW + 24;
+    ctx.font = "400 13px ui-monospace, SFMono-Regular, Menlo, monospace"; ctx.textBaseline = "middle";
+    const gm = ctx.measureText("0");
+    const glyphMid = ((gm.actualBoundingBoxDescent || 0) - (gm.actualBoundingBoxAscent || 0)) / 2; // offset from y2
+    const hY = y2 + glyphMid - hH / 2;
     ctx.save();
     ctx.shadowColor = `rgba(${ACCENT},${0.5 * done})`; ctx.shadowBlur = 10 + 5 * pulse; // soft accent glow
     ctx.fillStyle = `rgba(${ACCENT},${0.10 * done})`; roundRect(hX, hY, hW, hH, 7); ctx.fill();
@@ -2855,7 +2863,7 @@ function drawHashMachine(r, ph, headerBottom, b, tk, live, height) {
     ctx.strokeStyle = `rgba(${ACCENT},${done * (0.65 + 0.3 * pulse)})`; ctx.lineWidth = 1.8; roundRect(hX, hY, hW, hH, 7); ctx.stroke();
     ctx.restore();
   }
-  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", cx, y2 - 16, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
+  text(live ? "2nd SHA-256 — your block hash · this is what your node submitted" : "2nd SHA-256 — hash that result AGAIN → a new value (the “double”)", cx, y2 - 18, { size: 10, weight: 700, color: live ? "rgb(90,220,140)" : `rgba(${ACCENT},0.7)`, align: "center", baseline: "middle" });
   hashRow(h2, p2, y2, lz2, live ? "rgba(255,255,255,0.92)" : "rgba(255,255,255,0.62)");
   text("why hash twice? a lone SHA-256 is open to a “length-extension” trick — hashing the hash again closes it", cx, y2 + 28, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   // #6: what makes the hash random
