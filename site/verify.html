@@ -89,6 +89,11 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
     <p>And because the proof only needs block <em>headers</em>, an ordinary <strong>pruned</strong> node (like notzero's) is enough — you don't need a full archival copy of the chain.</p>
     <p>notzero will soon do this <strong>automatically, in-app</strong>: check each build against your node before trusting it, and gate updates on that check. This page is the manual version of the same idea.</p>
 
+    <h2 id="source"><span class="step">4.</span> See what's actually inside it</h2>
+    <p>Everything above answers <em>"is this the file notzero published?"</em> It doesn't answer <em>"what does that file do?"</em> For that, the code is public and MIT-licensed: <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">github.com/spiralocean/notzero</a>. Every version is <a href="https://github.com/spiralocean/notzero/tags" target="_blank" rel="noopener">tagged</a>, so you can read the exact source any given release was cut from.</p>
+    <p><strong>The builds happen in the open too.</strong> Installers aren't produced on a laptop and uploaded — pushing a version tag triggers a <a href="https://github.com/spiralocean/notzero/actions/workflows/release.yml" target="_blank" rel="noopener">public GitHub Actions workflow</a> that builds all three platforms from that commit. Anyone can open the run for a version and read what produced the files, including the tests that had to pass first.</p>
+    <p style="color:var(--dim); font-size:14.5px">Honest scope, because this is the one people assume goes further than it does: the fingerprint proves the file is the one we published, and the workflow shows it was built in public from a named commit. Neither lets you rebuild the installer yourself and confirm you get <em>byte-for-byte identical</em> output — that's called a reproducible build, and notzero doesn't have it yet. It's the remaining gap between "built in the open" and "provably this code, nothing else".</p>
+
     <h2 id="since"><span class="step">✦</span> How long notzero has existed — proof, not a claim</h2>
     <p>The same mechanism dates the project itself. notzero's <strong>earliest release</strong> was timestamped onto the Bitcoin blockchain in <strong>block 957,017</strong>, mined <strong>July 7, 2026</strong>. Because a Bitcoin timestamp can't be backdated, that block is permanent, independently-checkable proof that notzero existed by then — you don't have to take our word for how long it's been around.</p>
     <p style="color:var(--dim); font-size:14.5px">Honest scope: a timestamp proves a thing existed <em>by</em> a given block — an upper bound on age. Our work began a little earlier, but this is the oldest point provable trustlessly on Bitcoin, so it's the date we stand on.</p>
@@ -106,11 +111,12 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
       <ul style="margin-bottom:4px">
         <li>On <strong>macOS</strong>, Apple already checks our signature automatically before the app runs (notarization) — this is an extra, independent layer on top.</li>
         <li>No scheme can make an app securely verify <em>itself</em> — so the check that matters most is the one your <em>node</em> or <em>your own command line</em> performs, which is exactly what this page is for.</li>
+        <li>A matching fingerprint proves the file is the one we published — <em>not</em> that it was built from the public source. <a href="#source">Step 4</a> is honest about where that line currently sits.</li>
         <li>Always download from <strong class="ok">getnotzero.com</strong>. If another site offers notzero, it isn't us.</li>
       </ul>
     </div>
 
-    <footer>notzero is free and open source — you can read every line of what it does. Back to <a href="/">getnotzero.com</a>.</footer>
+    <footer>notzero is free and open source — you can <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">read every line</a> of what it does. Back to <a href="/">getnotzero.com</a>.</footer>
   </div>
 </body>
 </html>

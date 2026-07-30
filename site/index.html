@@ -240,11 +240,19 @@
   <div class="rise" id="dlcount" style="animation-delay:.5s; font-size:12px; color:rgba(255,255,255,0.6); margin-top:10px; text-align:center; min-height:14px; font-family:ui-monospace,monospace;"></div>
   <div class="verify rise" style="animation-delay:.56s">
     <span class="vmark">✓</span>
-    <p id="verify-text"><b>Free and open source</b> — you can read every line of exactly what it does. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn't us.</p>
+    <!-- NOTE: this paragraph is REPLACED at runtime by the notarization line (see the script below), so it is
+         only ever seen with JS disabled. Keep it true and linked anyway — it is the no-JS fallback. -->
+    <p id="verify-text"><b>Free and open source</b> — you can <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">read every line</a> of exactly what it does. Whatever your system, only download from <b class="dom">getnotzero.com</b>. If another site offers it, it isn't us.</p>
   </div>
   <div class="verify rise" style="animation-delay:.62s; margin-top:9px;">
     <span class="vmark" aria-hidden="true" style="opacity:0">✓</span>
     <p style="margin:0"><a href="/verify">Verify your download ↗</a> — match it against a hash we stamped into the Bitcoin blockchain.</p>
+  </div>
+  <!-- Its own row rather than a link inside the line above: that line is swapped out for the notarization text
+       at runtime, so an "open source" claim placed there is never actually seen by anyone running JS. -->
+  <div class="verify rise" style="animation-delay:.68s; margin-top:9px;">
+    <span class="vmark" aria-hidden="true" style="opacity:0">✓</span>
+    <p style="margin:0"><a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">Read the source ↗</a> — every line is public, and each release is built from it in the open.</p>
   </div>
 </header>
 
