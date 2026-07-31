@@ -102,7 +102,7 @@
   <header>
     <p class="eyebrow"><span id="window">loading…</span> <button class="refresh" id="refresh" type="button">Refresh</button></p>
     <h1>How many people have it, and how many are running it</h1>
-    <p class="lede">Downloads come from the landing page's own counter. Installs are derived from CDN traffic the app already generates checking for updates — no telemetry, nothing new collected. The same numbers come out of <code>node scripts/stats.mjs</code>.</p>
+    <p class="lede">Two different things are counted here, and they move independently. <strong>New downloads</strong> is the landing page's own button counter — one per browser, all time. <strong>Everything else</strong> is derived from CDN traffic the app already generates checking for updates, which includes existing installs downloading a new version. No telemetry, nothing new collected. The same numbers come out of <code>node scripts/stats.mjs</code>.</p>
   </header>
 
   <p class="status err hidden" id="error"></p>
@@ -129,8 +129,8 @@
   </section>
 
   <section class="panel">
-    <h2>Installer downloads, by hour</h2>
-    <p class="sub">Actual <code>.dmg</code> / <code>.exe</code> / <code>.AppImage</code> / <code>.zip</code> fetches — the bandwidth behind a release, and the only traffic here that costs real money.</p>
+    <h2>Installer fetches, by hour</h2>
+      <p class="sub">Actual <code>.dmg</code> / <code>.exe</code> / <code>.AppImage</code> / <code>.zip</code> fetches from the CDN — the bandwidth behind a release, and the only traffic here that costs real money. <strong>Counts auto-updates</strong>, so shipping a version spikes this while "new downloads" above does not move: those are existing installs taking the update, not new people.</p>
     <div class="plot" id="p-artifacts"></div>
     <p class="note" id="art-note"></p>
   </section>
@@ -399,7 +399,7 @@ function tiles(d) {
   const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
   $("tiles").innerHTML = `
     <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Every machine counted once, on the release it is actually running. From installer fetches — real computers, not an average.</span></div>
-    <div class="tile lead"><span class="k">Downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time, landing-page button. Misses direct CDN links; a download isn't an install.</span></div>
+    <div class="tile lead"><span class="k">New downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time. Someone clicking the button on getnotzero.com, once per browser. Does NOT move when existing installs auto-update — that is the fetches chart below.</span></div>
     <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">Median hour. Lower than the machine count because some are asleep.</span></div>
     <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;
 }
@@ -464,7 +464,12 @@ async function load() {
     render(await r.json());
   } catch (e) {
     const box = $("error");
-    box.textContent = "Couldn't load the numbers: " + (e.message || e);
+    // A raw JSON.parse failure is not an explanation. When the response was not JSON at all — an edge error
+    // page during a Cloudflare incident — say what actually happened instead of quoting the parser.
+    const raw = String(e && e.message ? e.message : e);
+    box.textContent = /Unexpected token|not valid JSON/i.test(raw)
+      ? "Couldn't load the numbers — the stats service didn't return data. That usually means Cloudflare's Analytics API is having problems; the page recovers on its own. (" + raw.slice(0, 80) + ")"
+      : "Couldn't load the numbers: " + raw;
     box.classList.remove("hidden");
     $("window").textContent = "notzero · no data";
   } finally { btn.disabled = false; btn.textContent = "Refresh"; }

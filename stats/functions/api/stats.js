@@ -24,13 +24,31 @@ const json = (obj, status = 200) =>
 
 const iso = (d) => new Date(d).toISOString().replace(/\.\d{3}Z$/, "Z");
 
+// Cloudflare's own Analytics API goes down (it did on 2026-07-31, returning 520/522/525 for hours). Without a
+// deadline this fetch just hangs, the Function is killed by the edge mid-request, and the browser gets
+// Cloudflare's HTML error page — which the dashboard then tries to JSON.parse, producing "Unexpected token 'e'"
+// instead of anything a human can act on. A timeout turns an upstream outage into a sentence.
+const GQL_TIMEOUT_MS = 12_000;
 async function gql(token, query) {
-  const r = await fetch(GQL, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
-    body: JSON.stringify({ query }),
-  });
-  const j = await r.json();
+  let r;
+  try {
+    r = await fetch(GQL, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "content-type": "application/json" },
+      body: JSON.stringify({ query }),
+      signal: AbortSignal.timeout(GQL_TIMEOUT_MS),
+    });
+  } catch (e) {
+    throw new Error(e && e.name === "TimeoutError"
+      ? `Cloudflare's Analytics API did not respond within ${GQL_TIMEOUT_MS / 1000}s — traffic figures unavailable, try again shortly.`
+      : `Could not reach Cloudflare's Analytics API: ${e && e.message ? e.message : e}`);
+  }
+  // A degraded API answers with an HTML error page, not JSON. Say so plainly rather than letting a parse error
+  // surface as the whole explanation.
+  if (!r.ok) throw new Error(`Cloudflare's Analytics API returned HTTP ${r.status} — traffic figures unavailable, try again shortly.`);
+  let j;
+  try { j = await r.json(); }
+  catch { throw new Error("Cloudflare's Analytics API returned a non-JSON response — traffic figures unavailable, try again shortly."); }
   if (j.errors?.length) throw new Error(j.errors.map((e) => e.message).join("; "));
   return j.data;
 }
