@@ -3,3 +3,10 @@
 name = "notzero-stats"
 pages_build_output_dir = "."
 compatibility_date = "2026-07-01"
+
+# Same namespace the landing page's download counter uses, under a different key prefix (mach:*). Reused rather
+# than created because the machine tally is small and adjacent to the download numbers it sits beside on the
+# page — and one fewer resource to provision, name and remember.
+[[kv_namespaces]]
+binding = "STATS"
+id = "57c1ad90f1cd4fea80fb53960de46dbc"

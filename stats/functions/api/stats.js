@@ -59,6 +59,39 @@ async function releases(hours) {
   } catch (_) { return {}; }
 }
 
+// Fold this window's versioned installer fetches into a stored per-(version, hour) tally and return cumulative
+// totals. Idempotent: an hour already recorded is ASSIGNED the same count, never added to, so reloading the page
+// cannot inflate the numbers. Falls back to the window-only figures whenever KV is unavailable, so the page
+// degrades to its previous behaviour rather than breaking.
+const MACH_KEY = "mach:byhour";
+const MACH_KEEP_DAYS = 120;
+async function mergeMachineTally(kv, perVersion, dlRows) {
+  const windowOnly = () => Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version));
+  if (!kv) return windowOnly();
+  const before = (await kv.get(MACH_KEY)) || "{}";
+  const stored = JSON.parse(before);          // { version: { "YYYY-MM-DDTHH": {mac,win,linux} } }
+  for (const row of dlRows) {
+    const m = /^\/notzero-(\d+\.\d+\.\d+)-(mac|win|linux)/.exec(row.dimensions.clientRequestPath);
+    if (!m || row.dimensions.clientRequestPath.endsWith(".blockmap")) continue;
+    const hour = row.dimensions.datetimeHour.slice(0, 13);   // full YYYY-MM-DDTHH, unique across days
+    const byHour = (stored[m[1]] ||= {});
+    (byHour[hour] ||= { mac: 0, win: 0, linux: 0 })[m[2]] = row.count;
+  }
+  const cutoff = Date.now() - MACH_KEEP_DAYS * 86400e3, out = [];
+  for (const [version, byHour] of Object.entries(stored)) {
+    const v = { version, mac: 0, win: 0, linux: 0, total: 0 };
+    for (const [hour, c] of Object.entries(byHour)) {
+      if (Date.parse(hour + ":00:00Z") < cutoff) { delete byHour[hour]; continue; }
+      v.mac += c.mac || 0; v.win += c.win || 0; v.linux += c.linux || 0;
+    }
+    v.total = v.mac + v.win + v.linux;
+    if (v.total) out.push(v);
+  }
+  const next = JSON.stringify(stored);
+  if (next !== before) await kv.put(MACH_KEY, next);          // only write when the window actually added something
+  return out.length ? out.sort((a, b) => cmpVer(b.version, a.version)) : windowOnly();
+}
+
 export async function onRequestGet({ request, env }) {
   const token = env.CF_ANALYTICS_TOKEN, zone = env.CF_ZONE_ID;
   if (!token || !zone) return json({ error: "This deployment is missing CF_ANALYTICS_TOKEN or CF_ZONE_ID — see stats/README.md." }, 503);
@@ -115,7 +148,13 @@ export async function onRequestGet({ request, env }) {
       const v = (perVersion[m[1]] ||= { version: m[1], mac: 0, win: 0, linux: 0, total: 0 });
       v[m[2]] += row.count; v.total += row.count;
     }
-    const machines = Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version));
+      // PERSIST the per-version tally. Cloudflare caps this dataset at a 24h span, so a release older than a
+      // day has no installer fetches left in the window and its bar emptied — the chart forgot how many
+      // machines had taken it, which is the one number the page exists to answer. Stored per (version, hour)
+      // so re-reading an hour we already have overwrites it with the same value instead of double counting,
+      // which keeps it correct however often the page is loaded.
+      const machines = await mergeMachineTally(env.STATS, perVersion, z.dl)
+        .catch(() => Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version)));
     for (const row of z.sites) {
       const b = touch(hourKey(row.dimensions.datetimeHour));
       const isDemo = row.dimensions.clientRequestHTTPHost === DEMO_HOST;
