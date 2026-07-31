@@ -286,18 +286,21 @@ function drawBars(id, rows, pick, opts) {
 function drawMachines(machines, fleet) {
   const host = clear("p-machines");
   if (!machines.length) { host.innerHTML = '<p class="sub">No installer fetches in this window — nothing updated.</p>'; return; }
-  const rows = machines.slice(0, 6);
+  // Only versions something is still ON, newest first. A release everyone has left drops out — which is the
+  // point: what remains below the top row is stragglers, not history.
+  const live = machines.filter((m, i) => i === 0 || m.running > 0);
+  const rows = live.slice(0, 6);
   const W = 980, rowH = 40, T = 64, L = 74, R = 150;
   const Hh = T + rows.length * rowH + 8;
-  const max = Math.max(...rows.map((r) => r.total), 1);
+  const max = Math.max(...rows.map((r) => r.running), 1);
   const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Adoption of each release across the fleet" });
   const tip = tooltip(host);
   const parts = [["mac", "var(--mac)", "macOS"], ["win", "var(--win)", "Windows"], ["linux", "var(--linux)", "Linux"]];
 
   // Headline: the newest release against the fleet. This is the number that answers "did my fix land?".
-  const latest = rows[0], pct = fleet ? Math.round((latest.total / fleet) * 100) : 0;
+  const latest = rows[0], pct = fleet ? Math.round((latest.running / fleet) * 100) : 0;
   const big = el("text", { x: 0, y: 30, class: "axis", fill: "var(--accent)", "font-size": "27", "font-weight": "600" });
-  big.textContent = `${latest.total} of ~${fleet}`; svg.appendChild(big);
+  big.textContent = `${latest.running} of ${fleet}`; svg.appendChild(big);
   const cap = el("text", { x: 0, y: 52, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
   cap.textContent = `machines on ${latest.version}${fleet ? ` · ${pct}% of the fleet` : ""}`; svg.appendChild(cap);
 
@@ -310,21 +313,21 @@ function drawMachines(machines, fleet) {
     lb.textContent = r.version; svg.appendChild(lb);
     let x = L;
     for (const [k, c, label] of parts) {
-      if (!r[k]) continue;
-      const segW = ((W - L - R) * r[k]) / max;
+      if (!r[`r_${k}`]) continue;                       // segment = machines still ON this release
+      const segW = ((W - L - R) * r[`r_${k}`]) / max;
       const seg = el("rect", { x, y, width: Math.max(segW - 2, 2), height: bh, rx: 3, fill: c, opacity: fade });
       seg.style.cursor = "crosshair";
       const cxs = x + segW / 2;
       seg.addEventListener("pointerenter", () => {
         const bb = svg.getBoundingClientRect();
-        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[k]} machine${r[k] === 1 ? "" : "s"}`, (cxs / W) * bb.width, (y / Hh) * bb.height);
+        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[`r_${k}`]} running now<br><span class="th">${r[k]} took it altogether</span>`, (cxs / W) * bb.width, (y / Hh) * bb.height);
       });
       seg.addEventListener("pointerleave", () => tip.hide());
       svg.appendChild(seg);
       x += segW;
     }
     const vl = el("text", { x: x + 10, y: y + bh / 2 + 4, class: "axis", fill: i === 0 ? "var(--ink-2)" : "var(--ink-3)", "font-size": "12.5", opacity: i === 0 ? 1 : 0.75 });
-    vl.textContent = i === 0 ? `${r.total} — current` : `${r.total} · ${fleet ? Math.round((r.total / fleet) * 100) : 0}% took it`;
+    vl.textContent = i === 0 ? `${r.running} — current` : `${r.running} still on it`;
     svg.appendChild(vl);
   });
   host.appendChild(svg);
@@ -395,7 +398,7 @@ function tiles(d) {
   const t = d.totals, dl = d.downloads;
   const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
   $("tiles").innerHTML = `
-    <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.machinesSeen || "—"}<span class="unit"> at least</span></span><span class="n">Counted from installer fetches — one per machine per release. Real computers, not an average.</span></div>
+    <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Every machine counted once, on the release it is actually running. From installer fetches — real computers, not an average.</span></div>
     <div class="tile lead"><span class="k">Downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time, landing-page button. Misses direct CDN links; a download isn't an install.</span></div>
     <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">Median hour. Lower than the machine count because some are asleep.</span></div>
     <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;

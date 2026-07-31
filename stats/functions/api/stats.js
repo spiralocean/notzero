@@ -155,6 +155,16 @@ export async function onRequestGet({ request, env }) {
       // which keeps it correct however often the page is loaded.
       const machines = await mergeMachineTally(env.STATS, perVersion, z.dl)
         .catch(() => Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version)));
+      // FLEET COMPOSITION, not cumulative adoption. A machine that took 0.1.73 and then 0.1.74 is running
+      // 0.1.74; leaving it counted under 0.1.73 as well described a fleet several times larger than exists.
+      // Identity is not available — this counts fetches, not computers — but auto-updates are sequential, so
+      // the machines still ON a version are the ones that took it and did NOT take the next one. What remains
+      // on an old release is therefore the stragglers, which is the thing worth seeing.
+      for (let n = 0; n < machines.length; n++) {
+        const v = machines[n], next = machines[n - 1];   // sorted newest first, so n-1 is the next NEWER release
+        for (const k of ["mac", "win", "linux"]) v[`r_${k}`] = Math.max(0, v[k] - (next ? next[k] : 0));
+        v.running = v.r_mac + v.r_win + v.r_linux;       // per platform, so the stacked segments still sum to the bar
+      }
     for (const row of z.sites) {
       const b = touch(hourKey(row.dimensions.datetimeHour));
       const isDemo = row.dimensions.clientRequestHTTPHost === DEMO_HOST;
@@ -177,6 +187,9 @@ export async function onRequestGet({ request, env }) {
       // after a cut, before everyone has updated. A machine that stayed off through every release in the
       // window is invisible here — which is why this is "at least", and why it can only ever be an undercount.
       machinesSeen: machines.reduce((n, v) => Math.max(n, v.total), 0),
+        // The fleet as it stands: every machine counted once, on whichever release it is actually running.
+        // machinesSeen above is kept for the busiest-single-release floor, but this is the honest headcount.
+        fleet: machines.reduce((n, v) => n + (v.running || 0), 0),
       requests: sum("changelog") + sum("proofs") + sum("artifacts") + sum("mac") + sum("win") + sum("linux"),
       polling: sum("changelog") + sum("proofs"),
       artifacts: sum("artifacts"),
