@@ -166,14 +166,30 @@ an update installs; a user who never clicks it still receives every subsequent r
 
 ---
 
+## The mainnet block-validity gate is NOT in CI — it is scheduled locally
+
+`scripts/verify-block.py` asks a real node, through `getblocktemplate` proposal mode, whether the exact block
+this miner assembles is one bitcoind would accept. It is the strongest evidence a found block would land, and
+CI cannot run it: GitHub runners have no synced node, so every release since 0.1.69 built with
+`SKIP_BLOCK_VERIFY=1`. It ran only when someone typed the command.
+
+`scripts/verify-block-scheduled.sh` now runs it weekly via a launchd agent (`--install` / `--remove`), logging
+to `verify-block.log` and writing `verify-block-status.json` beside the app's data. It distinguishes **fail**
+from **skipped** — a node that is down or syncing is not a defect in the block builder, and a month of "could
+not check" must never read as a month of "verified". A failure raises a macOS notification, because a silent
+failure is the same as not running.
+
+Still true, and worth knowing: this runs on ONE machine. If that machine's node is down for a month, nothing
+is checking. A second scheduled runner elsewhere would fix that.
+
 ## Already covered — don't redo these
 
 | Property | Where | Gated? |
 |---|---|---|
-| A winning hash is recognised (consensus byte order) | `tests/test_check_win.py` | yes, every build |
+| A winning hash is recognised (consensus byte order) — at 2009 AND current difficulty | `tests/test_check_win.py` | yes, every build |
 | The payout address derives the right script | `tests/test_payout_script.py` | yes, every build |
 | BIP34 coinbase height is a valid CScriptNum | `tests/test_coinbase_height.py` | yes, every build |
-| The built block would be accepted (PoW aside) | `scripts/verify-block.py` | yes, when a node is reachable |
+| The built block would be accepted (PoW aside) | `scripts/verify-block.py` | weekly on a local node, NOT in CI |
 | A real block is submitted and accepted | `scripts/test-win-regtest.py` | yes, every release |
 | …carrying real transactions, segwit **and** legacy, with a live witness commitment | same | yes, every release |
 | The block survives to disk before submitting | same | yes, every release |
