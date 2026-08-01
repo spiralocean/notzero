@@ -817,9 +817,13 @@ let mpPreview = false, syncPreview = false; // "preview a block" → replay the 
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
 let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
-// The ambient view is opened through /ambient-open, which only the desktop app's local server answers — so the
-// control is drawn on localhost only and never appears on the public demo, where it could not do anything.
-const HAS_AMBIENT_BTN = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+// The ambient view exists in BOTH contexts, reached two different ways. In the desktop app it is a real
+// always-on-top window, opened by POSTing /ambient-open to the local server. On the public demo that endpoint
+// does not exist — but web/ambient.html is deployed there too and works standalone, so the control navigates to
+// it instead. It used to be hidden off localhost entirely, which meant the demo shipped the most striking thing
+// the product does and gave nobody a way to see it.
+const IS_APP_HOST = location.hostname === "127.0.0.1" || location.hostname === "localhost";
+const HAS_AMBIENT_BTN = true;
 let consensusHit = null; // hit region for the "network rule change" banner (Core's `warnings` canary) → click checks for an update
 let fakeWarn = ""; // ?fakewarn= preview override for the consensus banner (so the UI can be seen without a real fork)
 let nodeSetup = null; // desktop managed-node provisioning feed (/node-status): {state, progress, detail} — real setup phase for the dashboard to narrate
@@ -4136,7 +4140,9 @@ function drawAmbientButton() {
   text("◉", x + w / 2, y + h / 2, { size: 12, weight: 700, color: hover ? `rgba(${ACCENT},1)` : "rgba(255,255,255,0.58)", align: "center", baseline: "middle" });
   // Anchored at the left margin, like the motion toggle's hint — starting it under the control itself runs the
   // line straight into the BITCOIN LOTTERY title, since this sits at the right-hand end of the cluster.
-  if (hover) text("ambient view — full-screen calm mode, now rather than after the idle wait (Esc returns)", PAD + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+  if (hover) text(IS_APP_HOST ? "ambient view — full-screen calm mode, now rather than after the idle wait (Esc returns)"
+                              : "ambient view — the full-screen calm mode the app runs when idle (Esc or click returns)",
+                  PAD + 2, y + h + 9, { size: 9, color: "rgba(255,255,255,0.42)", baseline: "middle" });
   ambientHit = { x, y, w, h };
   window.__ambientHit = ambientHit; // test hook: the control's rect, so a test never hunts for it by pixel
 }
@@ -4561,7 +4567,11 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
   if (inHit(zoomOutHit, e.offsetX, e.offsetY)) { setUserScale(userScale - 0.1); return; } // text size −
   if (inHit(zoomInHit, e.offsetX, e.offsetY)) { setUserScale(userScale + 0.1); return; } // text size +
-  if (inHit(ambientHit, e.offsetX, e.offsetY)) { fetch("/ambient-open", { method: "POST" }).catch(() => {}); return; } // open the ambient view now, rather than waiting for the idle timer
+  if (inHit(ambientHit, e.offsetX, e.offsetY)) {                       // open the ambient view now, not on the idle timer
+    if (IS_APP_HOST) fetch("/ambient-open", { method: "POST" }).catch(() => {}); // desktop: its own full-screen window
+    else window.location.href = "/ambient";                            // demo: the same view as a page
+    return;
+  }
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
   if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
   if (inHit(consensusHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "network rule change" banner → check for an update that handles the new rules

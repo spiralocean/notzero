@@ -584,26 +584,36 @@ test("ambient: the control opens the view without waiting for the idle timer", a
   await expect.poll(() => posts, { timeout: 5000 }).toBe(1);
 });
 
-test("ambient: no control on the public site, where nothing could answer it", async ({ page }) => {
+test("ambient: on the public site the control navigates instead of POSTing", async ({ page }) => {
   test.setTimeout(60_000);
   await page.emulateMedia({ reducedMotion: "reduce" });
   await installMocks(page);
-  // app.js gates the control on location.hostname, so the page has to be SERVED from a public-looking host.
-  // Overriding window.location.hostname from an init script does not work — Location's properties are not
-  // configurable in Chromium, defineProperty throws, addInitScript swallows it, and the test then "passes"
-  // against a stub that never applied. So serve the real files under a non-localhost origin instead.
+  // app.js gates on location.hostname, so the page has to be SERVED from a public-looking host. Overriding
+  // window.location.hostname from an init script does not work — Location's properties are not configurable in
+  // Chromium, defineProperty throws, addInitScript swallows it, and the test then "passes" against a stub that
+  // never applied. Serve the real files under a non-localhost origin instead.
   await page.route("http://demo.getnotzero.com/**", async (r) => {
     const path = new URL(r.request().url()).pathname;
     const res = await r.fetch({ url: `http://localhost:8799${path === "/" ? "/index.html" : path}` });
     await r.fulfill({ response: res });
   });
+  let posts = 0;
+  await page.route("**/ambient-open", (r) => { posts++; return r.fulfill({ status: 200, body: "{}" }); });
+
   await page.goto("http://demo.getnotzero.com/");
-  await page.waitForFunction(() => window.__drawn > 0, null, { timeout: 20000 });
+  await page.waitForFunction(() => window.__ambientHit, null, { timeout: 20000 });
   expect(await page.evaluate(() => window.location.hostname)).toBe("demo.getnotzero.com"); // the premise held
-  expect(await page.evaluate(() => window.__ambientHit)).toBeFalsy();
-  // The app keeps polling after the assertions are done, so a proxied request can still be in flight when the
-  // test ends — and route.fetch() then rejects with "Test ended", failing the RUN while every test reports
-  // passed. Which is exactly how this looked in CI: "22 passed" next to a red job. Drop the handler first.
+
+  // The control IS drawn here now — the demo ships web/ambient.html too, so hiding it left the most striking
+  // thing the product does unreachable for exactly the audience the demo exists for.
+  const hit = await page.evaluate(() => window.__ambientHit);
+  expect(hit).toBeTruthy();
+
+  // …but it must NOT call /ambient-open, which only the desktop app's local server answers. It navigates.
+  await page.mouse.click(hit.x + hit.w / 2, hit.y + hit.h / 2);
+  await page.waitForURL(/\/ambient$/, { timeout: 10000 });
+  expect(posts).toBe(0);
+  console.log(`   navigated to ${new URL(page.url()).pathname}, /ambient-open calls: ${posts}`);
   await page.unrouteAll({ behavior: "ignoreErrors" });
 });
 

@@ -150,5 +150,20 @@
   }
   ['mousemove','pointerdown','keydown','touchstart'].forEach(ev => window.addEventListener(ev, poke, {passive:true}));
   poke();
+
+    // WEB (the public demo) vs the desktop app. The app opens this in its own always-on-top window and closes it
+    // on Escape from the main process; a browser tab has neither, so here Escape simply returns to the dashboard
+    // and the hint says so instead of promising an exit that never happens. Detected by host, so one file serves
+    // both contexts.
+    var IS_APP = location.hostname === '127.0.0.1' || location.hostname === 'localhost' || location.protocol === 'file:';
+    if (!IS_APP) {
+      var hintEl = document.getElementById('hint');
+      if (hintEl) hintEl.textContent = 'PRESS ESC OR CLICK TO RETURN';
+      var leave = function () { if (document.referrer && history.length > 1) history.back(); else location.href = '/'; };
+      window.addEventListener('keydown', function (e) { if (e.key === 'Escape') leave(); });
+      // Click returns as well — a phone has no Escape key, and without this the view is a dead end on mobile.
+      window.addEventListener('pointerdown', function () { setTimeout(leave, 0); });
+    }
+
 })();
 </script>
