@@ -58,6 +58,76 @@ def check_rows(rows, fails):
         fails.append(f"no process had a plausible footprint; largest was {biggest[0]} bytes")
 
 
+FIND_DEADLINE = 45.0   # generous: only reached when something is actually wrong, so it costs nothing on a good run
+FAKE_MIN_RSS = 5 * 1024 * 1024
+
+
+def wait_for_fakes(procs):
+    """Poll until the sampler reports BOTH fakes at a size the later assertions need. -> (rows, error_or_None).
+
+    This replaces `time.sleep(3)` and a single sample. That was a bet that the runner is quick, and on
+    2026-08-03 the bet lost: the sampler came back empty, the release dry run failed, and the very same commit
+    passed on a re-run — a red X that cost a release cycle and proved nothing. A fixed delay also had to cover
+    two different waits at once (the process existing, and it having allocated its memory); waiting for the
+    condition the assertions actually depend on covers both without guessing at either.
+    """
+    started = time.time()
+    attempts = 0
+    rows, hits = [], {}
+    while True:
+        dead = [p for p in procs if p.poll() is not None]
+        if dead:
+            print(f"  ✗ {len(dead)} fake process(es) exited early (rc={[p.returncode for p in dead]})")
+            return rows, "the fakes could not be started — the test could not run"
+        attempts += 1
+        rows = nb._sample_processes()
+        hits = {name: rss for rss, _cpu, name in rows if name in ("miner", "bitcoind")}
+        if len(hits) == 2 and all(rss > FAKE_MIN_RSS for rss in hits.values()):
+            waited = time.time() - started
+            print(f"  ✓ both fakes sampled after {attempts} attempt(s) in {waited:.1f}s")
+            if attempts > 1:  # a breadcrumb on a PASSING run: if this creeps up, the runner is getting slower
+                print(f"    (the first {attempts - 1} attempt(s) came back short — noted, not a failure)")
+            return rows, None
+        if time.time() - started >= FIND_DEADLINE:
+            print(f"  ✗ the sampler never reported both fakes — {attempts} attempt(s) over {time.time() - started:.0f}s")
+            print(f"    last sample: {len(rows)} row(s), matched {sorted(hits) or 'nothing'}")
+            diagnose()
+            return rows, "_sample_processes() did not report the miner and the node"
+        time.sleep(1)
+
+
+def diagnose():
+    """Say WHICH failure this was. _sample_processes() swallows every error into [], so an empty result means
+    either 'PowerShell failed or overran its timeout' or 'PowerShell ran fine and nothing matched' — opposite
+    problems, identical symptom. Today's flake was unexplainable for exactly that reason, so ask directly."""
+    ps = ["powershell", "-NoProfile", "-NonInteractive", "-Command"]
+    script = ("Get-Process | Where-Object { $_.ProcessName -in 'bitcoind','miner' } | "
+              "Select-Object ProcessName,WorkingSet64,CPU | ConvertTo-Json -Compress")
+    t0 = time.time()
+    try:
+        p = subprocess.run(ps + [script], capture_output=True, text=True, timeout=60)
+        took = time.time() - t0
+        print(f"  · direct PowerShell call: rc={p.returncode} in {took:.1f}s (the sampler allows {nb.SAMPLE_TIMEOUT:.0f}s)")
+        for label, s in (("stdout", p.stdout), ("stderr", p.stderr)):
+            if s.strip():
+                print(f"    {label}: {s.strip()[:400]}")
+        if took > nb.SAMPLE_TIMEOUT:
+            print(f"    → PowerShell is SLOWER than the sampler's {nb.SAMPLE_TIMEOUT:.0f}s budget. That is a PRODUCT bug,")
+            print("      not a test bug: on a Windows install this same overrun blanks the dashboard's CPU/RAM readout.")
+    except subprocess.TimeoutExpired:
+        print("  · direct PowerShell call did not return within 60s — the shell itself is wedged on this runner")
+    except Exception as e:  # noqa: BLE001 — diagnosis must never mask the failure it is explaining
+        print("  · could not run PowerShell directly:", e)
+    try:
+        p = subprocess.run(ps + ["Get-Process | Select-Object -ExpandProperty ProcessName | Sort-Object -Unique"],
+                           capture_output=True, text=True, timeout=60)
+        names = {n.strip().lower() for n in p.stdout.splitlines() if n.strip()}
+        print(f"  · do the fakes exist at all? miner={'miner' in names} bitcoind={'bitcoind' in names} "
+              f"({len(names)} distinct process name(s) on the box)")
+    except Exception as e:  # noqa: BLE001
+        print("  · could not enumerate process names:", e)
+
+
 def main():
     fails = []
     if not WIN:
@@ -82,14 +152,11 @@ def main():
                 made.append(fake)
             procs.append(subprocess.Popen([str(fake), "-c", CHILD]))
 
-        time.sleep(3)   # let both allocate and get past their CPU burn
-        dead = [p for p in procs if p.poll() is not None]
-        if dead:
-            print(f"  ✗ {len(dead)} fake process(es) exited early (rc={[p.returncode for p in dead]})")
-            print("FAIL: the fakes could not be started — the test could not run")
+        rows, err = wait_for_fakes(procs)
+        if err:
+            print("FAIL:", err)
             return 1
 
-        rows = nb._sample_processes()
         check_rows(rows, fails)
         if fails:
             for f in fails[:8]:

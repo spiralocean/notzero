@@ -40,6 +40,9 @@ REPO = pathlib.Path(__file__).resolve().parent.parent
 # report cheaply and uniformly. Sampling is throttled (see RES_MIN_INTERVAL) so the Windows path is not
 # spawning a shell on every poll.
 RES_MIN_INTERVAL = 15.0          # seconds between real samples; polls in between reuse the last value
+SAMPLE_TIMEOUT = 8.0             # per-sample budget for ps/powershell. Named so the test can report against the
+                                 # real number instead of a copy that drifts — a sample that overruns it comes
+                                 # back as [] via the blanket except below, identical to "no processes matched".
 _res_cache = {"ts": 0.0, "val": None}
 _res_prev = {}                   # role -> (wall_clock, cumulative_cpu_seconds) from the previous sample
 
@@ -66,7 +69,7 @@ def _sample_processes():
             script = ("Get-Process | Where-Object { $_.ProcessName -in 'bitcoind','miner' } | "
                       "Select-Object ProcessName,WorkingSet64,CPU | ConvertTo-Json -Compress")
             out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
-                                 capture_output=True, text=True, timeout=8,
+                                 capture_output=True, text=True, timeout=SAMPLE_TIMEOUT,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
             if not out:
                 return []
