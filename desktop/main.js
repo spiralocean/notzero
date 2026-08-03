@@ -15,6 +15,37 @@ const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
 const os = require("node:os");
+const util = require("node:util");
+
+// ---- app.log: the main process's console, on disk -------------------------------------------------------
+// A packaged app launched from the login item has stdout AND stderr wired to /dev/null, so every console.*
+// in this file wrote to nothing on a real install. That is not hypothetical: a black window after a
+// crash-reboot had to be diagnosed from `lsof` and process tables, because the load failure that caused it
+// left no trace anywhere on the machine. Tee the console to a file so the next incident leaves evidence.
+// install.log is NOT this — logManaged() writes only managed-node state changes, nothing else in the app.
+// Rotates at 512 KB keeping one previous file, so it is bounded at ~1 MB and can never fill a disk.
+const LOG_MAX = 512 * 1024;
+let logPath = null;
+function logFilePath() {
+  if (logPath) return logPath;
+  try { const dir = app.getPath("userData"); fs.mkdirSync(dir, { recursive: true }); logPath = path.join(dir, "app.log"); } // getPath works pre-ready; mkdir because the very first log can precede whenReady's own mkdir
+  catch (_) { return null; } // no userData (sandbox / pre-init) → log to the console alone rather than throw from inside console
+  return logPath;
+}
+function writeLog(level, args) {
+  const file = logFilePath();
+  if (!file) return;
+  try {
+    const body = args.map((a) => (typeof a === "string" ? a : (a && a.stack) || util.inspect(a, { depth: 2 }))).join(" ");
+    const line = `${new Date().toISOString()} ${level} ${body}\n`;
+    try { if (fs.statSync(file).size + line.length > LOG_MAX) fs.renameSync(file, `${file}.1`); } catch (_) {} // no file yet → nothing to rotate
+    fs.appendFileSync(file, line);
+  } catch (_) { /* logging must never be able to break the app it is logging */ }
+}
+for (const level of ["log", "warn", "error"]) {
+  const orig = console[level].bind(console);
+  console[level] = (...args) => { orig(...args); writeLog(level === "log" ? "INFO" : level.toUpperCase(), args); };
+}
 
 // Last line of defense against a bad build: if startup itself throws (a packaging bug the CI asar-gate + smoke
 // test somehow missed), don't die silently — Electron is a browser, so show a local page telling the user to
@@ -1296,15 +1327,36 @@ async function createWindow() {
   const MAX_LOAD_RETRIES = 5;
   let loadRetries = 0, loadRetryTimer = null;
   const cancelLoadRetry = () => { if (loadRetryTimer) { clearTimeout(loadRetryTimer); loadRetryTimer = null; } };
+  // When the retries are spent, SAY so. A window with no page in it is a black rectangle indistinguishable from
+  // a hung app, and the way back (File → Dashboard) is one nobody would guess. The page names the shortcut and
+  // says mining is still running, which is the question a blank window actually raises.
+  const showLoadError = (target) => {
+    if (win.isDestroyed()) return;
+    const search = /^http:\/\/127\.0\.0\.1:\d+\//.test(target || "") ? `url=${encodeURIComponent(target)}` : "";
+    win.loadFile(path.join(__dirname, "load-error.html"), search ? { search } : undefined).catch(() => {}); // if even this won't load there is nothing further to try
+  };
   win.webContents.on("did-finish-load", () => { loadRetries = 0; cancelLoadRetry(); }); // a good load refreshes the budget for any LATER failure
   win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
     if (!isMainFrame) return;  // a missing subresource doesn't blank the window — only a failed page navigation does
     if (code === -3) return;   // ERR_ABORTED = a navigation we replaced ourselves (Settings / Dashboard clicked mid-load), not a failure
-    if (loadRetries >= MAX_LOAD_RETRIES) { console.error(`[notzero] window load failed ${MAX_LOAD_RETRIES}× — giving up: ${code} ${desc} ${url}`); return; }
+    if (url && url.startsWith("file:")) return; // the error page itself failed — retrying it would loop forever
+    if (loadRetries >= MAX_LOAD_RETRIES) { console.error(`[notzero] window load failed ${MAX_LOAD_RETRIES}× — giving up: ${code} ${desc} ${url}`); showLoadError(url); return; }
     const delay = 500 * 2 ** loadRetries++; // 0.5s → 8s, ~15s of retries total: long enough to cover a slow boot, short enough that a real outage doesn't hang here
     console.error(`[notzero] window load failed (${code} ${desc}) — retry ${loadRetries}/${MAX_LOAD_RETRIES} in ${delay}ms: ${url}`);
     cancelLoadRetry();
     loadRetryTimer = setTimeout(() => { loadRetryTimer = null; if (!win.isDestroyed()) win.loadURL(url || homeUrl); }, delay); // retry the URL that failed (may be Settings, not the start page); homeUrl is the fallback
+  });
+  // The OTHER way to end up staring at black: the renderer dies AFTER a successful load. did-fail-load never
+  // fires for that — the navigation succeeded — so the retry above cannot see it. Reload instead of leaving the
+  // corpse on screen. Repeated crashes in quick succession mean reloading isn't working, so stop and explain.
+  let rendererReloads = 0, lastReloadAt = 0;
+  win.webContents.on("render-process-gone", (_e, details) => {
+    if (details.reason === "clean-exit" || win.isDestroyed()) return; // normal teardown on quit, not a crash to recover from
+    console.error(`[notzero] renderer gone: ${details.reason} (exit ${details.exitCode})`);
+    rendererReloads = Date.now() - lastReloadAt < 15000 ? rendererReloads + 1 : 1; // a crash long after the last reload is a fresh incident, not a loop
+    if (rendererReloads > 3) { console.error("[notzero] renderer crashed repeatedly — showing the failure page instead of reloading again"); showLoadError(homeUrl); return; }
+    lastReloadAt = Date.now();
+    win.reload();
   });
   win.on("closed", cancelLoadRetry); // ⌘Q mid-retry → don't fire loadURL at a destroyed window
   win.loadURL(homeUrl);

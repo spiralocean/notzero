@@ -1,0 +1,66 @@
+<!doctype html>
+<!-- Shown when the dashboard fails to load and the retries in desktop/main.js createWindow() are exhausted —
+     either the navigation kept failing, or the renderer kept crashing. It exists because the alternative is a
+     black rectangle: a window with no page in it paints backgroundColor and nothing else, which is
+     indistinguishable from a hung app. That actually happened after a crash-reboot, and the only way back was
+     a menu item nobody would think to try.
+
+     Self-contained: no fonts, no network, no build step. The one script wires the Retry button to the URL the
+     app passes in ?url= — if it fails, the page still explains itself and names the keyboard shortcut, so the
+     user is never stuck with the button as their only way out. Mining is unaffected either way: the engine and
+     the node run in other processes and keep going while this is on screen. -->
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Bitcoin Lottery — the dashboard didn't load</title>
+  <style>
+    html, body { margin: 0; height: 100%; }
+    body {
+      background: #05040a; color: #e8e6f0;
+      font: 15px/1.55 -apple-system, system-ui, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; text-align: center;
+      -webkit-user-select: none; user-select: none;
+    }
+    .box { max-width: 480px; padding: 0 32px; }
+    .mark { font-size: 40px; margin-bottom: 8px; }
+    h1 { font-size: 20px; font-weight: 700; margin: 0 0 12px; color: #ffd79a; }
+    p { margin: 0 0 16px; color: rgba(232,230,240,0.82); }
+    .sub { font-size: 13px; color: rgba(232,230,240,0.5); }
+    .mining { font-size: 13px; color: #9ad7a0; margin-bottom: 18px; }
+    button {
+      margin: 4px 0 18px; padding: 11px 22px; font: inherit; font-weight: 700; cursor: pointer;
+      background: rgba(255,205,110,0.14); border: 1px solid rgba(255,205,110,0.55);
+      border-radius: 10px; color: #ffdd88;
+    }
+    button:hover { background: rgba(255,205,110,0.22); }
+    kbd {
+      font: 12px/1 ui-monospace, SFMono-Regular, Menlo, monospace; color: #bda8ff;
+      border: 1px solid rgba(189,168,255,0.4); border-radius: 4px; padding: 2px 5px;
+    }
+  </style>
+</head>
+<body>
+  <div class="box">
+    <div class="mark">⚠️</div>
+    <h1>The dashboard didn't load</h1>
+    <p class="mining">Your mining hasn't stopped — the miner and your node are still running.</p>
+    <p>This is the app's own screen failing to open, not the mining itself. It usually means the app was still
+       starting up when the window tried to open, which happens after a restart.</p>
+    <button id="retry" hidden>Try again</button>
+    <p class="sub">You can also reopen it any time from the menu: <strong>File → Dashboard</strong>,
+       or press <kbd>⌘D</kbd> / <kbd>Ctrl+D</kbd>.</p>
+  </div>
+  <script>
+    // The app passes the URL it failed to reach. Only ever its own loopback server — check that before
+    // navigating, so this page can't be turned into an open redirect by a crafted query string.
+    try {
+      var target = new URLSearchParams(location.search).get("url");
+      if (target && /^http:\/\/127\.0\.0\.1:\d+\//.test(target)) {
+        var btn = document.getElementById("retry");
+        btn.hidden = false;
+        btn.addEventListener("click", function () { location.href = target; });
+      }
+    } catch (e) { /* no button; the menu instructions below it still stand */ }
+  </script>
+</body>
+</html>

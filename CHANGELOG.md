@@ -6,6 +6,20 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.75
 
+**Reliability**
+- **The app no longer opens to a black window.** Restarting the computer — especially after a crash — could
+  leave the app running with nothing but a black rectangle where the dashboard should be. Closing the window
+  and clicking the icon again didn't help, because it was reopening the same window that had failed to load.
+  The cause was the app starting up while the rest of the machine was still coming back, and never trying
+  again once it lost that race. It now retries by itself, and recovers in a second or two.
+- **If it still can't load, it tells you what happened.** Rather than showing you nothing, you get an
+  explanation, a Try again button, and the reassurance that matters at that moment: your mining never
+  stopped — the miner and your node keep running the whole time. The same screen covers the rarer case where
+  the dashboard stops responding after it has opened; the app quietly reloads it for you first.
+- **The app keeps a log now.** If something does go wrong, there's finally something to send to support:
+  `app.log`, alongside the other files in the app's data folder. It's capped in size and never grows without
+  limit.
+
 ## 0.1.74
 
 **Dashboard**

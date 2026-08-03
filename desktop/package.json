@@ -38,7 +38,8 @@
       "package.json",
       "assets/icon.png",
       "wizard.html",
-      "error.html"
+      "error.html",
+      "load-error.html"
     ],
     "extraResources": [
       {
