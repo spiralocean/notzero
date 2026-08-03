@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.75
+## Unreleased — next: 0.1.76
+
+## 0.1.75
 
 **Reliability**
 - **The app no longer opens to a black window.** Restarting the computer — especially after a crash — could
