@@ -1288,7 +1288,26 @@ async function createWindow() {
   let startPath = "/setup";
   if (PREVIEW) startPath = "/"; // dev preview always lands on the dashboard
   else if (fs.existsSync(configPath())) { let c = {}; try { c = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {} startPath = c.node_mode === "managed" ? "/setup" : "/"; }
-  win.loadURL(`http://127.0.0.1:${port}${startPath}`);
+  const homeUrl = `http://127.0.0.1:${port}${startPath}`;
+  // A failed load leaves the window EMPTY — and since it paints backgroundColor, that reads as a plain black
+  // rectangle: no error, no text, no way back except the menu. Seen in the wild after a machine crash, where the
+  // login item relaunched us --hidden while the whole system was still coming up and the first load lost the race.
+  // So retry with backoff rather than leaving a dead window sitting in the dock.
+  const MAX_LOAD_RETRIES = 5;
+  let loadRetries = 0, loadRetryTimer = null;
+  const cancelLoadRetry = () => { if (loadRetryTimer) { clearTimeout(loadRetryTimer); loadRetryTimer = null; } };
+  win.webContents.on("did-finish-load", () => { loadRetries = 0; cancelLoadRetry(); }); // a good load refreshes the budget for any LATER failure
+  win.webContents.on("did-fail-load", (_e, code, desc, url, isMainFrame) => {
+    if (!isMainFrame) return;  // a missing subresource doesn't blank the window — only a failed page navigation does
+    if (code === -3) return;   // ERR_ABORTED = a navigation we replaced ourselves (Settings / Dashboard clicked mid-load), not a failure
+    if (loadRetries >= MAX_LOAD_RETRIES) { console.error(`[notzero] window load failed ${MAX_LOAD_RETRIES}× — giving up: ${code} ${desc} ${url}`); return; }
+    const delay = 500 * 2 ** loadRetries++; // 0.5s → 8s, ~15s of retries total: long enough to cover a slow boot, short enough that a real outage doesn't hang here
+    console.error(`[notzero] window load failed (${code} ${desc}) — retry ${loadRetries}/${MAX_LOAD_RETRIES} in ${delay}ms: ${url}`);
+    cancelLoadRetry();
+    loadRetryTimer = setTimeout(() => { loadRetryTimer = null; if (!win.isDestroyed()) win.loadURL(url || homeUrl); }, delay); // retry the URL that failed (may be Settings, not the start page); homeUrl is the fallback
+  });
+  win.on("closed", cancelLoadRetry); // ⌘Q mid-retry → don't fire loadURL at a destroyed window
+  win.loadURL(homeUrl);
 }
 
 // Auto-start on login so mining resumes after a reboot (the "set it and forget it" promise). Registers a
