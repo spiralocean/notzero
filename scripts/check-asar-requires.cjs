@@ -51,6 +51,7 @@ const pkg = JSON.parse(fs.readFileSync(path.join(DESKTOP, "package.json"), "utf8
 const entry = pkg.main || "main.js";
 const seen = new Set();
 const missing = [];
+const missingAssets = [];
 function resolveLocal(fromDir, spec) {
   const base = path.resolve(fromDir, spec);
   for (const cand of [base, base + ".js", base + ".cjs", path.join(base, "index.js")]) {
@@ -71,14 +72,44 @@ function walk(absFile) {
     if (!dep) { missing.push(rel + ' → require("' + m[2] + '") — source file not found'); continue; }
     walk(dep);
   }
+  checkAssets(absFile, rel, src);
+}
+
+// 3b) the same failure, one indirection away: a BUNDLED ASSET reached by path, not by require. loadFile()
+// and fs.readFile() on an html/icon left out of build.files fail exactly like a missing module, except the
+// require-graph walk above cannot see them — it only follows require(). This is not theoretical: the app
+// loads error.html, load-error.html, wizard.html and assets/icon.png this way, and load-error.html only
+// appears on a path where something has ALREADY gone wrong, which is the worst place to discover a
+// packaging miss. Any path.join(__dirname, "…literals…") that resolves to a real file under desktop/ must
+// therefore be inside the asar.
+//
+// Deliberately conservative, to stay quiet rather than cry wolf:
+//   - every argument must be a string literal — path.join(WEB_DIR, page) is unresolvable statically, skip it
+//   - anything containing ".." escapes desktop/ and is a DEV-only fallback (WEB_DIR, the .py engine sources),
+//     which correctly is NOT packaged
+//   - only files that exist on disk are asserted; a path built for a file created at runtime is not an asset
+function checkAssets(absFile, rel, src) {
+  const re = /path\.join\(\s*__dirname\s*((?:,\s*(?:"[^"]*"|'[^']*')\s*)+)\)/g;
+  let m;
+  while ((m = re.exec(src))) {
+    const segs = m[1].match(/"[^"]*"|'[^']*'/g).map((s) => s.slice(1, -1));
+    if (segs.some((s) => s === ".." || s.includes(".."))) continue;
+    const abs = path.join(DESKTOP, ...segs);
+    let st; try { st = fs.statSync(abs); } catch { continue; }
+    if (!st.isFile()) continue;
+    const assetRel = segs.join("/");
+    if (!inAsar.has(assetRel)) missingAssets.push(assetRel + " (referenced by " + rel + ")");
+  }
 }
 walk(path.join(DESKTOP, entry));
 
 const rel = path.relative(process.cwd(), asarPath);
-if (missing.length) {
-  console.error("\n❌ app.asar is missing required local module(s) — add them to desktop/package.json > build.files:");
-  for (const x of missing) console.error("   - " + x);
+if (missing.length || missingAssets.length) {
+  console.error("\n❌ app.asar is missing files the app needs — add them to desktop/package.json > build.files:");
+  for (const x of missing) console.error("   - module: " + x);
+  for (const x of missingAssets) console.error("   - asset:  " + x);
   console.error("\n   checked: " + rel + "\n");
   process.exit(1);
 }
 console.log("✓ asar require check: all " + seen.size + " local modules reachable from " + entry + " are packaged (" + rel + ")");
+console.log("✓ asar asset check: every __dirname-relative file the source loads is packaged (" + rel + ")");
