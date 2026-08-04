@@ -587,7 +587,8 @@ function applyMotion() {
   showRain = !reduceMotion && motionMode === "full"; // matrix rain only in Full (and not under OS reduce-motion)
 }
 // force a single repaint on the next frame (used when nothing is animating but state changed)
-function requestRender() { lastDraw = 0; if (!rafId && !document.hidden) rafId = requestAnimationFrame(render); }
+let renderFrozen = false; // only ever set by the __freezeRender test hook; nothing in the app turns it on
+function requestRender() { lastDraw = 0; if (!renderFrozen && !rafId && !document.hidden) rafId = requestAnimationFrame(render); }
 function setMotion(mode) { motionMode = mode; try { localStorage.setItem("bl.motion", mode); } catch (_) {} applyMotion(); requestRender(); }
 function cycleMotion() { setMotion(motionMode === "full" ? "calm" : motionMode === "calm" ? "off" : "full"); }
 try {
@@ -4350,6 +4351,7 @@ function drawCelebration() {
 }
 
 function render(ts) {
+  if (renderFrozen) { rafId = 0; return; } // __freezeRender: hold the last painted frame (see the hook's comment)
   rafId = requestAnimationFrame(render);
   // Lid-open / wake-from-sleep: wall-clock jumped far more than a frame, so every timer-driven poll is late
   // and the wifi has probably only just come back. Refetch immediately instead of showing stale-or-offline
@@ -4655,6 +4657,12 @@ window.__model = model; window.__refresh = refresh; // test hooks (like __frames
 // quoteT never advances and the 11s hold never elapses. This drives the frame directly instead.
 window.__quoteJump = (phase, t, next) => { quotePhase = phase; quoteT = t; if (next != null) quoteNext = next; requestRender(); };
 window.__expand = (s) => { if (!expanded.has(s)) { expanded.add(s); saveExpanded(); if (s === "mempool" || s === "merkle") refresh(); requestRender(); } }; // e2e: simulate opening a panel (fires the on-open fetch)
+// Test hook: hold the last painted frame so a screenshot is reproducible. Canvas text anti-aliasing jitters
+// between repaints — measured at 0.002–0.03% of sampled bytes per frame on a SETTLED celebration card, small
+// but never zero. Playwright's screenshot stabilisation wants two IDENTICAL consecutive captures, so against a
+// canvas that repaints at all it can only ever succeed by luck, which is precisely how that test behaved.
+// Freezing makes it deterministic instead. Nothing in the app sets renderFrozen; pass false to resume.
+window.__freezeRender = (on = true) => { renderFrozen = !!on; if (on) { cancelAnimationFrame(rafId); rafId = 0; } else requestRender(); };
 resize();
 pollNode();
 refresh();

@@ -20,6 +20,65 @@ async function nodeApplied(page, pred) {
     null, { timeout: 30000 });
 }
 
+// Wait until the canvas paints the same thing twice running.
+//
+// Every pixel test here used to wait a FIXED number of milliseconds and hope. That is a bet on how fast the
+// machine is, and under four parallel workers the celebration test lost it regularly. The cause was never a
+// visual regression: canvas text paints with fallback metrics first, then repaints when the real face lands,
+// and `document.fonts.ready` can resolve BEFORE the face used by a newly-drawn string is loaded — so it
+// resolves, the celebration draws, another face loads, and the canvas moves under the screenshot. Playwright
+// then retries its capture waiting for two matching frames and eventually times out. That is why the failures
+// left an `-expected.png` with no `-actual.png` and no `-diff.png`: nothing was ever compared.
+//
+// Sampling what is actually on the canvas replaces the guess with the real precondition. A hash over the
+// backing store settles as soon as fonts, async hashing and the 4fps reduced-motion loop have nothing left to
+// change, which is exactly the condition the screenshot needs and the only one worth waiting for.
+// Scoped to the REGION being captured, never the whole canvas: the dashboard always has something moving (the
+// header quote rotates on its own timer), so a whole-canvas wait never returns and turns a flaky test into a
+// permanently failing one. Only the pixels being asserted on have to hold still.
+//
+// "Still" means BELOW A THRESHOLD, not identical, and that distinction is the whole trick. Measured on the
+// celebration card once settled: the frame where the font lands changes 3.09% of sampled bytes, and every
+// frame after that changes between 0.002% and 0.028% — small but never zero, because canvas text anti-aliasing
+// jitters. Demanding an exact match therefore waits forever. The threshold sits between those two populations
+// and, at 0.5%, well inside the 1.5% maxDiffPixelRatio the comparison itself allows (playwright.config.mjs),
+// so we settle strictly before the assertion would have tolerated it anyway.
+//
+// The diff is computed in the page rather than shipped out — 54k samples per poll is not worth serialising.
+async function canvasStable(page, clip, { reads = 3, gapMs = 250, timeoutMs = 30000, tolerance = 0.005 } = {}) {
+  await page.evaluate(() => { delete window.__stabPrev; }); // never inherit a previous call's baseline
+  const delta = () => page.evaluate((box) => {
+    const c = document.querySelector("canvas");
+    if (!c) return 1;
+    const sx = c.width / c.clientWidth, sy = c.height / c.clientHeight; // CSS px -> backing store (retina)
+    let r = { x: 0, y: 0, w: c.width, h: c.height };
+    if (box) {
+      r = { x: Math.max(0, Math.floor(box.x * sx)), y: Math.max(0, Math.floor(box.y * sy)),
+            w: Math.ceil(box.width * sx), h: Math.ceil(box.height * sy) };
+      r.w = Math.min(r.w, c.width - r.x); r.h = Math.min(r.h, c.height - r.y);
+    }
+    if (r.w <= 0 || r.h <= 0) return 1;
+    const d = c.getContext("2d").getImageData(r.x, r.y, r.w, r.h).data;
+    const cur = [];
+    for (let i = 0; i < d.length; i += 53) cur.push(d[i]); // stride: a font metric shift moves far more than one byte
+    const prev = window.__stabPrev;
+    window.__stabPrev = cur;
+    if (!prev || prev.length !== cur.length) return 1;    // first read, or the layout resized under us
+    let diff = 0;
+    for (let i = 0; i < cur.length; i++) if (cur[i] !== prev[i]) diff++;
+    return diff / cur.length;
+  }, clip || null);
+  const deadline = Date.now() + timeoutMs;
+  let streak = 0, worst = 1;
+  for (;;) {
+    const d = await delta();
+    if (d <= tolerance) { streak++; } else { streak = 0; worst = d; }
+    if (streak >= reads) return;
+    if (Date.now() > deadline) throw new Error(`canvas never settled: still changing ${(100 * worst).toFixed(3)}% of sampled bytes per frame (tolerance ${100 * tolerance}%)`);
+    await page.waitForTimeout(gapMs);
+  }
+}
+
 // expand exactly one section, load with mocks + frozen randomness, return its rendered rect
 async function openPanel(page, section) {
   await page.emulateMedia({ reducedMotion: "reduce" }); // freeze rain + ceremonies before app.js reads matchMedia
@@ -28,10 +87,13 @@ async function openPanel(page, section) {
   await installMocks(page);
   await page.goto("/");
   await page.waitForFunction((s) => window.__frames && window.__frames[s], section, { timeout: 20000 });
-  await page.waitForTimeout(800); // let async hashing (HASH BUILD) + history settle
-  const r = await page.evaluate((s) => window.__frames[s], section);
+  const rect = (r) => ({ x: Math.round(r.x - 8), y: Math.round(r.y - 46), width: Math.round(r.w + 16), height: Math.round(r.h + 54) });
+  // Settle the panel's own pixels — async hashing (HASH BUILD) and history have landed when they stop moving —
+  // then re-read the rect, since anything that shifted layout while settling has now finished doing so.
+  await canvasStable(page, rect(await page.evaluate((s) => window.__frames[s], section)));
+  await page.evaluate(() => window.__freezeRender());  // settled — now hold it still so the capture is reproducible
   // include the section header band just above the content for a fuller layout check
-  return { x: Math.round(r.x - 8), y: Math.round(r.y - 46), width: Math.round(r.w + 16), height: Math.round(r.h + 54) };
+  return rect(await page.evaluate((s) => window.__frames[s], section));
 }
 
 // PIXEL COMPARISONS — local only. Snapshots are committed per-platform (…-darwin.png), so a Linux CI runner
@@ -46,15 +108,13 @@ for (const section of ["mempool", "closeness", "hashBuild", "network"]) {
   });
 }
 
-// Retries for this ONE test. It passes 4/4 single-worker and flakes under 4 parallel workers — canvas/font
-// rendering under CPU contention, not a visual regression. It must live inside a describe(): a bare
-// test.describe.configure() at file scope would apply to the WHOLE FILE and silently hand retries to the
-// regression tests below, which have to fail loudly on the first run. Tracked separately for a proper fix.
+// This used to carry retries: 2, because it passed 4/4 single-worker and flaked under 4 parallel workers. The
+// retries are gone — waiting on the canvas itself (canvasStable) removes the race they were papering over, and
+// leaving them would hide the next real regression behind two free attempts.
 test.describe("celebration", () => {
-test.describe.configure({ retries: 2 });
 test("win celebration (preview)", async ({ page }) => {
   test.skip(!!process.env.CI, "pixel snapshot is host-font dependent — run locally");
-  test.setTimeout(90_000); // the screenshot alone budgets 20s for fonts.ready; the 30s default leaves no room under parallel load
+  test.setTimeout(90_000); // font loading under parallel load is slow; the 30s default leaves no room
   await page.emulateMedia({ reducedMotion: "reduce" });
   await page.addInitScript(() => { Math.random = () => 0.4; });
   await installMocks(page);
@@ -62,16 +122,16 @@ test("win celebration (preview)", async ({ page }) => {
   await page.waitForFunction(() => window.__frames, null, { timeout: 20000 });
   await page.waitForTimeout(600);
   await page.mouse.click(1180, 21); // the "▶ preview a win" control (top-right)
-  await page.waitForTimeout(600); // reduced-motion pins the celebration card to its settled (static) state
-  // The celebration is the first thing to draw text at this size/weight, so the browser loads that face here
-  // and fonts.ready re-resolves ~1.5s later — repainting the canvas mid-screenshot and flaking the compare.
-  // Wait for fonts to settle, then let the 4fps reduced-motion loop repaint once with the final metrics.
+  // The celebration is the first thing to draw text at this size/weight, so the face it needs loads HERE and
+  // the canvas repaints once it arrives. fonts.ready is necessary but not sufficient — it can resolve before
+  // the newly-drawn string's face is in — so settle on the pixels rather than on the font promise.
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForTimeout(500);
   // center card only — avoids the faint footer/version bleeding through the scrim
-  // fonts.ready re-resolves slowly (~1.5s) after the celebration's big text appears, so each retry of the
-  // screenshot eats most of the default 5s expect budget — give this one shot room to stabilize
-  await expect(page).toHaveScreenshot("celebration.png", { clip: { x: 340, y: 300, width: 600, height: 300 }, timeout: 20000 });
+  const clip = { x: 340, y: 300, width: 600, height: 300 };
+  await canvasStable(page, clip);                      // wait out the repaint when the big text's face lands
+  await page.evaluate(() => window.__freezeRender());  // then hold that frame: identical captures, every time
+  // 20s covers Playwright's own "waiting for fonts to load" step under parallel load, not the canvas.
+  await expect(page).toHaveScreenshot("celebration.png", { clip, timeout: 20000 });
 });
 });
 
