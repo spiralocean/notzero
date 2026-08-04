@@ -4161,14 +4161,20 @@ function agoStr(sec) {
   if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
   return `${Math.round(sec / 3600)}h ago`;
 }
-// A stale "last ticket" is only a REAL stall if newer blocks have arrived since (the tip is fresh but the
-// ticket isn't). A slow block — >20 min with no new block found, which happens for ~8% of blocks — leaves BOTH
-// the tip and the ticket stale, and that's normal, not a stall. So compare the ticket's age to the tip's age
-// before crying wolf. (No tip_time → can't compare → don't false-alarm.)
+// A stale "last ticket" is only a REAL stall if newer blocks have arrived since AND the miner has had time to
+// mine them. The slow-block case was always the thing to avoid — >20 min with no new block leaves BOTH the tip
+// and the ticket stale, which is normal — but comparing the two ages got it backwards at the one instant that
+// matters: `tipAge` resets to ~0 the moment the next block lands, so right then the old ticket looks maximally
+// stale against a brand-new tip. That is not a stall, it is the 30 seconds before the miner's next poll. On a
+// real install this fired 18 times in two days, always within a minute of a block arriving, never once on a
+// genuine stall. So require the tip to have STOOD a while before blaming the miner for not having mined it.
+// Mirrors desktop/miner-watchdog.js, which is canonical and carries the tests — a browser ES module can't
+// require() a CommonJS one and web/ is served raw, so this copy is deliberate. Change both.
 function minerStalled(n, ageSec) {
   if (!(ageSec > 1200)) return false;                        // ticket is fresh — fine
   const tipAge = n && n.tip_time ? Date.now() / 1000 - n.tip_time : Infinity;
-  return ageSec > tipAge + 600;                              // ticket much older than the last block ⇒ blocks arrived but the miner missed them
+  if (!isFinite(tipAge) || tipAge <= 300) return false;      // no tip_time, or the tip is too new to blame the miner
+  return ageSec > tipAge;                                    // the last ticket predates this tip ⇒ it really was missed
 }
 function drawMinerStatus() {
   const n = model.node;

@@ -36,6 +36,7 @@
       "ots-verify.js",
       "install-gate.js",
       "node-recovery.js",
+      "miner-watchdog.js",
       "package.json",
       "assets/icon.png",
       "wizard.html",

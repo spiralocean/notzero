@@ -72,6 +72,7 @@ const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
+const { isMinerStalled } = require("./miner-watchdog.js"); // is the miner actually stuck, or just between blocks
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
 // on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
@@ -726,7 +727,7 @@ function startNotifier() {
     if (synced && isFinite(at)) {
       const ageSec = (Date.now() - at) / 1000;
       const tipAge = tipTime ? Date.now() / 1000 - tipTime : Infinity;
-      const stalled = ageSec > 1200 && ageSec > tipAge + 600; // >20 min old AND >10 min older than the tip → blocks moved on but the miner didn't
+      const stalled = isMinerStalled({ ticketAgeSec: ageSec, tipAgeSec: tipAge }); // see miner-watchdog.js — the old inline test fired on every slow block
       if (stalled && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
         lastMinerKick = Date.now();
         console.warn(`[notzero] miner stalled (last ticket ${Math.round(ageSec / 60)}m ago, node synced) — restarting the miner engine`);
