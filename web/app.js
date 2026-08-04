@@ -772,12 +772,6 @@ const QUOTES = [
   "Someone buys the winning ticket — hands shaking, almost didn't.",
   "The odds you exist — this exact sperm, this exact egg — are about 1 in 400 trillion. You already won a longer lottery.",
   "Just by being born, you beat odds longer than any block. The unlikeliest thing already happened — it's you.",
-  // Copying fidelity, the mirror image of this whole dashboard: a system so accurate that its errors are
-  // vanishingly rare, where the rare error is the entire point. Numbers checked at difficulty 126.2T —
-  // 6.2e9 letters per division × 1e-10 combined error rate ≈ 0.6 mistakes, and 5.42e23 hashes ÷ 6.2e9
-  // letters ≈ 8.7e13 divisions, against a body of roughly 3e13 cells.
-  "Your cells copy six billion letters to divide, and get it wrong about once. Everything alive runs on that one mistake.",
-  "Every cell in your body, copied three times over — that's how many letters it takes to match the hashes behind one block.",
 ];
 const quoteText = (i) => (typeof QUOTES[i] === "string" ? QUOTES[i] : QUOTES[i].q);
 const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
