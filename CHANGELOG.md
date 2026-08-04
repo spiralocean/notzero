@@ -4,7 +4,27 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.76
+## Unreleased — next: 0.1.77
+
+## 0.1.76
+
+**Reliability**
+- **If your node stops on its own, the app starts it again.** Something outside the app can shut your node
+  down — most often the operating system reclaiming memory when the machine is running short of it. When that
+  happened, the app noticed and said so, and then waited for you to press a button. If you weren't sitting
+  there, mining stayed stopped: on the machine where this was found, for four hours. It now brings the node
+  back by itself, within seconds, and only falls back to the error screen if several tries in a row don't
+  take. A node that never started in the first place still takes you to the setup screen, because that's
+  usually something only you can fix.
+- **Your miner is no longer restarted just for being quiet between blocks.** Blocks don't arrive on a
+  schedule. Roughly once a day the network goes 40 minutes or more without finding one, and the app was
+  reading that quiet as the miner being stuck — restarting it up to a dozen times a day, always within
+  seconds of the next block turning up. No tickets were lost, but nothing was wrong in the first place. It
+  now waits until your miner has genuinely had a chance at the newest block before deciding anything is
+  amiss.
+- **The status pill no longer says your miner has stalled when it hasn't.** Same cause: for about half a
+  minute after a slow block, the dashboard claimed your miner had fallen behind when it was simply waiting
+  its turn.
 
 ## 0.1.75
 
