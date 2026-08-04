@@ -71,6 +71,7 @@ const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning 
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
+const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
 // on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
@@ -1015,10 +1016,17 @@ async function detectExistingNode() {
 }
 
 // ---- managed node: provision + run a private Bitcoin Core, then point the miner at it ----
+// Bring the node back when it dies on its own — policy (and the reasoning) in node-recovery.js.
+const nodeRecovery = createNodeRecovery({
+  retry: () => { if (!isQuitting) retryManagedNode(); },
+  log: (m) => console.warn(`[notzero] ${m}`),
+});
+const onManagedState = (s) => nodeRecovery.onState(s.state, s.detail, { quitting: isQuitting });
+
 async function startManagedNode() {
   if (managed) return;
   managedLog = []; lastLogKey = "";
-  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; logManaged(s); } });
+  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; logManaged(s); onManagedState(s); } });
   try {
     await managed.start(); // download → verify → launch → snapshot → first sync sample
     // The node is reachable now (still syncing). Wire its RPC into config and start the BRIDGE so
@@ -1037,6 +1045,7 @@ async function startManagedNode() {
   } catch (e) {
     managedState = { state: "error", detail: (e && e.message) || String(e) };
     logManaged(managedState);
+    onManagedState(managedState); // start() threw rather than the child exiting — same recovery, same scoping
   }
 }
 // Write the managed node's RPC connection (localhost cookie auth) into config.json so the engines reach it.
@@ -1451,7 +1460,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.on("activate", () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } else createWindow(); }); // dock click → show the existing (hidden) window, preserving its size/position; only build a new one if none exists
-app.on("before-quit", () => { isQuitting = true; stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node)
+app.on("before-quit", () => { isQuitting = true; nodeRecovery.cancel(); stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node). cancel() first: stopping the node emits an error state, and a pending retry must not restart it into the shutdown
 // macOS keeps the app in the dock; Windows + Linux hide to the tray — in all three the miner keeps running and
 // only the tray Quit / menu Exit / ⌘Q stops it. We only quit here as a fallback: no tray could be created
 // (headless / unsupported desktop), so there'd be nothing to reopen from.
