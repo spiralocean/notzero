@@ -4199,7 +4199,7 @@ function minerStalled(n, ageSec) {
   if (!(ageSec > 1200)) return false;                        // ticket is fresh — fine
   const tipAge = n && n.tip_time ? Date.now() / 1000 - n.tip_time : Infinity;
   if (!isFinite(tipAge) || tipAge <= 300) return false;      // no tip_time, or the tip is too new to blame the miner
-  return ageSec > tipAge;                                    // the last ticket predates this tip ⇒ it really was missed
+  return ageSec > tipAge + 180;                              // predates the tip by more than the header clock can explain (tip_time is miner-set and runs ahead — see miner-watchdog.js)
 }
 function drawMinerStatus() {
   const n = model.node;

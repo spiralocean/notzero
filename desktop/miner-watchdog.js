@@ -21,17 +21,26 @@
 //
 // So: only call it stalled once the miner has HAD a chance to act on the current tip and demonstrably hasn't.
 //
-//   minTipAgeSec  the tip has stood this long — about ten poll cycles at POLL_INTERVAL_SEC=30. Not tighter,
-//                 because tip_time is the block HEADER timestamp, which is miner-set and drifts minutes.
-//   ticketAge > tipAge   the last ticket predates the current tip, i.e. this block really was missed.
+//   minTipAgeSec  the tip has stood this long — about ten poll cycles at POLL_INTERVAL_SEC=30.
+//   ticketAge > tipAge + grace   the last ticket predates the current tip by a real margin, i.e. this block
+//                 really was missed rather than merely appearing so.
+//
+// That grace is not padding, it is the fix for a false alarm this shipped with. tip_time is the block HEADER
+// timestamp, which the block's miner sets and which routinely runs AHEAD of when the block reaches you. Seen
+// on a live install at 18:58:42Z on 2026-08-04: block 961057 arrived at 18:38:07Z, our miner ticketed it 31s
+// later at 18:38:38Z — correctly — but the block's header claims 18:38:58Z. Twenty seconds after our ticket.
+// So by the header clock the ticket "predated the tip" and the watchdog restarted a miner that had done its
+// job. A bare ticketAge > tipAge is measuring against a clock the block's author controls; the margin has to
+// be wider than the drift, and 180s comfortably covers it without delaying a real hang by more than a poll or
+// two. Removing the false alarms is the point — a watchdog that cries wolf is one nobody can read.
 //
 // Split out of main.js so it can be tested: main.js needs a live Electron app, this needs nothing.
 // web/app.js mirrors this for its status pill — a browser ES module can't require() a CommonJS one without a
 // build step, and this repo serves web/ raw. THIS FILE IS CANONICAL; change it and mirror it there.
-function isMinerStalled({ ticketAgeSec, tipAgeSec, minTicketAgeSec = 1200, minTipAgeSec = 300 } = {}) {
+function isMinerStalled({ ticketAgeSec, tipAgeSec, minTicketAgeSec = 1200, minTipAgeSec = 300, headerDriftGraceSec = 180 } = {}) {
   if (!Number.isFinite(ticketAgeSec) || ticketAgeSec <= minTicketAgeSec) return false; // no ticket yet, or a fresh one
   if (!Number.isFinite(tipAgeSec) || tipAgeSec <= minTipAgeSec) return false;          // tip unknown, or too new to blame the miner
-  return ticketAgeSec > tipAgeSec;                                                     // the last ticket predates this tip
+  return ticketAgeSec > tipAgeSec + headerDriftGraceSec;                               // predates this tip by more than the header clock can explain
 }
 
 module.exports = { isMinerStalled };

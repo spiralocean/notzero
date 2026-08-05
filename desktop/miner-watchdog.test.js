@@ -34,6 +34,25 @@ test("the old test fired on all of them — proving these cases discriminate", (
   }
 });
 
+// The one that survived the first fix, from the live install at 18:58:42Z on 2026-08-04. Block 961057 arrived
+// at 18:38:07Z; the miner ticketed it at 18:38:38Z, 31s later and entirely correctly. But the block's HEADER
+// says 18:38:58Z — 20s after our ticket — so measured against the header clock the ticket looked older than
+// the tip and the miner was restarted for work it had already done.
+test("a header timestamp running ahead of the block's arrival is not a stall", () => {
+  const ticketAgeSec = 1204;  // 18:58:42 - 18:38:38
+  const tipAgeSec = 1184;     // 18:58:42 - 18:38:58 (header, not arrival)
+  assert.equal(isMinerStalled({ ticketAgeSec, tipAgeSec }), false, "the ticket came 31s AFTER the block landed");
+  const withoutGrace = (t, p) => t > 1200 && p > 300 && t > p;
+  assert.equal(withoutGrace(ticketAgeSec, tipAgeSec), true, "and the pre-grace predicate fired on it — that was the bug");
+});
+
+test("header drift is tolerated up to the grace, and no further", () => {
+  const tipAgeSec = 1800;
+  assert.equal(isMinerStalled({ ticketAgeSec: tipAgeSec + 179, tipAgeSec }), false, "inside the drift window");
+  assert.equal(isMinerStalled({ ticketAgeSec: tipAgeSec + 180, tipAgeSec }), false, "exactly at it");
+  assert.equal(isMinerStalled({ ticketAgeSec: tipAgeSec + 181, tipAgeSec }), true, "past what drift can explain");
+});
+
 test("a genuinely hung miner IS caught", () => {
   // Miner frozen; blocks keep arriving every ~10 min. Five minutes after one lands, it should be flagged.
   assert.equal(isMinerStalled({ ticketAgeSec: 52 * 60, tipAgeSec: 5 * 60 + 1 }), true);
