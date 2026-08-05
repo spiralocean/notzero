@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.77
 
+**Dashboard**
+- **YOUR TICKETS now shows how far your best actually is from a win.** The bars compare your tickets to each
+  other, which is useful, but a full-height bar looked like you'd nearly got there when it meant nothing of
+  the sort. There's now a rail beneath the strip running from your best to what a win needs — with the real
+  odds at both ends, so "11 zero bits" and "78 zero bits" read as 1 in 2,048 against 1 in 3×10²³.
+- **Bar heights stopped drifting.** They were scaled to the best ticket still on screen, so when a strong one
+  scrolled off the left edge every remaining bar grew — the same hash drew at a different height on different
+  days. They're now measured against your all-time best, which doesn't move.
+
 ## 0.1.76
 
 **Reliability**

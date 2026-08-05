@@ -778,7 +778,8 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
-const CONTENT_H = { win: 150, nextBlock: 214, mempool: 256, closeness: 278, tickets: 180, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
+// tickets: 180 -> 214, the extra 34 is the 0→win rail drawn under the strip
+const CONTENT_H = { win: 150, nextBlock: 214, mempool: 256, closeness: 278, tickets: 214, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -1219,7 +1220,16 @@ function drawTickets(r) {
   }
   const items = hist.slice().reverse(); // oldest → newest, left → right
   const oldest = items[0].h, newest = items[items.length - 1].h, fullSpan = newest - oldest + 1, missed = Math.max(0, fullSpan - items.length);
-  let maxZ = 1, unsub = 0; for (const e of items) { if ((e.z || 0) > maxZ) maxZ = e.z || 0; if (e.w && !e.s) unsub++; }
+  let windowZ = 1, unsub = 0; for (const e of items) { if ((e.z || 0) > windowZ) windowZ = e.z || 0; if (e.w && !e.s) unsub++; }
+  // Scale to your ALL-TIME best, not the best still on screen. Scaling to the window meant the reference point
+  // moved: when a strong ticket scrolled off the left edge every remaining bar got taller, so the same hash drew
+  // at a different height on different days and the strip recorded nothing stable. Fall back to the window max
+  // when there's no all-time figure (older builds, or a fresh install).
+  const allTime = mn && mn.best && typeof mn.best.zero_bits === "number" ? mn.best.zero_bits : 0;
+  const maxZ = Math.max(1, allTime, windowZ);
+  // Zero bits a win needs RIGHT NOW, read off the live target (difficulty moves, so never hard-code it). No
+  // target yet — first moments, or the node not up — means no rail rather than a made-up number.
+  const at = mn && mn.attempt, winBits = at && at.target ? 256 - bigHex(at.target).toString(2).length : 0;
   const x0 = r.x + pad, x1 = r.x + r.w - pad, w = x1 - x0;
   // ONE SLOT PER BLOCK HEIGHT — gaps render as REAL empty space, not a compressed "⋯N" marker, so missed blocks
   // (downtime) are visible. Cap the span at 100 blocks for both steady mining and mining-with-gaps: steady shows
@@ -1228,7 +1238,9 @@ function drawTickets(r) {
   const MAXSLOTS = Math.min(100, Math.max(40, Math.floor(w / 4)));
   const startH = fullSpan > MAXSLOTS ? newest - MAXSLOTS + 1 : oldest;
   const span = newest - startH + 1, clamped = startH > oldest, cw = w / span;
-  const baseY = r.y + r.h - 42, topY = r.y + 44, barMax = baseY - topY, markY = baseY + 9;
+  // -68 (was -42): the extra 26 is reserved for the 0→win rail and its labels below the footer line, so the
+  // panel growing does NOT silently make the bars taller and change what the strip looks like.
+  const baseY = r.y + r.h - 68, topY = r.y + 44, barMax = baseY - topY, markY = baseY + 9;
   ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(x0, baseY); ctx.lineTo(x1, baseY); ctx.stroke();
   const bw = Math.max(2, Math.min(cw * 0.8, 22)), mw = Math.max(2, Math.min(cw * 0.8, 12)); // fill ~80% of a slot so consecutive blocks read as a band and a gap is an obvious break
   for (const e of items) {
@@ -1238,7 +1250,7 @@ function drawTickets(r) {
     const bh = Math.max(3, f * barMax); // performance bar — min 3px so a weak hash still shows
     ctx.fillStyle = wonUnsub ? "rgba(255,90,90,0.95)" : won ? "rgba(90,235,150,1)" : `rgba(${Math.round(255 - 150 * f)},${Math.round(180 + 45 * f)},${Math.round(110 + 30 * f)},0.92)`;
     ctx.fillRect(cx - bw / 2, baseY - bh, bw, bh);
-    if (z === maxZ && maxZ > 0 && !e.w) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); } // gold ring = your best (non-win)
+    if (z === windowZ && windowZ > 0 && !e.w) { ctx.strokeStyle = "rgba(255,215,90,0.95)"; ctx.lineWidth = 1.2; ctx.strokeRect(cx - bw / 2 - 1.5, baseY - bh - 1.5, bw + 3, bh + 3); } // gold ring = best bar ON SCREEN (windowZ, not the all-time scale — or a strip below your record would ring nothing)
     // participation marker (the "ticket") — only at heights with a ticket; colour = submit state
     ctx.fillStyle = wonUnsub ? "rgba(255,90,90,1)" : won ? "rgba(90,235,150,1)" : "rgba(255,200,120,0.85)";
     roundRect(cx - mw / 2, markY - 2, mw, 4, 1.2); ctx.fill();
@@ -1246,10 +1258,28 @@ function drawTickets(r) {
     if (wonUnsub) text("⚠", cx, baseY - bh - 8, { size: 11, weight: 700, color: "rgb(255,90,90)", align: "center", baseline: "middle" });
     ticketHits.push({ x: cx - cw / 2, y: topY, w: Math.max(cw, 3), h: baseY - topY + 16, lines: [
       `block #${e.h.toLocaleString()}`,
-      `${z} leading zero bit${z === 1 ? "" : "s"} — this ticket's hash strength`,
+      `${z} leading zero bit${z === 1 ? "" : "s"} — ${oddsExact(z)} · this ticket's hash strength`,
       `bar height is RELATIVE to your best (${maxZ} bit${maxZ === 1 ? "" : "s"}), not closeness to a win`,
+      winBits ? `a win needed ${winBits} bits — ${oddsExact(winBits)}` : "",
       won ? "★ WON & submitted" : wonUnsub ? "⚠ won — NOT submitted (resubmit)" : "entered · not a win",
-    ] });
+    ].filter(Boolean) });
+  }
+  // ---- HOW FAR IS THAT FROM A WIN -------------------------------------------------------------------
+  // The bars answer "which of my tickets was strongest" and deliberately keep doing so — rescaling them to the
+  // win would flatten two thirds of them (most tickets are 0 bits) and throw away the only comparison the strip
+  // is good at. But on its own that leaves a full-height bar reading as "nearly there" when it is 11 bits
+  // against the 78 a win needs, which is a factor of 1e20 in odds. So the absolute lives here instead: one
+  // 0→win rail with your best marked on it. Leading-zero BITS are already the log of the odds, which is the
+  // only reason this gap fits on a screen at all.
+  if (winBits) {
+    const gy = markY + 35, gx0 = x0, gw = x1 - x0, gh = 5; // +35 clears the footer line at markY+16
+    ctx.fillStyle = "rgba(255,255,255,0.10)"; roundRect(gx0, gy, gw, gh, 2.5); ctx.fill();
+    const fx = Math.max(2, gw * Math.min(1, maxZ / winBits));
+    ctx.fillStyle = "rgba(255,215,90,0.9)"; roundRect(gx0, gy, fx, gh, 2.5); ctx.fill();
+    text(`your best ${maxZ}`, gx0 + fx + 6, gy + gh / 2, { size: 9, weight: 700, color: "rgba(255,215,90,0.95)", baseline: "middle" });
+    text(`a win · ${winBits} bits`, x1, gy - 8, { size: 9, weight: 700, color: "rgba(255,255,255,0.5)", align: "right", baseline: "middle" });
+    text(`${oddsExact(maxZ)}`, gx0, gy - 8, { size: 9, weight: 600, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+    text(`${oddsExact(winBits)}`, x1, gy + gh + 10, { size: 9, weight: 600, color: "rgba(255,255,255,0.45)", align: "right", baseline: "middle" });
   }
   let base = `${items.length} tickets · #${oldest.toLocaleString()}–#${newest.toLocaleString()} · ${missed.toLocaleString()} missed (downtime) · best ◆ ${maxZ} zero bits`;
   if (clamped) base = `showing last ${span.toLocaleString()} blocks · ` + base;
