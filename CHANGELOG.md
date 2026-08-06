@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.78
 
+**Dashboard**
+- **THE CHURN no longer opens showing the same row six times.** When you first opened the panel, every row in
+  the grid drew the same bits — SHA-256's starting values, repeated once per row as though nothing were
+  changing. It sorted itself out after a few rounds, which is why it only ever looked wrong at a glance. The
+  grid now starts empty and fills downward as rounds are built, which is what's actually happening.
+
 ## 0.1.77
 
 **Reliability**

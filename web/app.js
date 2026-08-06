@@ -1621,7 +1621,14 @@ function drawChurn(r) {
   ctx.save(); ctx.beginPath(); ctx.rect(x0 - 2, topY - 3, w + 4, rowH * NHIST + 14); ctx.clip(); // clip stops above the mix header so the active row sliding in at a round boundary can't overlap "THE MIX" text
   const gOff = mixing ? 0 : (1 - rowScrollP) * rowH; // the grid scrolls UP so a BLANK row appears at the bottom, then it's blinked-source → duplicated → shifted (rather than the row growing in)
   for (let i = -1; i < NHIST; i++) {
-    const rIdx = t - (NHIST - 1) + i, regs = rowFor(rIdx), ry = topY + i * rowH + gOff, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
+    const rIdx = t - (NHIST - 1) + i;
+    // Before round 5 there is no history to show above the start row. rowFor() answers _SHA_H0 for EVERY
+    // negative index, so drawing them all painted the initial state six times over, each labelled "start" —
+    // six identical rows that looked like the churn wasn't churning. It corrected itself as t climbed past 5,
+    // which is why it only ever looked broken when you first opened the panel. Leave the space empty instead
+    // and let the grid fill downward, which is what actually happens.
+    if (rIdx < -1) continue;
+    const regs = rowFor(rIdx), ry = topY + i * rowH + gOff, isStart = rIdx < 0, isSrc = rIdx === t && mixing;
     text(isStart ? "start" : "r" + rIdx, x0 - 3, ry + 4, { size: 7.5, weight: isSrc ? 700 : 400, color: isSrc ? "rgba(255,235,150,0.9)" : "rgba(255,255,255,0.35)", baseline: "middle" });
     for (let c = 0; c < 8; c++) {
       if (isSrc && rdSet.indexOf(c) >= 0) { const kk = rdSet.indexOf(c), w0 = kk * stepPerReg, w1 = w0 + stepBlinkMs; // each source blinks 4× in its 2s slot (eye goes to it), then holds while its row is written
