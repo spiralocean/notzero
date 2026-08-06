@@ -6,6 +6,13 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.77
 
+**Reliability**
+- **The last of the spurious miner restarts.** 0.1.76 stopped the app restarting your miner during a slow
+  block, but a few still slipped through — roughly one a day. The cause was that blocks carry a timestamp
+  written by whoever mined them, and it can run minutes ahead of when the block actually reaches you, which
+  made your miner look behind when it was up to date. The app no longer takes that timestamp's word for it:
+  it compares block numbers, which come from your own node and can't be misreported.
+
 **Dashboard**
 - **YOUR TICKETS now shows how far your best actually is from a win.** The bars compare your tickets to each
   other, which is useful, but a full-height bar looked like you'd nearly got there when it meant nothing of

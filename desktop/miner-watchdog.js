@@ -1,46 +1,46 @@
 "use strict";
 // Is the miner actually stuck? The predicate behind restarting it — and behind the dashboard's status pill.
 //
-// This got it backwards for a long time, and the cost was invisible because the symptom looked like the cure.
-// The old test was:
+// This has been wrong twice, in two different ways, and both mistakes came from asking a CLOCK.
 //
-//     ageSec > 1200 && ageSec > tipAge + 600      // ">20 min old AND >10 min older than the tip"
+// First it asked: is the last ticket much older than the tip?
 //
-// `tipAge` is the age of the NEWEST block, so it resets to ~0 every time one arrives. After any long gap
-// between blocks the last ticket is necessarily old, so the instant the next block lands both halves are true
-// and the miner is declared stalled. But the miner polls every 30s — it had not failed to mine that block, it
-// had not been asked yet. The test fired inside that window, on a healthy miner, by construction.
+//     ageSec > 1200 && ageSec > tipAge + 600
 //
-// Measured on a real install over two days: 18 restarts, 18 of them within 60 seconds of a new block arriving,
-// median 5 seconds. Not one was a stall. The longest "silence" — 52 minutes — was the chain, not the app: the
-// node's own log shows block 960969 at 05:05:01 and 960970 at 05:57:40. Nothing to mine, so nothing logged.
+// tipAge is the age of the NEWEST block, so it resets to ~0 whenever one arrives. After any long gap between
+// blocks the last ticket is necessarily old, so the instant the next block landed both halves were true. The
+// miner polls every 30s — it had not failed to mine that block, it had not been asked yet. Measured on a live
+// install: 18 restarts in two days, all within 60s of a block arriving, median 5s. Not one was a stall.
 //
-// The cost was not the wasted restarts. It was that a genuine hang produces exactly this signature, so the one
-// signal that would have shown a real problem was already firing daily for no reason. And a kill lands within
-// seconds of a new block — precisely when the miner is about to build and possibly submit one.
+// Then it asked the same question more carefully — tip must have stood 5 minutes, ticket must predate it —
+// and that removed about 93% of them. The rest came from the same root cause the first fix had already
+// noticed and failed to take seriously: tip_time is the block's HEADER timestamp, set by whoever mined it,
+// and it routinely runs AHEAD of when the block reaches you. Two survivors, both with the miner working
+// perfectly:
 //
-// So: only call it stalled once the miner has HAD a chance to act on the current tip and demonstrably hasn't.
+//   2026-08-04 18:58Z  block 961057 arrived 18:38:07Z, header said 18:38:58Z  (+51s)   ticket 18:38:38Z
+//   2026-08-05 23:57Z  block 961222 arrived 23:37:10Z, header said 23:40:44Z  (+214s)  ticket 23:37:22Z
 //
-//   minTipAgeSec  the tip has stood this long — about ten poll cycles at POLL_INTERVAL_SEC=30.
-//   ticketAge > tipAge + grace   the last ticket predates the current tip by a real margin, i.e. this block
-//                 really was missed rather than merely appearing so.
+// In both the miner ticketed within 31s of the block ARRIVING, and in both the header clock made that ticket
+// look older than the tip. A grace band was the obvious next patch and is a trap: consensus permits a header
+// up to two hours ahead, so no margin is both safe and useful. A 180s grace chosen from the first sample
+// would have fired on the second anyway.
 //
-// That grace is not padding, it is the fix for a false alarm this shipped with. tip_time is the block HEADER
-// timestamp, which the block's miner sets and which routinely runs AHEAD of when the block reaches you. Seen
-// on a live install at 18:58:42Z on 2026-08-04: block 961057 arrived at 18:38:07Z, our miner ticketed it 31s
-// later at 18:38:38Z — correctly — but the block's header claims 18:38:58Z. Twenty seconds after our ticket.
-// So by the header clock the ticket "predated the tip" and the watchdog restarted a miner that had done its
-// job. A bare ticketAge > tipAge is measuring against a clock the block's author controls; the margin has to
-// be wider than the drift, and 180s comfortably covers it without delaying a real hang by more than a poll or
-// two. Removing the false alarms is the point — a watchdog that cries wolf is one nobody can read.
+// So stop asking clocks. The miner mines tip+1. If its last attempt is STRICTLY BELOW the tip it has missed a
+// whole block, which no timestamp can fake — heights come from our own node's chain, not from a header field
+// a stranger filled in. Strictly below, not at-or-below, because for up to one poll after a block lands the
+// miner is legitimately still on the height that just became the tip. One block of slack costs ~10 minutes of
+// detection latency on a real hang and removes the entire class of false alarm.
+//
+// The ticket-age gate stays: it is our OWN timestamp, and it keeps a brand-new install from being restarted
+// before it has mined anything.
 //
 // Split out of main.js so it can be tested: main.js needs a live Electron app, this needs nothing.
-// web/app.js mirrors this for its status pill — a browser ES module can't require() a CommonJS one without a
-// build step, and this repo serves web/ raw. THIS FILE IS CANONICAL; change it and mirror it there.
-function isMinerStalled({ ticketAgeSec, tipAgeSec, minTicketAgeSec = 1200, minTipAgeSec = 300, headerDriftGraceSec = 180 } = {}) {
+function isMinerStalled({ ticketAgeSec, attemptHeight, tipHeight, minTicketAgeSec = 1200 } = {}) {
   if (!Number.isFinite(ticketAgeSec) || ticketAgeSec <= minTicketAgeSec) return false; // no ticket yet, or a fresh one
-  if (!Number.isFinite(tipAgeSec) || tipAgeSec <= minTipAgeSec) return false;          // tip unknown, or too new to blame the miner
-  return ticketAgeSec > tipAgeSec + headerDriftGraceSec;                               // predates this tip by more than the header clock can explain
+  if (!Number.isFinite(attemptHeight) || !Number.isFinite(tipHeight)) return false;    // heights unknown -> never guess
+  if (attemptHeight <= 0 || tipHeight <= 0) return false;
+  return attemptHeight < tipHeight;  // a whole block went by without the miner moving to it
 }
 
 module.exports = { isMinerStalled };

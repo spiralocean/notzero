@@ -726,11 +726,13 @@ function startNotifier() {
     const at = m && m.attempt ? Date.parse(m.attempt.attempted_at || "") : NaN;
     if (synced && isFinite(at)) {
       const ageSec = (Date.now() - at) / 1000;
-      const tipAge = tipTime ? Date.now() / 1000 - tipTime : Infinity;
-      const stalled = isMinerStalled({ ticketAgeSec: ageSec, tipAgeSec: tipAge }); // see miner-watchdog.js — the old inline test fired on every slow block
+      // Heights, not timestamps — see miner-watchdog.js. Both earlier versions compared our ticket against
+      // node.tip_time, which is the block author's own header clock and runs minutes ahead of arrival.
+      const attemptHeight = (m.attempt && m.attempt.height) || 0, tipHeight = node.blocks || 0;
+      const stalled = isMinerStalled({ ticketAgeSec: ageSec, attemptHeight, tipHeight });
       if (stalled && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
         lastMinerKick = Date.now();
-        console.warn(`[notzero] miner stalled (last ticket ${Math.round(ageSec / 60)}m ago, node synced) — restarting the miner engine`);
+        console.warn(`[notzero] miner stalled (last ticket ${Math.round(ageSec / 60)}m ago, on #${attemptHeight} while the tip is #${tipHeight}) — restarting the miner engine`);
         try { if (procs.miner) procs.miner.kill(); } catch (_) {} // exit handler respawns it (~2s) with current config; no-op if it already crashed/respawned
       }
     }

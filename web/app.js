@@ -4186,20 +4186,20 @@ function agoStr(sec) {
   if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
   return `${Math.round(sec / 3600)}h ago`;
 }
-// A stale "last ticket" is only a REAL stall if newer blocks have arrived since AND the miner has had time to
-// mine them. The slow-block case was always the thing to avoid — >20 min with no new block leaves BOTH the tip
-// and the ticket stale, which is normal — but comparing the two ages got it backwards at the one instant that
-// matters: `tipAge` resets to ~0 the moment the next block lands, so right then the old ticket looks maximally
-// stale against a brand-new tip. That is not a stall, it is the 30 seconds before the miner's next poll. On a
-// real install this fired 18 times in two days, always within a minute of a block arriving, never once on a
-// genuine stall. So require the tip to have STOOD a while before blaming the miner for not having mined it.
+// A stale "last ticket" is only a REAL stall if the miner has actually missed a block. Two earlier versions
+// asked a clock instead — is the ticket older than the tip? — and both were wrong, because tip_time is the
+// block's HEADER timestamp, written by whoever mined it, and it runs ahead of when the block reaches you (seen
+// at +51s and +214s on a live install, while the miner was ticketing within 31s of arrival). Consensus allows
+// a header two hours ahead, so no margin fixes that. Heights can't be faked this way: the miner mines tip+1,
+// so an attempt STRICTLY BELOW the tip means a whole block went by without it moving. Strictly below, because
+// for up to one poll after a block lands the miner is legitimately still on the height that just became tip.
 // Mirrors desktop/miner-watchdog.js, which is canonical and carries the tests — a browser ES module can't
 // require() a CommonJS one and web/ is served raw, so this copy is deliberate. Change both.
 function minerStalled(n, ageSec) {
   if (!(ageSec > 1200)) return false;                        // ticket is fresh — fine
-  const tipAge = n && n.tip_time ? Date.now() / 1000 - n.tip_time : Infinity;
-  if (!isFinite(tipAge) || tipAge <= 300) return false;      // no tip_time, or the tip is too new to blame the miner
-  return ageSec > tipAge + 180;                              // predates the tip by more than the header clock can explain (tip_time is miner-set and runs ahead — see miner-watchdog.js)
+  const at = n && n.miner && n.miner.attempt, attemptH = (at && at.height) || 0, tipH = (n && n.blocks) || 0;
+  if (!attemptH || !tipH) return false;                      // heights unknown → never guess
+  return attemptH < tipH;                                    // a whole block went by without the miner moving to it
 }
 function drawMinerStatus() {
   const n = model.node;
