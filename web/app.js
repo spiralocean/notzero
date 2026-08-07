@@ -751,9 +751,16 @@ const QUOTES = [
   { q: "To infinity and beyond!", src: "Buzz Lightyear, Toy Story" },
   { q: "'Inconceivable'? You keep using that word. I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
   { q: "Adventure is out there!", src: "Ellie, Up" },
-  // two thousand years early, and still the most accurate description of solo mining in the file: the win is
-  // chance, it lands where you didn't expect it, and the only requirement is that your line is in the water
+  // ---- from antiquity: the odds argument, made before anyone had the word "probability" ----
+  // Two thousand years early, and still the most accurate description of solo mining in the file: the win is
+  // chance, it lands where you didn't expect it, and the only requirement is that your line is in the water.
   { q: "Chance is always powerful. Let your hook be always cast; in the pool where you least expect it, there will be a fish.", src: "Ovid, Ars Amatoria" },
+  // Cicero is arguing AGAINST reading omens into rare events: the Venus throw (four knucklebones, each landing
+  // on a different face) needs no divine explanation, only enough throws. That is this dashboard's whole
+  // argument, made in 44 BC, and the second clause is the part nobody quotes — the rarity is real AND it lands.
+  { q: "Nothing is so uncertain as a cast of dice, and yet there is no one who plays often who does not sometimes make a Venus-throw, and occasionally twice or thrice in succession.", src: "Cicero, De Divinatione, 44 BC" },
+  // Chance overriding merit, stated flat. Cited to the book, not a testament, to sit as literature beside the rest.
+  { q: "The race is not to the swift, nor the battle to the strong… but time and chance happeneth to them all.", src: "Ecclesiastes, ~3rd c. BC" },
   // from Bitcoin's history
   { q: "Chancellor on brink of second bailout for banks", src: "The Times — Bitcoin's genesis block, 2009" },
   { q: "Running bitcoin", src: "Hal Finney, 2009" },
@@ -921,6 +928,8 @@ const nextQuoteIdx = makeQuoteBag(QUOTES.length, 12);
 // Keyed on the head's X POSITION rather than on column index. Index-keyed sweeps make the head's apparent speed
 // depend on the quote's length; a 38-character quote and a 61-character one would decode at different rates.
 // Position-keyed, the band crosses the screen at one constant speed regardless.
+const QUOTE_EDGE_PX = 26;     // breathing room each side before a long quote is shrunk to fit
+const QUOTE_MIN_PX = 8;       // floor: past this a quote is unreadable, so let it clip rather than vanish
 const Q_HEAD_PX = 150;        // width of the churning band; the whole head, not a per-column duration
 const Q_JITTER_PX = 26;       // per-column ragged edge, so it decodes rather than wiping like a progress bar
 const Q_PACE = 0.85;          // 0 = constant speed; k<1 keeps it monotonic. (1+k)x at the edges, (1-k)x mid-text
@@ -929,10 +938,24 @@ const Q_SRC_LAG = 50;         // px the attribution's head trails the quote's, s
 // band as the quote, one line lower and slightly behind, so the header has a single rule — the band rewrites
 // whatever it passes — instead of the quote morphing while its source blinks on and off underneath.
 function drawQuoteMorph(from, to, p, alpha, seed, line) {
-  ctx.font = `600 ${line.size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
-  const charW = ctx.measureText("0").width, n = Math.max(from.length, to.length);
+  const n = Math.max(from.length, to.length);
   if (n === 0) return;   // neither side has anything on this line — don't stream glyphs across a blank row
+  // Shrink to fit rather than run off both ends. At the fixed size the longest quotes had always overflowed a
+  // narrow window — the 122-character one lost a clause at each edge at the 900px window minimum — and a
+  // 173-character one overflowed even at 1280.
+  //
+  // Safe to do HERE, and only here, because the morph builds ONE grid: n columns at a single charW, with the
+  // outgoing and incoming strings both matched against it. Sizing by the LONGER of the two keeps both on that
+  // same grid, so a transition between a short quote and a long one still resolves column-for-column. Sizing
+  // each quote independently is what would break it.
+  let size = line.size, charW = 0;
+  for (;;) {
+    ctx.font = `600 ${size}px ui-monospace, SFMono-Regular, Menlo, monospace`;
+    charW = ctx.measureText("0").width;
+    if (n * charW <= W - 2 * QUOTE_EDGE_PX || size <= QUOTE_MIN_PX) break;
+    size -= 0.5;   // half-steps: a whole-pixel step overshoots and leaves a long quote smaller than it needs
+  }
   // Columns are matched from the CENTRE out, not from index 0, and each character keeps its own exact centred
   // position. Lerping one whole-field origin to the other (the previous approach) dragged every character
   // sideways whenever the lengths differed — a short→long change read as the quote sliding in from the left.
