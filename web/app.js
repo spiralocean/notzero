@@ -751,6 +751,9 @@ const QUOTES = [
   { q: "To infinity and beyond!", src: "Buzz Lightyear, Toy Story" },
   { q: "'Inconceivable'? You keep using that word. I do not think it means what you think it means.", src: "Inigo Montoya, The Princess Bride" },
   { q: "Adventure is out there!", src: "Ellie, Up" },
+  // two thousand years early, and still the most accurate description of solo mining in the file: the win is
+  // chance, it lands where you didn't expect it, and the only requirement is that your line is in the water
+  { q: "Chance is always powerful. Let your hook be always cast; in the pool where you least expect it, there will be a fish.", src: "Ovid, Ars Amatoria" },
   // from Bitcoin's history
   { q: "Chancellor on brink of second bailout for banks", src: "The Times — Bitcoin's genesis block, 2009" },
   { q: "Running bitcoin", src: "Hal Finney, 2009" },
