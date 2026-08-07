@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.79
 
+**Dashboard**
+- **The quotes at the top no longer run off the edges.** The longest ones were drawn at a fixed size whatever
+  the window, so a few lost a clause at each end — worst on a narrow window, where one of them had been cut
+  short all along. They now shrink just enough to fit, and only when they need to; the shorter ones are
+  untouched.
+- **Three from antiquity.** Ovid on keeping your hook cast, Ecclesiastes on time and chance, and Cicero — who
+  in 44 BC pointed out that the rarest throw of the dice needs no supernatural explanation, only somebody
+  throwing often enough. Which is this whole app, argued two thousand years early.
+
 ## 0.1.78
 
 **Dashboard**
