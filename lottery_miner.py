@@ -487,6 +487,25 @@ def _ipv4_first_getaddrinfo(*args, **kwargs):
 socket.getaddrinfo = _ipv4_first_getaddrinfo
 
 
+SLOW_STEP_SEC = 10.0  # a poll step over this is worth a log line; a healthy step is well under a second
+
+
+def _timed(label: str, slow: list, fn, *args, **kwargs):
+    """Run fn, and note it in `slow` if it took long enough to be the reason a poll stalled.
+
+    Deliberately records on the way out via finally, so a step that raises is still timed — a call that
+    burns 60s and THEN fails is exactly as interesting as one that burns 60s and succeeds, and the callers
+    here swallow those exceptions. Uses monotonic: a clock adjustment must not invent or hide a stall.
+    """
+    t0 = time.monotonic()
+    try:
+        return fn(*args, **kwargs)
+    finally:
+        dt = time.monotonic() - t0
+        if dt >= SLOW_STEP_SEC:
+            slow.append((label, dt))
+
+
 def http_get(url: str, timeout: int = 30) -> dict | list | str:
     req = urllib.request.Request(url, headers={"User-Agent": "bitcoin-lottery-miner/0.1"})
     with urllib.request.urlopen(req, timeout=timeout, context=_SSL_CTX) as resp:
@@ -1387,15 +1406,22 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                     mask_address(settings["payout_address"]) if settings["payout_address"] else ""
                 )
 
+            # Which step of the poll was slow, if any. The miner logs only new blocks and errors, so a poll
+            # that BLOCKS writes nothing at all — the hang is visible solely as a gap between tickets, and the
+            # only way to spot it was to notice a missing block height afterwards. Twice on 2026-08-06 the
+            # loop went silent for 20 and 39 minutes and skipped a block each time, and there was nothing in
+            # any log to say where it had stopped. Time each network step so the next one names itself.
+            slow: list[tuple[str, float]] = []
+
             # The network tip from mempool.space is display/fallback only — a public-API outage or a slow
             # route must never block the one thing this loop exists for (attempting the next block).
             network_height: Optional[int] = None
             try:
-                network_height = get_tip_height()
+                network_height = _timed("mempool.space tip", slow, get_tip_height)
             except (urllib.error.URLError, RuntimeError, ValueError, OSError):
                 pass
             state["last_poll_at"] = utc_now()
-            state = refresh_node_status(state, settings)
+            state = _timed("node RPC", slow, refresh_node_status, state, settings)
 
             # In live mode the ticket trigger is our own node's tip: it hears new blocks first and works
             # even with mempool.space down. Symbolic mode has no node, so the public tip stays the trigger.
@@ -1407,10 +1433,16 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
             if height is not None:
                 state["current_tip_height"] = height
 
-            state = update_price_state(state, config)
-            state = update_wallet_balance_state(state, config)
+            state = _timed("price", slow, update_price_state, state, config)
+            state = _timed("wallet balance", slow, update_wallet_balance_state, state, config)
             state = update_display_stats(state, new_block=False)
             save_state(state)
+            if slow:
+                msg = "slow poll — " + ", ".join(f"{label} took {secs:.0f}s" for label, secs in slow)
+                if daemon:
+                    log_daemon(msg)
+                else:
+                    print(msg, file=sys.stderr)
 
             if height is None:
                 msg = "Tip height unavailable (node and mempool.space both unreachable) — will retry"
