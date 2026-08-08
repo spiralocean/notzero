@@ -422,7 +422,7 @@ def log_daemon(message: str) -> None:
 
 def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: str) -> dict:
     attempt.attempted_at = utc_now()
-    note_ticket()  # the single point every ticket passes through — the monitor's "still working" signal
+    note_ticket(attempt.height)  # the one point every ticket passes through — the monitor's "still working" signal
     state.update(
         {
             "version": 1,
@@ -508,7 +508,7 @@ IDLE_REPORT_SEC = 900.0     # polls completing but no ticket for this long -> re
 
 _stall_lock = threading.Lock()
 _stall = {"step": None, "at": 0.0, "said_blocked": False, "said_idle": False,
-          "poll_done": 0.0, "ticket_at": 0.0}
+          "poll_done": 0.0, "ticket_at": 0.0, "tip": 0, "attempt_h": 0}
 
 
 def _timed(label: str, fn, *args, **kwargs):
@@ -524,18 +524,22 @@ def _timed(label: str, fn, *args, **kwargs):
             _stall["step"] = None
 
 
-def note_poll_done() -> None:
-    # Records that the loop got all the way round. Deliberately does NOT clear said_idle: an idle episode is
-    # defined by polls completing, so re-arming on every poll made it re-report every check. Only a ticket —
-    # i.e. an actual recovery — ends the episode.
+def note_poll_done(tip_height: Optional[int] = None) -> None:
+    # Records that the loop got all the way round, and the tip it saw. Deliberately does NOT clear said_idle:
+    # an idle episode is defined by polls completing, so re-arming on every poll made it re-report every check.
+    # Only a ticket — an actual recovery — ends the episode.
     with _stall_lock:
         _stall["poll_done"] = time.monotonic()
+        if tip_height:
+            _stall["tip"] = int(tip_height)
 
 
-def note_ticket() -> None:
+def note_ticket(height: Optional[int] = None) -> None:
     with _stall_lock:
         _stall["ticket_at"] = time.monotonic()
         _stall["said_idle"] = False
+        if height:
+            _stall["attempt_h"] = int(height)
 
 
 def _stall_monitor(log) -> None:
@@ -550,11 +554,16 @@ def _stall_monitor(log) -> None:
                     _stall["said_blocked"] = True
                     msg = f"BLOCKED in '{step}' for {now - at:.0f}s and still waiting — the poll loop is stuck here"
                 elif (not step and not said_idle and poll_done and ticket_at
-                      and now - poll_done < STALL_CHECK_SEC * 4 and now - ticket_at >= IDLE_REPORT_SEC):
-                    # Polls are finishing, so nothing is blocked — the loop simply is not seeing a new height.
+                      and now - poll_done < STALL_CHECK_SEC * 4 and now - ticket_at >= IDLE_REPORT_SEC
+                      and _stall["tip"] and _stall["attempt_h"] and _stall["tip"] >= _stall["attempt_h"]):
+                    # Polls are finishing, so nothing is blocked. But "no ticket for a while" is NOT itself
+                    # wrong — blocks are ~10 min apart and a 25-minute gap is ordinary, so time alone says
+                    # nothing. The miner builds tip+1, so it is only behind once the tip has REACHED what it is
+                    # working on. Height is the test; the clock just decides how long to wait before saying so.
                     _stall["said_idle"] = True
-                    msg = (f"IDLE — polls are completing (last {now - poll_done:.0f}s ago) but no ticket for "
-                           f"{(now - ticket_at) / 60:.0f}m: not stuck in a call, not seeing a new block")
+                    msg = (f"IDLE — polls completing (last {now - poll_done:.0f}s ago), no ticket for "
+                           f"{(now - ticket_at) / 60:.0f}m, and the tip (#{_stall['tip']}) has caught up with "
+                           f"what the miner is building (#{_stall['attempt_h']}): not stuck in a call, not seeing the new block")
                 else:
                     msg = None
             if msg:
@@ -1519,7 +1528,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
             state = _timed("wallet balance", update_wallet_balance_state, state, config)
             state = update_display_stats(state, new_block=False)
             save_state(state)
-            note_poll_done()   # the loop got all the way round: whatever is wrong, it is not a blocked call
+            note_poll_done(height)   # the loop got all the way round: whatever is wrong, it is not a blocked call
 
             if height is None:
                 msg = "Tip height unavailable (node and mempool.space both unreachable) — will retry"
