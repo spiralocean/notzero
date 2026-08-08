@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.80
+## Unreleased — next: 0.1.81
+
+## 0.1.80
+
+**Under the hood**
+- **The app stopped reporting a problem with your miner when there wasn't one.** 0.1.79 added a note in the
+  log when the miner appears to have stopped working. It was measuring the wrong thing — a quiet stretch with
+  no new blocks looked identical to a stuck miner, and blocks genuinely do go 25 minutes apart sometimes. It
+  now checks whether your miner has actually fallen behind the chain before saying anything. Nothing about
+  mining changed; this only affects what the log claims.
 
 ## 0.1.79
 
