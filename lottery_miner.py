@@ -422,6 +422,7 @@ def log_daemon(message: str) -> None:
 
 def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: str) -> dict:
     attempt.attempted_at = utc_now()
+    note_ticket()  # the single point every ticket passes through — the monitor's "still working" signal
     state.update(
         {
             "version": 1,
@@ -487,23 +488,108 @@ def _ipv4_first_getaddrinfo(*args, **kwargs):
 socket.getaddrinfo = _ipv4_first_getaddrinfo
 
 
-SLOW_STEP_SEC = 10.0  # a poll step over this is worth a log line; a healthy step is well under a second
+# ---- stall reporting: say what is wrong WHILE it is wrong ------------------------------------------------
+#
+# The first version of this timed each step and logged after the loop body finished. That cannot fire for the
+# case it was built for. The app restarts a hung miner with SIGTERM at about 20 minutes, and a killed process
+# never reaches the end of its loop — Python does not run finally blocks on a default SIGTERM either. On
+# 2026-08-07 a 20-minute hang under that build produced no line at all, which is how the flaw surfaced.
+#
+# So report from OUTSIDE the loop. A monitor thread watches the step currently in flight and speaks up while
+# it is still stuck, and a SIGTERM handler gets the last word if the watchdog reaches it first.
+#
+# It also has to separate two failures that look identical from the outside — total silence:
+#   BLOCKED    the loop is parked inside one call (a network read, a DNS lookup that ignores its timeout)
+#   IDLE       the loop is cycling perfectly well but never sees a new height, so never makes a ticket
+# Those want opposite fixes, and nothing in the logs today distinguishes them.
+SLOW_STEP_SEC = 10.0        # a step in flight this long is stuck, not slow; a healthy one is well under a second
+STALL_CHECK_SEC = 15.0      # how often the monitor looks
+IDLE_REPORT_SEC = 900.0     # polls completing but no ticket for this long -> report IDLE, not BLOCKED
+
+_stall_lock = threading.Lock()
+_stall = {"step": None, "at": 0.0, "said_blocked": False, "said_idle": False,
+          "poll_done": 0.0, "ticket_at": 0.0}
 
 
-def _timed(label: str, slow: list, fn, *args, **kwargs):
-    """Run fn, and note it in `slow` if it took long enough to be the reason a poll stalled.
-
-    Deliberately records on the way out via finally, so a step that raises is still timed — a call that
-    burns 60s and THEN fails is exactly as interesting as one that burns 60s and succeeds, and the callers
-    here swallow those exceptions. Uses monotonic: a clock adjustment must not invent or hide a stall.
-    """
-    t0 = time.monotonic()
+def _timed(label: str, fn, *args, **kwargs):
+    """Run fn while recording that it is in flight, so the monitor can name it if it never returns."""
+    with _stall_lock:
+        _stall["step"] = label
+        _stall["at"] = time.monotonic()
+        _stall["said_blocked"] = False
     try:
         return fn(*args, **kwargs)
     finally:
-        dt = time.monotonic() - t0
-        if dt >= SLOW_STEP_SEC:
-            slow.append((label, dt))
+        with _stall_lock:
+            _stall["step"] = None
+
+
+def note_poll_done() -> None:
+    # Records that the loop got all the way round. Deliberately does NOT clear said_idle: an idle episode is
+    # defined by polls completing, so re-arming on every poll made it re-report every check. Only a ticket —
+    # i.e. an actual recovery — ends the episode.
+    with _stall_lock:
+        _stall["poll_done"] = time.monotonic()
+
+
+def note_ticket() -> None:
+    with _stall_lock:
+        _stall["ticket_at"] = time.monotonic()
+        _stall["said_idle"] = False
+
+
+def _stall_monitor(log) -> None:
+    while True:
+        time.sleep(STALL_CHECK_SEC)
+        try:
+            now = time.monotonic()
+            with _stall_lock:
+                step, at, said_blocked = _stall["step"], _stall["at"], _stall["said_blocked"]
+                poll_done, ticket_at, said_idle = _stall["poll_done"], _stall["ticket_at"], _stall["said_idle"]
+                if step and not said_blocked and now - at >= SLOW_STEP_SEC:
+                    _stall["said_blocked"] = True
+                    msg = f"BLOCKED in '{step}' for {now - at:.0f}s and still waiting — the poll loop is stuck here"
+                elif (not step and not said_idle and poll_done and ticket_at
+                      and now - poll_done < STALL_CHECK_SEC * 4 and now - ticket_at >= IDLE_REPORT_SEC):
+                    # Polls are finishing, so nothing is blocked — the loop simply is not seeing a new height.
+                    _stall["said_idle"] = True
+                    msg = (f"IDLE — polls are completing (last {now - poll_done:.0f}s ago) but no ticket for "
+                           f"{(now - ticket_at) / 60:.0f}m: not stuck in a call, not seeing a new block")
+                else:
+                    msg = None
+            if msg:
+                log(msg)
+        except Exception:  # noqa: BLE001 — a reporting thread must never be the thing that kills the miner
+            pass
+
+
+def install_stall_reporting(log) -> None:
+    """Start the monitor, and make SIGTERM say what was in flight on the way out.
+
+    The watchdog kill is the single most reliable moment we know something is wrong, and until now it was the
+    one moment that recorded nothing. The handler logs, then restores the default and re-raises, so the exit
+    is byte-for-byte what it was before — this adds a line, it does not change how the miner dies.
+    """
+    import signal
+
+    def _on_term(signum, _frame):
+        try:
+            with _stall_lock:
+                step, at = _stall["step"], _stall["at"]
+            if step:
+                log(f"terminated while in '{step}' after {time.monotonic() - at:.0f}s")
+            else:
+                log("terminated between steps — the poll loop was not blocked on a call")
+        except Exception:  # noqa: BLE001
+            pass
+        signal.signal(signum, signal.SIG_DFL)
+        os.kill(os.getpid(), signum)
+
+    try:
+        signal.signal(signal.SIGTERM, _on_term)
+    except (ValueError, OSError):
+        pass  # not the main thread, or a platform without it — the monitor still runs
+    threading.Thread(target=_stall_monitor, args=(log,), daemon=True, name="stall-monitor").start()
 
 
 def http_get(url: str, timeout: int = 30) -> dict | list | str:
@@ -1382,6 +1468,9 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
     state["payout_address"] = mask_address(settings["payout_address"]) if settings["payout_address"] else ""
     save_state(state)
 
+    install_stall_reporting(log_daemon if daemon else (lambda m: print(m, file=sys.stderr)))
+    note_ticket()   # baseline: without this the monitor would call a just-started miner idle for 15 minutes
+
     if daemon:
         payout = state["payout_address"] or "not set"
         log_daemon(f"Daemon started ({mode} mode), payout {payout}, polling every {POLL_INTERVAL_SEC}s")
@@ -1406,22 +1495,15 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                     mask_address(settings["payout_address"]) if settings["payout_address"] else ""
                 )
 
-            # Which step of the poll was slow, if any. The miner logs only new blocks and errors, so a poll
-            # that BLOCKS writes nothing at all — the hang is visible solely as a gap between tickets, and the
-            # only way to spot it was to notice a missing block height afterwards. Twice on 2026-08-06 the
-            # loop went silent for 20 and 39 minutes and skipped a block each time, and there was nothing in
-            # any log to say where it had stopped. Time each network step so the next one names itself.
-            slow: list[tuple[str, float]] = []
-
             # The network tip from mempool.space is display/fallback only — a public-API outage or a slow
             # route must never block the one thing this loop exists for (attempting the next block).
             network_height: Optional[int] = None
             try:
-                network_height = _timed("mempool.space tip", slow, get_tip_height)
+                network_height = _timed("mempool.space tip", get_tip_height)
             except (urllib.error.URLError, RuntimeError, ValueError, OSError):
                 pass
             state["last_poll_at"] = utc_now()
-            state = _timed("node RPC", slow, refresh_node_status, state, settings)
+            state = _timed("node RPC", refresh_node_status, state, settings)
 
             # In live mode the ticket trigger is our own node's tip: it hears new blocks first and works
             # even with mempool.space down. Symbolic mode has no node, so the public tip stays the trigger.
@@ -1433,16 +1515,11 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
             if height is not None:
                 state["current_tip_height"] = height
 
-            state = _timed("price", slow, update_price_state, state, config)
-            state = _timed("wallet balance", slow, update_wallet_balance_state, state, config)
+            state = _timed("price", update_price_state, state, config)
+            state = _timed("wallet balance", update_wallet_balance_state, state, config)
             state = update_display_stats(state, new_block=False)
             save_state(state)
-            if slow:
-                msg = "slow poll — " + ", ".join(f"{label} took {secs:.0f}s" for label, secs in slow)
-                if daemon:
-                    log_daemon(msg)
-                else:
-                    print(msg, file=sys.stderr)
+            note_poll_done()   # the loop got all the way round: whatever is wrong, it is not a blocked call
 
             if height is None:
                 msg = "Tip height unavailable (node and mempool.space both unreachable) — will retry"
