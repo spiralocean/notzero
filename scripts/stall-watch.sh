@@ -33,7 +33,8 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 STATE="$HOME/Library/Application Support/bitcoin-lottery-desktop"
 DAEMON_LOG="$STATE/daemon.log"
 APP_LOG="$STATE/app.log"
-LOG="$STATE/stall-watch.log"
+LOG="$STATE/stall-watch.log"            # the curated record: one entry per finding, written by this script
+AGENT_LOG="$STATE/stall-watch-agent.log"  # raw launchd stdout/stderr, so a crash IN this script is visible too
 STATUS="$STATE/stall-watch-status.json"
 LABEL="com.notzero.stallwatch"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
@@ -41,6 +42,9 @@ SIGNALS="BLOCKED in |IDLE — |terminated while in "
 
 install_agent() {
   mkdir -p "$HOME/Library/LaunchAgents"
+  # launchd's stdout goes to a SEPARATE file from the curated log. Pointing both at $LOG double-wrote every
+  # finding — once from the block below, once from launchd capturing this script's own stdout — which showed up
+  # immediately as two known incidents appearing four times. A log you cannot count incidents in is worthless.
   # StartInterval, not StartCalendarInterval: this is a poll for something that could appear at any hour, and
   # a missed run costs nothing — the lines stay in daemon.log and the next run picks them up from the offset.
   cat > "$PLIST" <<PLIST_EOF
@@ -56,8 +60,8 @@ install_agent() {
   </array>
   <key>StartInterval</key><integer>3600</integer>
   <key>RunAtLoad</key><true/>
-  <key>StandardOutPath</key><string>$LOG</string>
-  <key>StandardErrorPath</key><string>$LOG</string>
+  <key>StandardOutPath</key><string>$AGENT_LOG</string>
+  <key>StandardErrorPath</key><string>$AGENT_LOG</string>
 </dict>
 </plist>
 PLIST_EOF
