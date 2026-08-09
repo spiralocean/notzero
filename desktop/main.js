@@ -205,8 +205,12 @@ function lockScreen() {
 function openAmbient(manual, forceDebug) {
   if (ambientWindow) return;
   ambientManual = !!manual; // manual (menu ⌘⇧A) preview: dismiss on input, but never auto-close or lock
-  // Size to the display's LOGICAL bounds (main-process screen.* is reliably DIP) and DO NOT call the fullscreen
-  // methods. On scaled/HiDPI displays setSimpleFullScreen/setFullScreen were ballooning the page's canvas to larger
+  // Size to the display's LOGICAL bounds (main-process screen.* is reliably DIP). NOTE: this block used to end
+  // "and DO NOT call the fullscreen methods", which the block further down then contradicted by calling them —
+  // the retina canvas bug it was guarding against had been fixed in the renderer meanwhile. Reconciled here
+  // because that contradiction is genuinely misleading to read: the sizing below is what makes the sphere
+  // centre correctly, and the fullscreen call is a separate, conditional decision. History kept for the reason:
+  // on scaled/HiDPI displays setSimpleFullScreen/setFullScreen were ballooning the page's canvas to larger
   // than the visible screen (content anchors top-left → the sphere fell off the bottom-right; two prior fixes that
   // tried to *detect* this from the renderer failed because Electron's window.screen mis-reports there). A plain
   // window sized to the logical bounds simply cannot exceed the screen, so the renderer's innerWidth is the true
@@ -227,7 +231,23 @@ function openAmbient(manual, forceDebug) {
   // The earlier off-screen sphere was NOT the window size: it was a retina canvas bug (a <canvas> with only inset:0
   // renders at its dpr× bitmap size — 2× too big). That's fixed in the renderer now, so the sphere centres in
   // fullscreen. Escape hatches below (any key / blur / idle poller) still guarantee you can never get stuck.
-  if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true);
+  //
+  // …EXCEPT when another window is already in NATIVE macOS full screen. setSimpleFullScreen changes app-level
+  // presentation options (hiding the menu bar / Dock), and doing that while a different window owns a real
+  // full-screen Space corrupts THAT window's themeframe. The damage is silent until AppKit later tears the
+  // full-screen state down, at which point it aborts the entire app:
+  //   Assertion failed: ([self.titlebarContainerView superview] == nil),
+  //   -[NSThemeFrame _reacquireToolbarViewFromFullScreenWindowAndShow:], NSThemeFrame.m:5507
+  // That crash was reported from a real install on 2026-08-09 (SIGABRT, main process, thread 0) after the user
+  // had put the dashboard window in full screen and left the machine to idle into the ambient view.
+  //
+  // Deferring the teardown does NOT help — measured, it still aborts. The exit call itself is the poison, so
+  // the only fix is not to enter that state. Skipping it costs exactly what the note above already describes:
+  // the menu bar stays visible as a thin strip. A visible menu bar beats aborting the app.
+  const nativeFsElsewhere = BrowserWindow.getAllWindows()
+    .some((w) => w !== ambientWindow && !w.isDestroyed() && w.isFullScreen());
+  if (nativeFsElsewhere) console.log("[notzero] ambient view: another window is in native full screen — skipping full-screen presentation (would abort on teardown)");
+  else if (process.platform === "darwin") ambientWindow.setSimpleFullScreen(true);
   else ambientWindow.setFullScreen(true);
   // A GLOBAL Escape while the view is open — so Esc dismisses even if the window lost keyboard focus (e.g. after an
   // OS screensaver/lock cycle). Tied to the window lifecycle (unregistered on close) so it can never leak.

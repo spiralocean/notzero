@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.81
 
+**Reliability**
+- **The app no longer crashes when the ambient view opens over a full-screen window.** If you put the
+  dashboard in full screen and then left the machine long enough for the ambient view to appear, dismissing it
+  could take the whole app down — quitting it outright, leaving your node and miner running with nothing
+  watching them. macOS objects to the ambient view claiming the screen while another window already owns a
+  full-screen space, and it doesn't complain until the moment everything is torn down. The ambient view now
+  notices and steps aside; the only difference you'll see is the menu bar staying visible in that one case.
+
 ## 0.1.80
 
 **Under the hood**
