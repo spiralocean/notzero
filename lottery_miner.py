@@ -217,6 +217,45 @@ def load_state() -> dict:
     }
 
 
+# ---- single-writer lock: only one miner per data directory -------------------------------------------------
+#
+# Two miners sharing a data dir both write state.json, and last-writer-wins turns the ticket history into a
+# mix of two machines' work. Seen for real: the app aborted on 2026-08-09, macOS reparented its miner to pid 1
+# instead of killing it, and the relaunched app started a second one. They ran side by side for a day, both
+# ticketing the same blocks with different nonces.
+#
+# The bridge has solved this since the "blinking tickets after an update" bug (node_bridge.py, bridge.lock) and
+# the miner was simply never given the same treatment. Same design, deliberately:
+#
+#   - the NEWEST instance wins. It writes its pid and carries on.
+#   - the older one notices on its next pass and exits ITSELF. Nothing hunts processes, nothing sends signals,
+#     so there is no way to misidentify a miner somebody set up themselves and kill it.
+#   - the lock is a file in THIS data directory. A separate miner with its own data dir never reads or writes
+#     it and is completely invisible to this. Anyone deliberately running two against one data dir gets the
+#     newer one, which is the only sane reading of that request anyway.
+#
+# A stale lock from a crash needs no cleanup: it holds a dead pid, the next miner overwrites it, and nobody
+# ever asks whether that pid is alive — which is what makes this safe without process inspection.
+LOCK_FILE = APP_SUPPORT / "miner.lock"
+
+
+def claim_miner_lock() -> None:
+    ensure_app_support()
+    try:
+        LOCK_FILE.write_text(str(os.getpid()))
+    except OSError:
+        pass  # unwritable data dir -> run without the guard rather than refuse to mine
+
+
+def superseded_by_newer_miner() -> bool:
+    """True once a newer miner has claimed this data dir. Unreadable/missing lock -> assume not."""
+    try:
+        held = LOCK_FILE.read_text().strip()
+    except OSError:
+        return False
+    return held not in ("", str(os.getpid()))
+
+
 def save_state(state: dict) -> None:
     ensure_app_support()
     tmp = STATE_FILE.with_suffix(".tmp")
@@ -1477,6 +1516,10 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
     state["payout_address"] = mask_address(settings["payout_address"]) if settings["payout_address"] else ""
     save_state(state)
 
+    # Only the daemon claims the lock. A one-shot `--once` run is a deliberate manual action and must never
+    # evict the running daemon, nor be evicted by it.
+    if daemon:
+        claim_miner_lock()
     install_stall_reporting(log_daemon if daemon else (lambda m: print(m, file=sys.stderr)))
     note_ticket()   # baseline: without this the monitor would call a just-started miner idle for 15 minutes
 
@@ -1495,6 +1538,9 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
 
     while True:
         try:
+            if daemon and superseded_by_newer_miner():
+                log_daemon("superseded by a newer miner for this data dir — exiting")
+                return
             if daemon:
                 settings = resolve_runtime_settings(None, None, None, None, None, None)
                 config = load_config()

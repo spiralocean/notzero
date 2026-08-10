@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.82
 
+**Reliability**
+- **Only one miner runs per installation now.** If the app ever stopped without taking its miner with it — a
+  crash, a force quit — the old miner could keep running, and starting the app again gave you a second one.
+  Both wrote to the same files, so your ticket history became a mix of the two. A miner now steps aside the
+  moment a newer one takes over, within about half a minute. It does this by leaving on its own rather than
+  by going looking for other miners to stop, so a mining setup of your own is never touched.
+- **The app no longer restarts your miner when the network is simply quiet.** Blocks don't arrive on a
+  schedule — a long gap followed by two blocks seconds apart is ordinary — and the app was reading that as
+  your miner having stopped. It now asks the miner directly whether it's still working instead of guessing
+  from the blocks going past.
+
 ## 0.1.81
 
 **Reliability**
