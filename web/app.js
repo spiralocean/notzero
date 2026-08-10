@@ -741,6 +741,13 @@ const QUOTES = [
   "Vanishingly small is still larger than zero.",
   "The chain rewards luck and work alike.",
   "Hope is the cheapest hash you'll ever compute.",
+  // Why this app takes ONE hash per block and not more. Hashing 600x faster is a real 600x and moves the
+  // expected wait from ~1e19 years to ~1e16 — both "never". Deliberately no numbers in this line: it is the
+  // only one of these that difficulty can never date.
+  "Going from no ticket to one ticket is the only infinite improvement available. Everything after that is arithmetic.",
+  // 5.42e23 hashes per block at difficulty 126.2T / 2e14 H/s = 2.7e9 seconds. Human-scale on purpose — it
+  // lands harder than the cosmic figures because you can picture 86 years.
+  "A single ASIC, mining alone, averages 86 years for one block. Solo mining isn't slow — it's a lifetime.",
   // more — funny
   "Statistically, you should've quit 9 quintillion hashes ago.",
   "It's not gambling if you call it proof-of-work.",
