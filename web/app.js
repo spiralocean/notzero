@@ -4231,20 +4231,19 @@ function agoStr(sec) {
   if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
   return `${Math.round(sec / 3600)}h ago`;
 }
-// A stale "last ticket" is only a REAL stall if the miner has actually missed a block. Two earlier versions
-// asked a clock instead — is the ticket older than the tip? — and both were wrong, because tip_time is the
-// block's HEADER timestamp, written by whoever mined it, and it runs ahead of when the block reaches you (seen
-// at +51s and +214s on a live install, while the miner was ticketing within 31s of arrival). Consensus allows
-// a header two hours ahead, so no margin fixes that. Heights can't be faked this way: the miner mines tip+1,
-// so an attempt STRICTLY BELOW the tip means a whole block went by without it moving. Strictly below, because
-// for up to one poll after a block lands the miner is legitimately still on the height that just became tip.
+// Ask the MINER whether its loop is running, rather than inferring it from the chain. Four earlier versions
+// inferred — ticket vs tip age, then the tip having "stood" a while, then a drift grace, then heights — and
+// all four flagged healthy miners, because block timing is not a clock the miner controls. The last one died
+// on 2026-08-09: a 35-minute quiet stretch, then two blocks 15 SECONDS apart, so a miner polling every 30s
+// was one block behind for six seconds and got called stalled. last_poll_at is stamped on every pass of the
+// miner's loop regardless of what the chain does, which is the actual thing being tested.
 // Mirrors desktop/miner-watchdog.js, which is canonical and carries the tests — a browser ES module can't
 // require() a CommonJS one and web/ is served raw, so this copy is deliberate. Change both.
-function minerStalled(n, ageSec) {
-  if (!(ageSec > 1200)) return false;                        // ticket is fresh — fine
-  const at = n && n.miner && n.miner.attempt, attemptH = (at && at.height) || 0, tipH = (n && n.blocks) || 0;
-  if (!attemptH || !tipH) return false;                      // heights unknown → never guess
-  return attemptH < tipH;                                    // a whole block went by without the miner moving to it
+function minerStalled(n) {
+  const lp = n && n.miner && n.miner.last_poll_at ? Date.parse(n.miner.last_poll_at) : NaN;
+  if (!isFinite(lp)) return false;                           // no heartbeat field → never guess
+  const ageSec = (Date.now() - lp) / 1000;
+  return ageSec > 30 * 4;                                    // 4 missed passes of the miner's 30s loop
 }
 function drawMinerStatus() {
   const n = model.node;
@@ -4260,7 +4259,7 @@ function drawMinerStatus() {
   if (!reachable) { if (nodeReconnecting()) { dot = AMBER; label = "reconnecting"; sub = "miner restarting"; } else if (nodeMode === "managed") { const sv = nodeSetupView(); dot = sv && sv.isError ? RED : AMBER; label = sv && sv.isError ? "setup error" : "getting ready"; sub = sv ? sv.head.toLowerCase() : "node starting"; } else { dot = RED; label = "not submitting"; sub = "node offline"; } }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
-  else if (!minerStalled(n, ageSec)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
+  else if (!minerStalled(n)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
   else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — the tip moved on but the miner didn't log a ticket
 
   const txt = `${label} · ${sub}`;
@@ -4519,10 +4518,9 @@ function render(ts) {
   // misleading there. Suppress it for managed mode so the footer shows the real setup/sync status instead.
   const symbolic = !!(node && node.miner && node.miner.mode === "symbolic") && nodeMode !== "managed";
   const managedSyncing = nodeMode === "managed" && reachable && !synced; // node present but not yet caught up
-  // synced + live but the miner genuinely stalled (tip moved on without a new ticket) → don't claim LIVE.
-  // A merely-slow block (tip itself is old) is NOT a stall — minerStalled() distinguishes them.
-  const lastTs = node && node.miner && node.miner.attempt ? Date.parse(node.miner.attempt.attempted_at || "") : NaN;
-  const stalled = Number.isFinite(lastTs) && minerStalled(node, (Date.now() - lastTs) / 1000);
+  // synced + live but the miner's poll loop has stopped → don't claim LIVE. A quiet chain is NOT a stall;
+  // minerStalled() reads the miner's own heartbeat, so it cannot confuse the two.
+  const stalled = minerStalled(node);
   let fmsg, fcol;
   const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
   if (!node && nodeReconnecting()) { fmsg = `◌ reconnecting to your node… · ${ver}`; fcol = "rgba(255,200,90,0.95)"; }

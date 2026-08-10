@@ -578,6 +578,11 @@ def build(url, user, pw, cookie=""):
                 "total_attempts": stats.get("total_attempts", 0),
                 "live_wins": stats.get("live_wins", 0),
                 "payout": st.get("payout_address", ""),
+                # The miner stamps this on EVERY pass of its poll loop, ticket or not. It is the only direct
+                # measure of "the loop is running" — everything else about the miner (its last ticket, the
+                # height it is on) moves with the chain, so a quiet chain looks identical to a dead loop from
+                # outside. The app's liveness watchdog reads this; see desktop/miner-watchdog.js.
+                "last_poll_at": st.get("last_poll_at"),
                 "attempt": {
                     "height": la.get("height"),
                     "hash": la.get("hash_hex"),

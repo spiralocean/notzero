@@ -72,7 +72,7 @@ const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
-const { isMinerStalled } = require("./miner-watchdog.js"); // is the miner actually stuck, or just between blocks
+const { isMinerStalled, POLL_INTERVAL_SEC } = require("./miner-watchdog.js"); // is the miner's poll loop actually running
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
 // on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
@@ -741,18 +741,16 @@ function startNotifier() {
       }
     }
 
-    // --- miner liveness watchdog: restart a HUNG miner (same staleness test the dashboard's pill uses) ---
-    // Only when synced and we have a real ticket timestamp; a missing timestamp is "first moments", not a stall.
-    const at = m && m.attempt ? Date.parse(m.attempt.attempted_at || "") : NaN;
-    if (synced && isFinite(at)) {
-      const ageSec = (Date.now() - at) / 1000;
-      // Heights, not timestamps — see miner-watchdog.js. Both earlier versions compared our ticket against
-      // node.tip_time, which is the block author's own header clock and runs minutes ahead of arrival.
-      const attemptHeight = (m.attempt && m.attempt.height) || 0, tipHeight = node.blocks || 0;
-      const stalled = isMinerStalled({ ticketAgeSec: ageSec, attemptHeight, tipHeight });
-      if (stalled && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
+    // --- miner liveness watchdog: restart a HUNG miner ---
+    // Reads the miner's OWN poll heartbeat, not the chain. Four earlier versions inferred a dead loop from
+    // block timing/heights and all four killed healthy miners — see miner-watchdog.js for what each one got
+    // wrong. Deliberately NOT gated on `synced`: a wedged loop is wedged whatever the node is doing.
+    const pollAt = m ? Date.parse(m.last_poll_at || "") : NaN;
+    if (isFinite(pollAt)) {
+      const lastPollAgeSec = (Date.now() - pollAt) / 1000;
+      if (isMinerStalled({ lastPollAgeSec }) && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
         lastMinerKick = Date.now();
-        console.warn(`[notzero] miner stalled (last ticket ${Math.round(ageSec / 60)}m ago, on #${attemptHeight} while the tip is #${tipHeight}) — restarting the miner engine`);
+        console.warn(`[notzero] miner stalled (its poll loop last ran ${Math.round(lastPollAgeSec)}s ago, expected every ${POLL_INTERVAL_SEC}s) — restarting the miner engine`);
         try { if (procs.miner) procs.miner.kill(); } catch (_) {} // exit handler respawns it (~2s) with current config; no-op if it already crashed/respawned
       }
     }

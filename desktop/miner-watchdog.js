@@ -1,46 +1,38 @@
 "use strict";
 // Is the miner actually stuck? The predicate behind restarting it — and behind the dashboard's status pill.
 //
-// This has been wrong twice, in two different ways, and both mistakes came from asking a CLOCK.
+// This has been wrong FOUR times, and every version failed the same way: it tried to infer a dead loop from
+// the chain, and the chain is not a clock. What was tried, and what killed each one:
 //
-// First it asked: is the last ticket much older than the tip?
+//   1. ticket older than the tip + 10 min       fired the instant any block arrived after a quiet stretch.
+//                                               18 restarts in two days, median 5s after a block landed.
+//   2. + require the tip to have stood 5 min    fired on the block author's HEADER timestamp, which is
+//                                               written by whoever mined it and ran +51s and +214s ahead of
+//                                               when the block actually reached us.
+//   3. + a 180s grace for that drift            a grace cannot work: consensus allows a header two hours
+//                                               ahead. Never shipped; the next incident drifted 214s.
+//   4. miner's height strictly below the tip    fired on 2026-08-09 at 23:52. The chain went quiet for 35
+//                                               minutes, then produced two blocks 15 SECONDS apart. The
+//                                               miner polls every 30s, so it was one block behind for six
+//                                               seconds through no fault of its own, and was killed for it.
 //
-//     ageSec > 1200 && ageSec > tipAge + 600
+// Every one of those was a healthy miner. The common error is inferring liveness from data the miner does not
+// control: block timing, block authorship, block arrival order.
 //
-// tipAge is the age of the NEWEST block, so it resets to ~0 whenever one arrives. After any long gap between
-// blocks the last ticket is necessarily old, so the instant the next block landed both halves were true. The
-// miner polls every 30s — it had not failed to mine that block, it had not been asked yet. Measured on a live
-// install: 18 restarts in two days, all within 60s of a block arriving, median 5s. Not one was a stall.
-//
-// Then it asked the same question more carefully — tip must have stood 5 minutes, ticket must predate it —
-// and that removed about 93% of them. The rest came from the same root cause the first fix had already
-// noticed and failed to take seriously: tip_time is the block's HEADER timestamp, set by whoever mined it,
-// and it routinely runs AHEAD of when the block reaches you. Two survivors, both with the miner working
-// perfectly:
-//
-//   2026-08-04 18:58Z  block 961057 arrived 18:38:07Z, header said 18:38:58Z  (+51s)   ticket 18:38:38Z
-//   2026-08-05 23:57Z  block 961222 arrived 23:37:10Z, header said 23:40:44Z  (+214s)  ticket 23:37:22Z
-//
-// In both the miner ticketed within 31s of the block ARRIVING, and in both the header clock made that ticket
-// look older than the tip. A grace band was the obvious next patch and is a trap: consensus permits a header
-// up to two hours ahead, so no margin is both safe and useful. A 180s grace chosen from the first sample
-// would have fired on the second anyway.
-//
-// So stop asking clocks. The miner mines tip+1. If its last attempt is STRICTLY BELOW the tip it has missed a
-// whole block, which no timestamp can fake — heights come from our own node's chain, not from a header field
-// a stranger filled in. Strictly below, not at-or-below, because for up to one poll after a block lands the
-// miner is legitimately still on the height that just became the tip. One block of slack costs ~10 minutes of
-// detection latency on a real hang and removes the entire class of false alarm.
-//
-// The ticket-age gate stays: it is our OWN timestamp, and it keeps a brand-new install from being restarted
-// before it has mined anything.
+// So ask the miner. It stamps state.json's last_poll_at on EVERY pass of its loop — ticket or no ticket, new
+// block or not — and the bridge now copies that into node.json. A loop that is running updates it every 30s;
+// a loop that is blocked, wedged, or dead does not. That is a direct measurement of the thing being tested,
+// with no chain inference and no clock belonging to anyone else.
 //
 // Split out of main.js so it can be tested: main.js needs a live Electron app, this needs nothing.
-function isMinerStalled({ ticketAgeSec, attemptHeight, tipHeight, minTicketAgeSec = 1200 } = {}) {
-  if (!Number.isFinite(ticketAgeSec) || ticketAgeSec <= minTicketAgeSec) return false; // no ticket yet, or a fresh one
-  if (!Number.isFinite(attemptHeight) || !Number.isFinite(tipHeight)) return false;    // heights unknown -> never guess
-  if (attemptHeight <= 0 || tipHeight <= 0) return false;
-  return attemptHeight < tipHeight;  // a whole block went by without the miner moving to it
+const POLL_INTERVAL_SEC = 30;          // lottery_miner.py POLL_INTERVAL_SEC — the loop's own cadence
+const STALE_POLLS = 4;                 // 4 missed passes (~2 min) before calling it dead: survives a slow RPC
+                                       // or a scheduler hiccup, still catches a real wedge inside two minutes
+
+function isMinerStalled({ lastPollAgeSec, minStaleSec = POLL_INTERVAL_SEC * STALE_POLLS } = {}) {
+  if (!Number.isFinite(lastPollAgeSec)) return false;   // no last_poll_at (older miner, or bridge not updated) -> never guess
+  if (lastPollAgeSec < 0) return false;                 // clock skew between writer and reader -> never guess
+  return lastPollAgeSec > minStaleSec;                  // the loop has missed several passes: it is not running
 }
 
-module.exports = { isMinerStalled };
+module.exports = { isMinerStalled, POLL_INTERVAL_SEC, STALE_POLLS };

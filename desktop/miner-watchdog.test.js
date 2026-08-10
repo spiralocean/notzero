@@ -1,86 +1,85 @@
 // Tests for miner-watchdog.js — run: node --test desktop/miner-watchdog.test.js  (no Electron, no clock)
 //
-// The property that matters, and the one two earlier versions got wrong: being between blocks is not a stall,
-// and neither is a block whose header timestamp lies about when it arrived. The cases below are REAL — every
-// restart this predicate caused on a live install, with heights read from the node's own UpdateTip log.
+// This predicate has shipped wrong four times, so the cases below are the actual incidents, not invented ones.
+// Every one was a HEALTHY miner that an earlier version restarted. They are kept as a standing argument that
+// chain-derived liveness does not work: each is expressed in the terms its version used, and asserted to be
+// invisible to the current one — because the current one does not look at the chain at all.
 
 const test = require("node:test");
 const assert = require("node:assert");
-const { isMinerStalled } = require("./miner-watchdog.js");
+const { isMinerStalled, POLL_INTERVAL_SEC, STALE_POLLS } = require("./miner-watchdog.js");
 
-// The 18 restarts caused by the ORIGINAL predicate, over two days. Each fired within a minute of a block
-// arriving; in every case the miner was already on tip+1, having just ticketed the block that landed.
-const SLOW_BLOCK_ALARMS = [35, 21, 26, 50, 36, 22, 22, 25, 22, 20, 32, 28, 21, 50, 22, 52, 23, 28]
-  .map((mins) => ({ ticketAgeSec: Math.max(1201, mins * 60), attemptHeight: 961_058, tipHeight: 961_057 }));
+const FRESH = { lastPollAgeSec: 3 };          // a loop that just ran
+const DEAD = { lastPollAgeSec: 600 };         // ten minutes without a pass
 
-// The two that survived the first fix. Both are header-clock lies: the block arrived, the miner ticketed it
-// within half a minute, and the header claimed a time AFTER our ticket.
-//   2026-08-04 18:58Z  block 961057 arrived 18:38:07Z, header 18:38:58Z (+51s),  miner ticketed 961058
-//   2026-08-05 23:57Z  block 961222 arrived 23:37:10Z, header 23:40:44Z (+214s), miner ticketed 961223
-const HEADER_CLOCK_ALARMS = [
-  { ticketAgeSec: 1204, attemptHeight: 961_058, tipHeight: 961_057 },
-  { ticketAgeSec: 1201, attemptHeight: 961_223, tipHeight: 961_222 },
-];
-
-test("none of the 18 slow-block restarts are stalls — the miner was on tip+1 every time", () => {
-  for (const c of SLOW_BLOCK_ALARMS) {
-    assert.equal(isMinerStalled(c), false, `ticket ${c.ticketAgeSec}s old, mining #${c.attemptHeight} over tip #${c.tipHeight}`);
+test("a running loop is never a stall, whatever the chain is doing", () => {
+  for (const age of [0, 1, 15, 30, 60, 119]) {
+    assert.equal(isMinerStalled({ lastPollAgeSec: age }), false, `${age}s since the last pass`);
   }
 });
 
-test("neither header-clock restart is a stall", () => {
-  for (const c of HEADER_CLOCK_ALARMS) assert.equal(isMinerStalled(c), false);
+test("a loop that has missed several passes IS a stall", () => {
+  assert.equal(isMinerStalled({ lastPollAgeSec: 121 }), true, "just past 4 missed passes");
+  assert.equal(isMinerStalled(DEAD), true);
+  assert.equal(isMinerStalled({ lastPollAgeSec: 3600 }), true);
 });
 
-test("both earlier predicates fired on those — so the cases discriminate, they don't just pass", () => {
-  // v1: ticket much older than the tip. v2: + tip must have stood 5 min. Fed the tip ages actually observed.
-  const v1 = (t, p) => t > 1200 && t > p + 600;
-  const v2 = (t, p) => t > 1200 && p > 300 && t > p;
-  assert.equal(v1(1204, 5), true, "v1 fired seconds after a block landed");
-  assert.equal(v2(1204, 1184), true, "v2 fired on the +51s header drift (2026-08-04)");
-  assert.equal(v2(1201, 998), true, "v2 fired on the +214s header drift (2026-08-05)");
-  // and the 180s grace that was nearly shipped would not have saved the second one either
-  assert.equal(1201 > 998 + 180, true, "a 180s grace still fires on a 214s drift");
+test("the threshold is 4 missed passes, and the boundary is exact", () => {
+  const edge = POLL_INTERVAL_SEC * STALE_POLLS;
+  assert.equal(edge, 120, "30s loop x 4 passes");
+  assert.equal(isMinerStalled({ lastPollAgeSec: edge }), false, "exactly at it is still alive");
+  assert.equal(isMinerStalled({ lastPollAgeSec: edge + 0.1 }), true, "past it is dead");
 });
 
-test("a genuinely hung miner IS caught — the tip moves past it", () => {
-  assert.equal(isMinerStalled({ ticketAgeSec: 1800, attemptHeight: 961_057, tipHeight: 961_058 }), true, "one block behind");
-  assert.equal(isMinerStalled({ ticketAgeSec: 3600, attemptHeight: 961_050, tipHeight: 961_058 }), true, "eight blocks behind");
+// ---- the four real false positives. All had a LIVE poll loop; none is visible to this predicate. ----
+
+test("2026-08-06/07: 18 restarts fired seconds after a block landed — all healthy", () => {
+  // v1 compared the ticket's age to the tip's age, so the instant a block arrived after a quiet stretch both
+  // halves were true. Median 5s after arrival, tightest 2s. The loop was running the whole time.
+  assert.equal(isMinerStalled(FRESH), false);
 });
 
-test("one poll of slack: still on the height that just became the tip is not yet a stall", () => {
-  // A block lands and becomes the tip while the miner is mid-attempt on it. Up to 30s later it moves to tip+1.
-  assert.equal(isMinerStalled({ ticketAgeSec: 3600, attemptHeight: 961_058, tipHeight: 961_058 }), false);
+test("2026-08-04: header timestamps +51s and +214s ahead of arrival — healthy", () => {
+  // v2/v3 measured against node.tip_time, which the block's own miner writes. Block 961057 arrived 18:38:07Z
+  // and claimed 18:38:58Z; 961222 arrived 23:37:10Z and claimed 23:40:44Z. Our miner ticketed both within 31s
+  // of ARRIVAL, and was restarted for it.
+  assert.equal(isMinerStalled(FRESH), false);
 });
 
-test("a slow block is not a stall, however long it runs", () => {
-  for (const mins of [21, 30, 45, 60, 90, 240]) {
-    assert.equal(isMinerStalled({ ticketAgeSec: mins * 60, attemptHeight: 961_058, tipHeight: 961_057 }), false, `${mins}m slow block`);
+test("2026-08-09 23:52: two blocks 15s apart after a 35-minute gap — healthy", () => {
+  // v4 used heights. The chain produced 961793 at 23:52:06Z and 961794 at 23:52:21Z. A miner polling every 30s
+  // is legitimately one block behind for a few seconds there; the watchdog killed it six seconds in. Note the
+  // poll heartbeat at that moment was FRESH — the loop had run seconds earlier, which is exactly the signal
+  // every previous version lacked.
+  assert.equal(isMinerStalled({ lastPollAgeSec: 6 }), false, "heartbeat fresh, chain merely bursty");
+});
+
+test("a long quiet chain is not a stall, however long it stays quiet", () => {
+  // The 35-minute gap above, and the 25-minute one on 2026-08-08. Blocks are ~10 min apart on average and
+  // gaps of 2-4x that are ordinary; none of it touches whether the loop is running.
+  for (const quietMin of [20, 35, 60, 240]) {
+    assert.equal(isMinerStalled({ lastPollAgeSec: 12 }), false, `chain quiet ${quietMin}m, loop alive`);
   }
 });
 
-test("a fresh ticket is never a stall, even far behind", () => {
-  assert.equal(isMinerStalled({ ticketAgeSec: 0, attemptHeight: 961_000, tipHeight: 961_058 }), false);
-  assert.equal(isMinerStalled({ ticketAgeSec: 1200, attemptHeight: 961_000, tipHeight: 961_058 }), false, "exactly at the threshold");
-  assert.equal(isMinerStalled({ ticketAgeSec: 1201, attemptHeight: 961_000, tipHeight: 961_058 }), true, "one second past it");
-});
+// ---- refusing to guess ----
 
-test("unknown or missing heights never raise an alarm", () => {
-  for (const bad of [undefined, null, NaN, 0, -1, "961057"]) {
-    assert.equal(isMinerStalled({ ticketAgeSec: 3600, attemptHeight: bad, tipHeight: 961_058 }), false, `attemptHeight=${bad}`);
-    assert.equal(isMinerStalled({ ticketAgeSec: 3600, attemptHeight: 961_000, tipHeight: bad }), false, `tipHeight=${bad}`);
+test("a missing heartbeat never raises an alarm", () => {
+  // An older miner binary, or a bridge that has not been updated, simply has no last_poll_at. Silence there
+  // must mean "unknown", never "dead" — the cost of a wrong restart is a lost ticket.
+  for (const bad of [undefined, null, NaN, Infinity, "not a number"]) {
+    assert.equal(isMinerStalled({ lastPollAgeSec: bad }), false, `lastPollAgeSec=${bad}`);
   }
-  assert.equal(isMinerStalled(), false, "no arguments at all");
+  assert.equal(isMinerStalled({}), false, "empty args");
+  assert.equal(isMinerStalled(), false, "no args at all");
 });
 
-test("a missing ticket timestamp never raises an alarm", () => {
-  for (const bad of [NaN, undefined, null, Infinity]) {
-    assert.equal(isMinerStalled({ ticketAgeSec: bad, attemptHeight: 961_000, tipHeight: 961_058 }), false);
-  }
+test("a negative age (clock skew between writer and reader) never raises an alarm", () => {
+  assert.equal(isMinerStalled({ lastPollAgeSec: -5 }), false);
+  assert.equal(isMinerStalled({ lastPollAgeSec: -100000 }), false);
 });
 
-test("the ticket-age threshold is overridable without changing the shape of the answer", () => {
-  const args = { attemptHeight: 961_000, tipHeight: 961_058 };
-  assert.equal(isMinerStalled({ ...args, ticketAgeSec: 600 }), false, "default 1200s gate holds it");
-  assert.equal(isMinerStalled({ ...args, ticketAgeSec: 600, minTicketAgeSec: 300 }), true, "a lower gate flags it");
+test("the threshold is overridable without changing the shape of the answer", () => {
+  assert.equal(isMinerStalled({ lastPollAgeSec: 90 }), false, "default 120s tolerates it");
+  assert.equal(isMinerStalled({ lastPollAgeSec: 90, minStaleSec: 60 }), true, "a tighter bound flags it");
 });
