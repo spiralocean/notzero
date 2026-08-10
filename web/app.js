@@ -748,6 +748,11 @@ const QUOTES = [
   // 5.42e23 hashes per block at difficulty 126.2T / 2e14 H/s = 2.7e9 seconds. Human-scale on purpose — it
   // lands harder than the cosmic figures because you can picture 86 years.
   "A single ASIC, mining alone, averages 86 years for one block. Solo mining isn't slow — it's a lifetime.",
+  // The scale of "never", in the only unit big enough to hold it. 5.42e23 hashes/block at difficulty 126.2T,
+  // one ticket per block = 1.0e19 years, against a 1.38e10-year-old universe: 747 million of them. Written as
+  // "hundreds of millions" ON PURPOSE — the exact figure tracks difficulty, but the order of magnitude needs a
+  // ~10x rise to move, which is roughly a decade at the recent rate.
+  "Hundreds of millions of universes would have to run their course before your ticket is due. It could still be this one.",
   // more — funny
   "Statistically, you should've quit 9 quintillion hashes ago.",
   "It's not gambling if you call it proof-of-work.",
