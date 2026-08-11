@@ -212,6 +212,19 @@ export async function onRequestGet({ request, env }) {
       polling: sum("changelog") + sum("proofs"),
       artifacts: sum("artifacts"),
       feed: { mac: sum("mac"), win: sum("win"), linux: sum("linux") },
+      // Per-platform DEVICE counts, from installer fetches — the same cadence-free source as `fleet` above, so
+      // these sum to it. The platform chart used to divide update-feed requests by FEED_PER_DAY, which reads
+      // high for three compounding reasons: the divisor is a floor (12 scheduled checks per day PLUS one per
+      // launch), a release restarts every machine that takes it and each restart adds another check, and any
+      // non-app request to a 2 KB file at a stable URL — a crawler, an uptime probe, someone verifying a
+      // release with curl — lands in the same bucket. On a fleet this size a handful of stray requests is not
+      // noise, it is the whole reading, and because a verification sweep hits all three files equally it also
+      // corrupts the one thing that chart claimed was exact: the ratio. Installer fetches have none of that:
+      // one per machine per release, and nothing incidental downloads 100 MB. `feed` is still reported above,
+      // as request volume, which is what it honestly is.
+      platform: machines.reduce((a, v) => ({
+        mac: a.mac + (v.r_mac || 0), win: a.win + (v.r_win || 0), linux: a.linux + (v.r_linux || 0),
+      }), { mac: 0, win: 0, linux: 0 }),
       siteVisits: sum("siteVisits"),
       demoVisits: sum("demoVisits"),
       // the quiet-hour floor is the honest headcount: release hours double-count restarts
