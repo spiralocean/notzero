@@ -70,6 +70,20 @@ const ASSUMEUTXO = {
 
 const PRUNE_MIB = 10000; // ~10 GB of recent blocks; min allowed is 550. Chainstate (~snapshot) is on top.
 const MANAGED_RPC_PORT = 8332; // the managed node's RPC port (overridable; kept distinct so it can't clash)
+// Memory limits for a node that's ALREADY caught up (see node-lifecycle's launch()). Core sizes both of these
+// for initial sync — dbcache auto-scales with system RAM and takes ~1 GB on a 16 GB machine — but a synced node
+// connects one block per ~10 minutes and touches almost none of it, so that gigabyte is just resident memory in
+// an app designed to sit in the background for months. 150 MiB still absorbs a block's worth of churn many times
+// over; the cost is more frequent flushes and a few more LevelDB reads per block, both unnoticeable at one
+// block/10min.
+const SYNCED_DBCACHE_MIB = 150;
+// These two have to move together. Core lends UNUSED mempool space to the UTXO cache ("plus up to N MiB of
+// unused mempool space" in its startup log), so dbcache alone doesn't bound memory — at the 300 MB default
+// maxmempool, a 150 MiB dbcache can still grow to ~430 MiB. Capping the mempool costs us nothing that matters:
+// a block template needs one block's worth of transactions, 100 MB still holds ~25 blocks of them, and Core
+// evicts lowest-feerate first — so the transactions a template actually wants are the last to be dropped. The
+// only visible effect is a shallower mempool in the dashboard's stats.
+const SYNCED_MAXMEMPOOL_MIB = 100;
 
 // Resolve the artifact for a platform/arch (defaults to the host).
 function coreArtifact(platform = process.platform, arch = process.arch) {
@@ -177,9 +191,11 @@ function buildBitcoinConf({ prune = PRUNE_MIB, rpcport = MANAGED_RPC_PORT } = {}
   // validation (Core re-verifies the chain behind the snapshot across all cores). Cap script-verification
   // threads so it stays cool and quiet — slightly slower, but it's background work.
   if (process.platform === "darwin" && process.arch === "x64") lines.push("par=2");
-  // Low-RAM / shared boxes: the default 450 MiB dbcache can balloon past 800 MiB during assumeutxo
-  // background validation (two chainstates share the cache), starving the box → RPC stalls → the dashboard
-  // flaps "not connected". Cap it on constrained machines (≥8 GB keeps Core's default for fast sync).
+  // Low-RAM / shared boxes: Core auto-sizes dbcache from system RAM, and during assumeutxo background
+  // validation two chainstates share it — enough to starve a small box → RPC stalls → the dashboard flaps
+  // "not connected". Cap it on constrained machines (≥8 GB keeps Core's own sizing for a fast first sync).
+  // This is the SYNC-time cap and applies for the life of the conf; once the node is caught up, launch()
+  // overrides it on the command line with the much smaller SYNCED_DBCACHE_MIB.
   const totalGB = os.totalmem() / 1e9;
   if (totalGB < 8) lines.push(`dbcache=${totalGB < 4 ? 150 : 300}`);
   lines.push(""); // cookie auth (auto-generated in datadir) — no rpcuser/rpcpassword on disk
@@ -199,11 +215,15 @@ function managedPaths(dataRoot, platform = process.platform) {
     cli: path.join(binDir, `bitcoin-cli${exe}`),
     cookie: path.join(datadir, ".cookie"),
     conf: path.join(datadir, "bitcoin.conf"),
+    // Written once the chain is fully caught up (including assumeutxo background validation). Its only job is
+    // to tell the NEXT launch it can start with a small UTXO cache — deleting it just costs one run at Core's
+    // default sizing, so it's safe for a user to remove along with the rest of the node dir.
+    syncedFlag: path.join(node, "chain-synced"),
   };
 }
 
 module.exports = {
-  CORE_VERSION, CORE_ARTIFACTS, ASSUMEUTXO, PRUNE_MIB, MANAGED_RPC_PORT,
+  CORE_VERSION, CORE_ARTIFACTS, ASSUMEUTXO, PRUNE_MIB, MANAGED_RPC_PORT, SYNCED_DBCACHE_MIB, SYNCED_MAXMEMPOOL_MIB,
   coreArtifact, sha256File, verifyFile, downloadFile,
   downloadAndVerifyCore, extractCore, genRpcAuth, buildBitcoinConf, managedPaths,
 };
