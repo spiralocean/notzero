@@ -37,6 +37,8 @@
       "install-gate.js",
       "node-recovery.js",
       "miner-watchdog.js",
+      "window-bounds.js",
+      "ambient-wake.js",
       "package.json",
       "assets/icon.png",
       "wizard.html",
