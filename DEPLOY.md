@@ -70,6 +70,22 @@ curl -s -o /tmp/a.js https://demo.getnotzero.com/app.js && node --check /tmp/a.j
 ```
 Cloudflare serves the HTML fresh (`cf-cache-status: DYNAMIC`), so no purge needed for the sites.
 
+**Checking a release lands in the stats.** Confirming a release usually means curling all three updater feeds:
+
+```
+for f in latest-mac.yml latest.yml latest-linux.yml; do curl -s "https://dl.getnotzero.com/$f" | grep ^version:; done
+```
+
+Those are real requests to `dl.getnotzero.com` and the stats dashboard counts them. On a fleet this size a
+sweep like that is not noise — it hits all three platform files equally, so it reads as traffic from platforms
+that may have no installs at all. This used to matter a lot, because "Which platforms" divided feed requests
+by a polling cadence and printed the result as a machine count. It now counts installer fetches instead
+(`stats/functions/api/stats.js` → `totals.platform`), which nothing incidental triggers — a crawler does not
+download 100 MB. So verify freely: the **machine** figures are immune. The only thing a verification sweep
+still moves is the request-volume chart, where it belongs, since they genuinely are requests. Filtering them
+out by URL is not possible — the analytics dataset groups by path with the query string stripped, so a
+`?verify=1` marker would land in the same bucket as everything else.
+
 ## Related (not websites, but same account)
 - **Downloads + snapshots** → Cloudflare **R2** bucket `r2:notzero-dl` (→ `dl.getnotzero.com`), uploaded
   with `rclone`. The `.dmg` + `latest-mac.yml` have a cache rule so a release serves fresh, no purge.

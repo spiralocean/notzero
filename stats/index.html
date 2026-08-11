@@ -151,7 +151,7 @@
 
   <section class="panel">
     <h2>Which platforms</h2>
-    <p class="sub">Update-feed checks — one file per platform, so the split is exact even when the headcount isn't.</p>
+    <p class="sub">Machines, counted from installer fetches — the same source as the fleet count above, so the two agree. Not update-feed requests: those are inflated by per-launch checks, update restarts, and anything else that touches a small file at a fixed URL.</p>
     <div class="plot" id="p-platform"></div>
     <div class="legend">
       <span><i class="swatch" style="background:var(--mac)"></i>macOS — <code>latest-mac.yml</code></span>
@@ -333,25 +333,38 @@ function drawMachines(machines, fleet) {
   host.appendChild(svg);
 }
 
-function drawPlatform(feed) {
+// Machines per platform, from installer fetches — NOT from update-feed requests. The old version divided feed
+// checks by 12 and printed the result as "~N machines", which put a guess next to the real fleet count two
+// sections up and disagreed with it. It always read high (the divisor ignores the per-launch check, releases
+// restart every machine that updates, and crawlers/uptime probes/a curl during release verification all hit
+// the same URL), and a verification sweep touching all three files equally skewed the split as well as the
+// total. These numbers come from the same source as the fleet count, so the two now agree by construction.
+function drawPlatform(platform) {
   const host = clear("p-platform");
   const rows = [
-    { k: "macOS", v: feed.mac, c: "var(--mac)" },
-    { k: "Linux", v: feed.linux, c: "var(--linux)" },
-    { k: "Windows", v: feed.win, c: "var(--win)" },
+    { k: "macOS", v: platform.mac, c: "var(--mac)" },
+    { k: "Linux", v: platform.linux, c: "var(--linux)" },
+    { k: "Windows", v: platform.win, c: "var(--win)" },
   ].sort((a, b) => b.v - a.v);
+  const total = rows.reduce((n, r) => n + r.v, 0);
+  if (!total) { // no installer fetches recorded yet — say so rather than draw three empty bars
+    const p = document.createElement("p");
+    p.className = "sub";
+    p.textContent = "No installer fetches recorded yet — this fills in from the next release.";
+    host.appendChild(p);
+    return;
+  }
   const W = 980, rowH = 46, T = 6, L = 96, R = 150;
   const Hh = T + rows.length * rowH + 8;
   const max = Math.max(...rows.map((r) => r.v), 1);
-  const total = rows.reduce((n, r) => n + r.v, 0) || 1;
-  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Update-feed checks by platform" });
+  const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Machines by platform" });
   rows.forEach((r, i) => {
     const y = T + i * rowH + 8, bh = 22, w = ((W - L - R) * r.v) / max;
     const lb = el("text", { x: L - 12, y: y + bh / 2 + 4, class: "axis", "text-anchor": "end", fill: "var(--ink)", "font-size": "12.5" });
     lb.textContent = r.k; svg.appendChild(lb);
     svg.appendChild(el("rect", { x: L, y, width: Math.max(w, 2), height: bh, rx: 4, fill: r.c }));
     const vl = el("text", { x: L + Math.max(w, 2) + 12, y: y + bh / 2 + 4, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
-    vl.textContent = `${r.v} checks · ~${(r.v / 12).toFixed(1)} machines · ${Math.round((r.v / total) * 100)}%`;
+    vl.textContent = `${r.v} ${r.v === 1 ? "machine" : "machines"} · ${Math.round((r.v / total) * 100)}%`;
     svg.appendChild(vl);
   });
   host.appendChild(svg);
@@ -441,7 +454,7 @@ function render(d) {
   drawBars("p-artifacts", rows, (r) => r.artifacts, { fill: "var(--accent-mark)", unit: "installer", label: true, marks: true, alt: "Installer downloads by hour" });
   drawBars("p-visitors", rows, (r) => r.siteVisits, { fill: "var(--mac)", unit: "visit", alt: "Visits to getnotzero.com by hour" });
   drawBars("p-demo", rows, (r) => r.demoVisits, { fill: "var(--linux)", unit: "visit", cap: 12, alt: "Visits to demo.getnotzero.com by hour" });
-  drawPlatform(t.feed);
+  drawPlatform(t.platform || { mac: 0, win: 0, linux: 0 });
   drawMix(t, rows);
   table(rows);
 
