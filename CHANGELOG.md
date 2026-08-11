@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.84
+## Unreleased — next: 0.1.85
+
+## 0.1.84
 
 **Ambient view — important if you use "lock when I come back"**
 - **Moving your mouse onto a Mac you're using as a second screen no longer locks it.** If you drive one Mac
