@@ -63,11 +63,11 @@ def _cpu_seconds(t):
 
 
 def _sample_processes():
-    """[(rss_bytes, cpu_seconds, text_to_match)] for every process we might care about. [] on any failure."""
+    """[(pid, rss_bytes, cpu_seconds, text_to_match)] for every process we might care about. [] on any failure."""
     try:
         if sys.platform == "win32":
             script = ("Get-Process | Where-Object { $_.ProcessName -in 'bitcoind','miner' } | "
-                      "Select-Object ProcessName,WorkingSet64,CPU | ConvertTo-Json -Compress")
+                      "Select-Object Id,ProcessName,WorkingSet64,CPU | ConvertTo-Json -Compress")
             out = subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
                                  capture_output=True, text=True, timeout=SAMPLE_TIMEOUT,
                                  creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
@@ -76,21 +76,75 @@ def _sample_processes():
             data = json.loads(out)
             if isinstance(data, dict):
                 data = [data]
-            return [(int(d.get("WorkingSet64") or 0), float(d.get("CPU") or 0.0), (d.get("ProcessName") or "").lower()) for d in data]
-        out = subprocess.run(["ps", "-axo", "rss=,time=,args="], capture_output=True, text=True, timeout=8).stdout
+            return [(int(d.get("Id") or 0), int(d.get("WorkingSet64") or 0), float(d.get("CPU") or 0.0),
+                     (d.get("ProcessName") or "").lower()) for d in data]
+        out = subprocess.run(["ps", "-axo", "pid=,rss=,time=,args="], capture_output=True, text=True, timeout=8).stdout
         rows = []
         for line in out.splitlines():
-            parts = line.split(None, 2)
-            if len(parts) < 3:
+            parts = line.split(None, 3)
+            if len(parts) < 4:
                 continue
-            rss_kb, t, args = parts
+            pid, rss_kb, t, args = parts
             try:
-                rows.append((int(rss_kb) * 1024, _cpu_seconds(t), args.lower()))
+                rows.append((int(pid), int(rss_kb) * 1024, _cpu_seconds(t), args.lower()))
             except ValueError:
                 continue
         return rows
     except Exception:  # noqa: BLE001 — ps/powershell missing, timed out, or unparseable
         return []
+
+
+def _footprint_bytes(text):
+    """macOS `footprint` output -> bytes from its `phys_footprint:` line. None if it isn't in there."""
+    for line in text.splitlines():
+        line = line.strip()
+        if not line.startswith("phys_footprint:"):
+            continue
+        parts = line.split(":", 1)[1].split()
+        if len(parts) < 2:
+            return None
+        try:
+            value = float(parts[0].replace(",", ""))
+        except ValueError:
+            return None
+        scale = {"B": 1, "KB": 1024, "MB": 1024 ** 2, "GB": 1024 ** 3, "TB": 1024 ** 4}.get(parts[1].upper())
+        return int(value * scale) if scale else None
+    return None
+
+
+def _real_memory_bytes(pid, rss):
+    """What this process actually costs in RAM, falling back to `rss` wherever we can't do better.
+
+    RSS is the wrong number for bitcoind and wrong by a lot: it counts memory-mapped FILES, and Core mmaps its
+    LevelDB block index and chainstate. Measured on a synced node, RSS said 2.6 GB where the process was really
+    holding ~450 MB — so the dashboard was telling people their node used six times what it used, and a line
+    apologising for the figure ("will drop when it finishes verifying") was papering over a measurement bug.
+
+    The honest figure is the one the user can check against their own OS:
+      - macOS: phys_footprint, exactly what Activity Monitor's Memory column shows. Costs a ~0.2s subprocess,
+        which is affordable only because sampling is throttled to RES_MIN_INTERVAL and we ask about at most
+        two processes.
+      - Linux: RssAnon from /proc — resident ANONYMOUS memory, i.e. what the process allocated, excluding the
+        mapped files. One file read, no subprocess.
+      - Windows: left on WorkingSet64. Whether Core's LevelDB mmaps files there the way it does on POSIX is
+        something this codebase has no way to test (see tests/test_process_sampler.py on what shipping an
+        untested Windows branch cost last time), and a guess dressed up as a fix is worse than a known
+        approximation. It stays honest-ish and clearly documented rather than speculatively "corrected".
+    """
+    try:
+        if sys.platform.startswith("linux"):
+            with open(f"/proc/{pid}/status", encoding="utf-8", errors="replace") as fh:
+                for line in fh:
+                    if line.startswith("RssAnon:"):
+                        return int(line.split()[1]) * 1024
+            return rss
+        if sys.platform == "darwin":
+            out = subprocess.run(["/usr/bin/footprint", "-p", str(pid)],
+                                 capture_output=True, text=True, timeout=SAMPLE_TIMEOUT).stdout
+            return _footprint_bytes(out) or rss
+    except Exception:  # noqa: BLE001 — /proc unreadable, footprint missing/slow, process gone mid-sample
+        return rss
+    return rss
 
 
 def miner_proc_stats():
@@ -116,14 +170,16 @@ def miner_proc_stats():
     def pick(role):
         # A PyInstaller one-file binary is TWO processes: a tiny bootloader parent and the real worker. Taking
         # the first match found the 0.6 MB parent and reported the miner as using nothing — take the biggest.
+        # Ranked on RSS rather than the real figure below, deliberately: RSS is already in hand for every row,
+        # and resolving the honest number for all of them would mean a subprocess per candidate on macOS.
         best = None
-        for rss, cpu_s, text in rows:
+        for pid, rss, cpu_s, text in rows:
             if role == "miner":
                 hit = "/engine/miner" in text or text.endswith("miner") or text == "miner" or "lottery_miner" in text
             else:
                 hit = "bitcoind" in text
-            if hit and (best is None or rss > best[0]):
-                best = (rss, cpu_s)
+            if hit and (best is None or rss > best[1]):
+                best = (pid, rss, cpu_s)
         return best
 
     out = {}
@@ -132,7 +188,8 @@ def miner_proc_stats():
         if not got:
             _res_prev.pop(role, None)
             continue
-        rss, cpu_s = got
+        pid, rss, cpu_s = got
+        mem = _real_memory_bytes(pid, rss)
         prev = _res_prev.get(role)
         _res_prev[role] = (now, cpu_s)
         # First sample after start (or after the process restarted, i.e. cpu-seconds went backwards) has no
@@ -140,7 +197,7 @@ def miner_proc_stats():
         pct = 0.0
         if prev and cpu_s >= prev[1] and now > prev[0]:
             pct = max(0.0, min(100.0 * (cpu_s - prev[1]) / (now - prev[0]), 100.0 * (os.cpu_count() or 1)))
-        out[role] = {"cpu": round(pct, 1), "mem_mb": round(rss / (1024 * 1024), 1)}
+        out[role] = {"cpu": round(pct, 1), "mem_mb": round(mem / (1024 * 1024), 1)}
 
     if not out:
         _res_cache.update(ts=now, val=None)

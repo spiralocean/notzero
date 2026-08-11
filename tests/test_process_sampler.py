@@ -39,23 +39,75 @@ CHILD = ("import time\n"
 
 
 def check_rows(rows, fails):
-    """Every row is (rss_bytes, cpu_seconds, text) and usable — the parser produced data, not debris."""
+    """Every row is (pid, rss_bytes, cpu_seconds, text) and usable — the parser produced data, not debris."""
     ok = bool(rows)
     print(f"  {'✓' if ok else '✗'} the sampler returned {len(rows)} process row(s) on {sys.platform}")
     if not ok:
         fails.append("_sample_processes() returned nothing — the platform branch failed or was unparseable")
         return
-    shaped = all(isinstance(r, tuple) and len(r) == 3 and isinstance(r[0], int) and r[0] >= 0
-                 and isinstance(r[1], float) and r[1] >= 0 and isinstance(r[2], str) for r in rows)
-    print(f"  {'✓' if shaped else '✗'} every row is (rss_bytes, cpu_seconds, text) with sane values")
+    shaped = all(isinstance(r, tuple) and len(r) == 4 and isinstance(r[0], int) and r[0] > 0
+                 and isinstance(r[1], int) and r[1] >= 0
+                 and isinstance(r[2], float) and r[2] >= 0 and isinstance(r[3], str) for r in rows)
+    print(f"  {'✓' if shaped else '✗'} every row is (pid, rss_bytes, cpu_seconds, text) with sane values")
     if not shaped:
-        bad = next(r for r in rows if not (isinstance(r, tuple) and len(r) == 3))
+        bad = next(r for r in rows if not (isinstance(r, tuple) and len(r) == 4 and isinstance(r[0], int) and r[0] > 0))
         fails.append(f"a row came back malformed: {bad!r}")
-    biggest = max(rows, key=lambda r: r[0])
-    ok = biggest[0] > 1024 * 1024
-    print(f"  {'✓' if ok else '✗'} the largest process reads as {biggest[0] / 1048576:.0f} MB — memory is being parsed")
+    biggest = max(rows, key=lambda r: r[1])
+    ok = biggest[1] > 1024 * 1024
+    print(f"  {'✓' if ok else '✗'} the largest process reads as {biggest[1] / 1048576:.0f} MB — memory is being parsed")
     if not ok:
-        fails.append(f"no process had a plausible footprint; largest was {biggest[0]} bytes")
+        fails.append(f"no process had a plausible footprint; largest was {biggest[1]} bytes")
+
+
+def check_real_memory(fails):
+    """The honest-memory conversion returns something sane for a process we KNOW the size of — this one.
+
+    The bug being fixed here is a measurement one (RSS counts mmap'd files, so bitcoind read ~6x its real
+    size), and the failure mode of the fix is the mirror image: a parser that silently returns nothing and
+    falls back to the same wrong RSS, invisibly. So check it against a live pid rather than trusting it.
+    """
+    rss = 0
+    for pid, r, _cpu, _text in nb._sample_processes():
+        if pid == os.getpid():
+            rss = r
+            break
+    got = nb._real_memory_bytes(os.getpid(), rss or 1)
+    ok = isinstance(got, int) and got > 0
+    print(f"  {'✓' if ok else '✗'} real memory for this test process reads as {got / 1048576:.1f} MB (rss {rss / 1048576:.1f} MB)")
+    if not ok:
+        fails.append(f"_real_memory_bytes() returned {got!r}")
+        return
+    # Never MORE than RSS: every platform path either excludes mapped files or returns RSS unchanged. A result
+    # above it means the units were misread — the exact class of bug that made the old number nonsense.
+    if rss and got > rss * 1.05:
+        print(f"  ✗ it exceeds RSS, so the units are being misread")
+        fails.append(f"_real_memory_bytes() returned {got} for a process whose RSS is {rss}")
+    elif rss:
+        print(f"  ✓ it does not exceed RSS, so the units parsed correctly")
+    # A pid that cannot exist must fall back to the RSS handed in, never crash or return 0.
+    fell_back = nb._real_memory_bytes(-1, 12345)
+    ok = fell_back == 12345
+    print(f"  {'✓' if ok else '✗'} an unreadable process falls back to the RSS it was given ({fell_back})")
+    if not ok:
+        fails.append(f"fallback returned {fell_back!r}, expected 12345")
+
+
+def check_footprint_parser(fails):
+    """The macOS parser, exercised on every platform — it's pure text handling and CI is mostly not a mac."""
+    cases = [
+        ("    phys_footprint: 450 MB\n", 450 * 1024 ** 2),
+        ("phys_footprint: 7714 KB", 7714 * 1024),
+        ("phys_footprint: 1.5 GB", int(1.5 * 1024 ** 3)),
+        ("phys_footprint_peak: 900 MB\nphys_footprint: 450 MB", 450 * 1024 ** 2),  # must not match the PEAK line
+        ("phys_footprint: 450 QB", None),                                          # unknown unit -> caller keeps RSS
+        ("nothing useful here", None),
+    ]
+    for text, want in cases:
+        got = nb._footprint_bytes(text)
+        ok = got == want
+        print(f"  {'✓' if ok else '✗'} {text.strip().splitlines()[-1][:40]!r} -> {got}")
+        if not ok:
+            fails.append(f"_footprint_bytes({text!r}) returned {got!r}, expected {want!r}")
 
 
 FIND_DEADLINE = 45.0   # generous: only reached when something is actually wrong, so it costs nothing on a good run
@@ -81,7 +133,7 @@ def wait_for_fakes(procs):
             return rows, "the fakes could not be started — the test could not run"
         attempts += 1
         rows = nb._sample_processes()
-        hits = {name: rss for rss, _cpu, name in rows if name in ("miner", "bitcoind")}
+        hits = {name: rss for _pid, rss, _cpu, name in rows if name in ("miner", "bitcoind")}
         if len(hits) == 2 and all(rss > FAKE_MIN_RSS for rss in hits.values()):
             waited = time.time() - started
             print(f"  ✓ both fakes sampled after {attempts} attempt(s) in {waited:.1f}s")
@@ -130,15 +182,17 @@ def diagnose():
 
 def main():
     fails = []
+    check_footprint_parser(fails)   # pure text handling, so it runs everywhere including Windows CI
     if not WIN:
         check_rows(nb._sample_processes(), fails)
+        check_real_memory(fails)
         print()
         if fails:
             for f in fails[:8]:
                 print("FAIL:", f)
             return 1
-        print(f"the sampler's {sys.platform} branch parses; the miner/node MATCH is covered on Windows,")
-        print("where the branch had never run at all (see this file's docstring for why not here).")
+        print(f"the sampler's {sys.platform} branch parses and reports real memory; the miner/node MATCH is")
+        print("covered on Windows, where the branch had never run at all (see this file's docstring for why).")
         return 0
 
     # ---- Windows: the branch that had never executed anywhere -------------------------------------------
