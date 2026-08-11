@@ -4003,8 +4003,11 @@ function drawNetwork(r) {
   const mp = model.node && model.node.miner_proc, dsk = model.node && model.node.size_on_disk;
   // Two lines, because they answer two different questions and one was quietly missing. The miner line makes
   // the "is this a mining rig?" point. The node line answers "why is my computer busy?" — bitcoind is the
-  // process that actually holds gigabytes and spins fans, and reporting only the miner (~24 MB) understated
-  // what notzero costs a machine by two orders of magnitude.
+  // process that actually spins fans and holds hundreds of megabytes, and reporting only the miner (~24 MB)
+  // understated what notzero costs a machine by an order of magnitude.
+  // These figures are real memory, not RSS: the bridge reports what the user's own OS shows them (see
+  // _real_memory_bytes in node_bridge.py). It used to send RSS, which counts bitcoind's memory-mapped
+  // LevelDB files and so read ~6x high — 2.6 GB for a node holding 450 MB.
   if (mp) {
     const disk = dsk ? ` · ${(dsk / 1e9).toFixed(0)} GB disk${model.node.pruned ? " (pruned node)" : ""}` : "";
     text(`⚙ this miner uses ~${mp.cpu}% CPU · ${mp.mem_mb} MB RAM · one SHA-256 per block — a lottery ticket, not a mining rig`, r.x + r.w / 2, y, { size: 11, weight: 500, color: "rgba(90,210,140,0.7)", align: "center", baseline: "middle" }); y += 19;

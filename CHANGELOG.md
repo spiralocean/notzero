@@ -7,6 +7,11 @@ version number and bump `desktop/package.json`.
 ## Unreleased — next: 0.1.83
 
 **Node**
+- **The dashboard was overstating your node's memory by about six times.** It read the raw figure the
+  operating system reports, which counts the chain files your node maps from disk as though they were held in
+  memory. A node really using 450 MB was shown as 2.6 GB — and the line carried an apology for the number
+  ("will drop when it finishes verifying") that was covering for a measurement mistake rather than anything
+  your node was doing. It now shows the same number Activity Monitor or Task Manager shows you.
 - **The app's memory use no longer creeps up while it runs in the background.** Bitcoin Core reserves a large
   chunk of memory to speed up the initial sync — on a 16 GB machine, over a gigabyte of it. That's the right
   trade while there's a chain to download, and pure waste afterwards: a synced node sees one block every ten
