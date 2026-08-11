@@ -83,6 +83,8 @@ test("the synced-node memory ceiling stays bounded — dbcache AND the mempool i
   // 300 MB default maxmempool a 150 MiB dbcache still reaches ~430 MiB. Anyone raising one of these without
   // the other silently gives that headroom back, which is the whole reason the cap exists.
   assert.ok(P.SYNCED_MAXMEMPOOL_MIB >= 5, "Core rejects a maxmempool below ~5 MB");
-  assert.ok(P.SYNCED_MAXMEMPOOL_MIB * 1024 * 1024 >= 4_000_000 * 4, "a template needs a block's worth of transactions to choose from");
+  // Measured, not estimated: 100 MB of Core's mempool accounting held 22,997 transactions on a live node, so
+  // budget ~230 KB of maxmempool per transaction and keep several blocks' worth (~6,000 each) available.
+  assert.ok(P.SYNCED_MAXMEMPOOL_MIB * 1024 * 1024 / 4338 >= 6000 * 3, "a template needs several blocks' worth of transactions to choose from");
   assert.ok(P.SYNCED_DBCACHE_MIB + P.SYNCED_MAXMEMPOOL_MIB <= 300, "a synced node should stay well under Core's ~1.3 GB sync-time ceiling");
 });

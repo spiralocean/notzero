@@ -77,12 +77,15 @@ const MANAGED_RPC_PORT = 8332; // the managed node's RPC port (overridable; kept
 // over; the cost is more frequent flushes and a few more LevelDB reads per block, both unnoticeable at one
 // block/10min.
 const SYNCED_DBCACHE_MIB = 150;
-// These two have to move together. Core lends UNUSED mempool space to the UTXO cache ("plus up to N MiB of
-// unused mempool space" in its startup log), so dbcache alone doesn't bound memory — at the 300 MB default
-// maxmempool, a 150 MiB dbcache can still grow to ~430 MiB. Capping the mempool costs us nothing that matters:
-// a block template needs one block's worth of transactions, 100 MB still holds ~25 blocks of them, and Core
-// evicts lowest-feerate first — so the transactions a template actually wants are the last to be dropped. The
-// only visible effect is a shallower mempool in the dashboard's stats.
+// These two have to move together, for two reasons. The mempool is real resident memory (at the 300 MB default
+// it can hold 300 MB of transactions), AND Core lends whatever of it goes UNUSED to the UTXO cache ("plus up to
+// N MiB of unused mempool space" in its startup log) — so capping dbcache alone bounds nothing.
+// Measured on a live synced node at this 100 MB cap: 22,997 transactions, 19.7 MB of them serialized. Core's
+// per-entry accounting runs ~5x serialized size, so 100 MB is roughly 4-6 blocks' worth of transactions to
+// choose from, not the ~25 a naive bytes-per-block estimate suggests. Still comfortably more than a template
+// needs (~6,000 transactions), and eviction is lowest-feerate-first, so what a template actually wants is the
+// last thing dropped. In normal conditions this barely binds — an unconstrained mempool on the same node sat
+// around 90-100 MB anyway. It bites during a fee spike, where it holds the top ~100 MB instead of the top 300.
 const SYNCED_MAXMEMPOOL_MIB = 100;
 
 // Resolve the artifact for a platform/arch (defaults to the host).
