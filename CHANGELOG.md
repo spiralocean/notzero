@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.84
 
+**App**
+- **The window comes back the size you left it, and where you left it.** The app never remembered its window,
+  so every restart snapped back to the same default shape in the same default spot. You'd mostly notice it
+  when an update installed itself and handed you back a window you hadn't asked for. It now remembers, and it
+  remembers a maximized window as maximized. If the display you'd put it on is gone — you undocked, or
+  unplugged a monitor — it keeps your size but lets your system place it, rather than opening somewhere you
+  can't see it.
+
 ## 0.1.83
 
 **Node**

@@ -72,6 +72,7 @@ const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
+const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
 const { isMinerStalled, POLL_INTERVAL_SEC } = require("./miner-watchdog.js"); // is the miner's poll loop actually running
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
@@ -127,6 +128,29 @@ function logManaged(s) {
   try { fs.appendFileSync(path.join(DATA_DIR, "install.log"), line + "\n"); } catch (_) {}
 }
 const configPath = () => path.join(DATA_DIR, "config.json");
+// Window geometry gets its OWN file, deliberately. config.json holds the RPC credentials and the payout
+// address; a geometry save fires on every drag and resize, and that is not something to run repeatedly over
+// the file the money lives in. state.json is the miner's. This one is disposable — delete it and you get the
+// default window back, nothing else.
+const windowStatePath = () => path.join(DATA_DIR, "window.json");
+let boundsSaveTimer = null;
+function persistWindowBounds(win) {
+  if (!win || win.isDestroyed()) return;
+  try {
+    // getNormalBounds, not getBounds: it reports the RESTORED geometry, so maximising or minimising doesn't
+    // overwrite the size the user actually chose with a screen-sized or zero-sized rectangle.
+    const b = win.getNormalBounds();
+    if (!b || b.width < 1 || b.height < 1) return;
+    fs.writeFileSync(windowStatePath(), JSON.stringify({ ...b, maximized: win.isMaximized() }));
+  } catch (_) { /* geometry is a nicety — never let it break a close or a quit */ }
+}
+// Saving on close alone would cover the auto-update path (quitAndInstall closes the window first) but lose
+// everything to a crash or a force quit, which is when people most want their layout back. Debounce so a drag
+// writes once when it settles rather than once per frame.
+function scheduleBoundsSave(win) {
+  if (boundsSaveTimer) clearTimeout(boundsSaveTimer);
+  boundsSaveTimer = setTimeout(() => { boundsSaveTimer = null; persistWindowBounds(win); }, 600);
+}
 async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
 
 // ---- application menu: gives a way back to Settings after first-run setup ----
@@ -1332,12 +1356,27 @@ function notifyBackgroundOnce() {
 async function createWindow() {
   if (!app.isPackaged && process.platform === "darwin" && app.dock) app.dock.setIcon(ICON);
   const port = await ensureServer();
+  // Come back where you were. Within a session the window survives a close (it's hidden, not destroyed), so
+  // this only shows up across restarts — most visibly when an auto-update relaunches the app for you and the
+  // window you'd sized and placed reappears at the default. placement() drops a saved position that no longer
+  // lands on a connected display, so an unplugged monitor can't strand the window off-screen.
+  let savedBounds = null;
+  try { savedBounds = JSON.parse(fs.readFileSync(windowStatePath(), "utf8")); } catch (_) {}
+  const { maximized, ...geometry } = WindowBounds.placement(
+    savedBounds, screen.getAllDisplays(), { width: 1280, height: 880, minWidth: 900, minHeight: 600 });
   const win = new BrowserWindow({
-    width: 1280, height: 880, minWidth: 900, minHeight: 600,
+    ...geometry, minWidth: 900, minHeight: 600,
     backgroundColor: "#05040a", title: "Bitcoin Lottery", icon: ICON, autoHideMenuBar: false, // keep the menu visible so Settings is reachable (Win/Linux)
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
+  if (maximized) win.maximize();
+  // Fullscreen is deliberately NOT restored. Relaunching straight into a macOS full-screen space is the exact
+  // situation that made the ambient view take the whole app down in 0.1.81 — not a state to re-enter on the
+  // user's behalf for the sake of a nicety.
+  win.on("resize", () => scheduleBoundsSave(win));
+  win.on("move", () => scheduleBoundsSave(win));
+  win.on("close", () => persistWindowBounds(win)); // synchronous: quitAndInstall closes the window on its way out
   // Closing the window HIDES it (never destroys) and keeps the node + miner running in the background — Windows +
   // Linux to the tray, macOS in the dock. Hiding (vs destroying) is what lets a reopen restore the exact window
   // size + position (and scroll/state). Only tray Quit / menu Exit / ⌘Q (isQuitting) actually closes it.
