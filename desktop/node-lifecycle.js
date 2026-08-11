@@ -62,6 +62,26 @@ function rpcOverCookie(rpcUrl, cookiePath, method, params = [], timeoutMs = 3000
   });
 }
 
+// Maintain the marker launch() reads to decide the UTXO cache size (see SYNCED_DBCACHE_MIB). Out of IBD is NOT
+// sufficient on its own: after an assumeutxo fast start the node is mineable while a second chainstate still
+// replays the chain from genesis behind the snapshot, sharing the cache — precisely the work the big cache
+// exists for. Core reports a single, validated chainstate only once that background validation has finished,
+// so require both. Standalone (fs + an injected getChainstates) so it's testable without Electron or a node.
+async function updateSyncedMarker({ flagPath, mineable, getChainstates }) {
+  const marked = fs.existsSync(flagPath);
+  if (!mineable) {
+    if (marked) try { fs.unlinkSync(flagPath); } catch (_) {} // back in IBD → the next launch needs the full cache
+    return false;
+  }
+  if (marked) return true; // already recorded; don't spend an RPC per poll re-confirming it
+  let cs = null;
+  try { cs = await getChainstates(); } catch (_) { return false; } // RPC hiccup → try again next poll
+  if (!cs || !Array.isArray(cs.chainstates) || cs.chainstates.length !== 1) return false;
+  if (cs.chainstates[0] && cs.chainstates[0].validated === false) return false;
+  try { fs.writeFileSync(flagPath, `${new Date().toISOString()}\n`); } catch (_) { return false; }
+  return true;
+}
+
 // Map a getblockchaininfo result to our state + a 0..1 progress for the UI.
 function syncStateFrom(info) {
   const ibd = info.initialblockdownload !== false;
@@ -97,7 +117,16 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
   }
 
   function launch() {
-    child = spawn(paths.bitcoind, [`-datadir=${paths.datadir}`], { stdio: ["ignore", "ignore", "pipe"] });
+    const args = [`-datadir=${paths.datadir}`];
+    // A node we already know is caught up gets a small UTXO cache and mempool instead of the ones Core sizes
+    // for initial sync (~1.3 GB of headroom between them on a 16 GB machine) — see SYNCED_DBCACHE_MIB. Passed
+    // on the command line, not written into bitcoin.conf, for two reasons: writeConf() never overwrites an
+    // existing conf, so a conf change would reach new installs only; and the conf must keep describing the
+    // SYNC-time sizes, which is what a node still working toward the marker needs. If this node has quietly
+    // fallen back into IBD (months offline, a reindex), it catches up this once on the small sizes and sync()
+    // clears the marker so the next launch gets the full ones — cheaper than restarting bitcoind to resize.
+    if (fs.existsSync(paths.syncedFlag)) args.push(`-dbcache=${P.SYNCED_DBCACHE_MIB}`, `-maxmempool=${P.SYNCED_MAXMEMPOOL_MIB}`);
+    child = spawn(paths.bitcoind, args, { stdio: ["ignore", "ignore", "pipe"] });
     let errTail = "";
     if (child.stderr) child.stderr.on("data", (d) => { errTail = (errTail + d.toString()).slice(-800); }); // keep bitcoind's own error output
     child.on("error", (e) => { const was = child; child = null; if (!stopping && was) emit(STATES.ERROR, null, `couldn't start the node: ${e.message}`); });
@@ -259,6 +288,15 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     }
     const info = await rpc("getblockchaininfo");
     const s = syncStateFrom(info);
+    // Note for the NEXT launch whether this node is caught up. This is the only place it's evaluated, and
+    // main.js stops polling sync() the moment the node is mineable — so a node that finishes assumeutxo
+    // background validation mid-session isn't marked until a later launch observes it. That's fine: the
+    // marker only ever affects the launch after the one that writes it.
+    await updateSyncedMarker({
+      flagPath: paths.syncedFlag,
+      mineable: s.mineable,
+      getChainstates: () => rpc("getchainstates", [], 5000),
+    });
     emit(s.state, s.progress, `${s.blocks}/${s.headers}`);
     return s;
   }
@@ -279,4 +317,4 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
   return { paths, rpcUrl, start, sync, stop, rpc, rpcConfig, ensureCore, writeConf, get state() { return lastState; }, get pid() { return child && child.pid; } };
 }
 
-module.exports = { STATES, createManagedNode, syncStateFrom, rpcOverCookie };
+module.exports = { STATES, createManagedNode, syncStateFrom, rpcOverCookie, updateSyncedMarker };

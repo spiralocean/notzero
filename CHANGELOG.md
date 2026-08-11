@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.83
 
+**Node**
+- **The app's memory use no longer creeps up while it runs in the background.** Bitcoin Core reserves a large
+  chunk of memory to speed up the initial sync — on a 16 GB machine, over a gigabyte of it. That's the right
+  trade while there's a chain to download, and pure waste afterwards: a synced node sees one block every ten
+  minutes or so. The app now recognises when your node is fully caught up (including the background
+  verification that runs after a fast start) and gives it a much smaller allowance from then on. You won't see
+  a sudden drop — most of what your node uses is the block index it needs either way — but instead of drifting
+  up past 1.5 GB over days of running, it now settles around 450–500 MB and stays there. Sync speed is
+  unaffected: a node that still has work to do keeps the full allowance, and gets it back automatically if it
+  ever falls behind. The change takes effect the second time you restart the app.
+
 ## 0.1.82
 
 **Reliability**
