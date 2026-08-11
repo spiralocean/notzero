@@ -73,6 +73,7 @@ const { autoUpdater } = require("electron-updater"); // background auto-update f
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
+const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
 const { isMinerStalled, POLL_INTERVAL_SEC } = require("./miner-watchdog.js"); // is the miner's poll loop actually running
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
@@ -193,6 +194,22 @@ function buildMenu() {
 // .saver bundle: reuses the app's own window, so it behaves the same on
 // mac/win/linux and can reach the node over the local server origin. All opt-in.
 let ambientWindow = null, ambientPoll = null, ambientShownAt = 0, ambientManual = false, ambientBlockerId = null;
+let screenLocked = false; // maintained from powerMonitor; seeded once at startup (see startAmbientWatch)
+
+// Seconds since real HARDWARE input, or null if we can't tell. powerMonitor.getSystemIdleTime() reads macOS's
+// CGEvent clock, which counts injected input — a Universal Control / Sidecar cursor borrowed from another Mac
+// resets it with no hardware behind it. IOHIDSystem counts physical devices only, so the two clocks disagreeing
+// is how we tell "someone is here" from "a pointer drifted across this screen". Verified on both an Intel and
+// an Apple Silicon Mac; `-r -c` is the form that reports it on BOTH (plain `-c -d 1` returns nothing on Apple
+// Silicon). Only ever called at wake — once per dismissal, never in the 1s poll — because it is a subprocess.
+function physicalIdleSeconds() {
+  if (process.platform !== "darwin") return null; // no equivalent elsewhere → callers keep the old behaviour
+  try {
+    const out = require("child_process").execFileSync("ioreg", ["-r", "-c", "IOHIDSystem"], { encoding: "utf8", timeout: 2000 });
+    const m = /"HIDIdleTime"\s*=\s*(\d+)/.exec(out);
+    return m ? Number(m[1]) / 1e9 : null;
+  } catch (_) { return null; } // ioreg missing/slow/unparseable → "unknown", which keeps the old behaviour
+}
 
 // config.json: { ambient: { enabled, idleSeconds, lockOnWake } }
 function ambientCfg() {
@@ -211,6 +228,9 @@ function ambientCfg() {
 // away", not a secure lock. On macOS the DEFAULT is a quiet display-sleep (no permission prompt);
 // the ⌃⌘Q force-lock is opt-in (macHardLock) because it triggers a scary "control System Events" prompt.
 function lockScreen() {
+  // Logged because this locks someone's computer. Before this line, nothing recorded that the app had done it,
+  // which is why the Universal Control loop took an SSH session and idle-clock forensics to pin down.
+  console.log(`[notzero] locking the screen (${process.platform === "darwin" ? (ambientCfg().macHardLock ? "macOS ⌃⌘Q hard lock" : "macOS display sleep") : process.platform})`);
   try {
     if (process.platform === "darwin") {
       if (ambientCfg().macHardLock)
@@ -275,11 +295,11 @@ function openAmbient(manual, forceDebug) {
   else ambientWindow.setFullScreen(true);
   // A GLOBAL Escape while the view is open — so Esc dismisses even if the window lost keyboard focus (e.g. after an
   // OS screensaver/lock cycle). Tied to the window lifecycle (unregistered on close) so it can never leak.
-  try { globalShortcut.register("Escape", () => dismissAmbient()); } catch (_) {}
+  try { globalShortcut.register("Escape", () => dismissAmbient(false, "escape key")); } catch (_) {}
   ambientWindow.on("closed", () => { ambientWindow = null; try { globalShortcut.unregister("Escape"); } catch (_) {} });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
-  ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(); });      // any key = a wake → may lock
-  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) dismissAmbient(true); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
+  ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(false, "key press"); });   // any key = a wake → may lock
+  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) dismissAmbient(true, "focus lost"); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
   ambientWindow.webContents.on("did-fail-load", (_e, code, desc, url) => { console.error(`[notzero] ambient view failed to load: ${code} ${desc} ${url}`); });
   ambientShownAt = Date.now();
   const cfg = ambientCfg();
@@ -291,9 +311,16 @@ function openAmbient(manual, forceDebug) {
   else ambientWindow.loadFile(path.join(WEB_DIR, page), q ? { search: "debug=1" } : undefined).catch((err) => console.error("[notzero] ambient loadFile failed:", err));
 }
 
-function dismissAmbient(forceNoLock) {
+function dismissAmbient(forceNoLock, reason) {
   if (!ambientWindow) return;
-  const shouldLock = !forceNoLock && !ambientManual && ambientCfg().lockOnWake; // lock an idle-triggered wake (any input), never a manual preview
+  // Whether to lock is decided in ambient-wake.js against BOTH idle clocks — see the note there. The short of
+  // it: the clock that said "the user is back" also counts a cursor borrowed from another Mac.
+  const { lock: shouldLock, why } = AmbientWake.lockDecision({
+    forceNoLock, manual: ambientManual, lockOnWake: ambientCfg().lockOnWake,
+    // only pay for the hardware clock when a lock is actually on the table
+    physicalIdleSeconds: (!forceNoLock && !ambientManual && ambientCfg().lockOnWake) ? physicalIdleSeconds() : null,
+  });
+  console.log(`[notzero] ambient view dismissed (${reason || "unspecified"}) — ${shouldLock ? "LOCKING" : "not locking"}: ${why}`);
   const w = ambientWindow; ambientWindow = null;
   try { if (ambientBlockerId !== null && powerSaveBlocker.isStarted(ambientBlockerId)) powerSaveBlocker.stop(ambientBlockerId); } catch (_) {} // let the OS screensaver/display-sleep resume normally
   ambientBlockerId = null;
@@ -318,8 +345,17 @@ function startAmbientWatch() {
   // which never auto-dismisses). blur doesn't fire reliably for those, so the always-on-top window could be left
   // stuck after unlock — keyboard-unreachable, blocking Cmd+Tab. These power events DO fire reliably: dismiss on any
   // of them so unlock/wake is always clean. forceNoLock — the OS already handled locking; we just get out of the way.
+  // Seed the lock state once: powerMonitor only reports TRANSITIONS, so an app that starts (or is relaunched by
+  // an update) while the screen is already locked would otherwise think it wasn't and open the ambient view
+  // onto a lock screen — the loop this whole change exists to stop.
+  if (process.platform === "darwin") {
+    try {
+      const out = require("child_process").execFileSync("ioreg", ["-n", "Root", "-d", "1", "-r"], { encoding: "utf8", timeout: 2000 });
+      screenLocked = /"CGSSessionScreenIsLocked"\s*=\s*Yes/.test(out);
+    } catch (_) { /* unknown → assume unlocked, which is the pre-existing behaviour */ }
+  }
   ["lock-screen", "unlock-screen", "suspend", "resume"].forEach((ev) => {
-    try { powerMonitor.on(ev, () => dismissAmbient(true)); } catch (_) {}
+    try { powerMonitor.on(ev, () => { if (ev === "lock-screen") screenLocked = true; if (ev === "unlock-screen") screenLocked = false; dismissAmbient(true, `os ${ev}`); }); } catch (_) {}
   });
   ambientPoll = setInterval(() => {
     const cfg = ambientCfg();
@@ -327,8 +363,8 @@ function startAmbientWatch() {
     if (ambientWindow) {
       // idle-opened: dismiss on any real input (screensaver behavior). manual preview stays until Esc/⌘W — never
       // auto-dismisses on mouse move, so you can actually look at it.
-      if (!ambientManual && idle < 2 && Date.now() - ambientShownAt > 1200) dismissAmbient(); // wake → dismissAmbient decides on the lock
-    } else if (cfg.enabled && idle >= cfg.idleSeconds) {
+      if (!ambientManual && idle < 2 && Date.now() - ambientShownAt > 1200) dismissAmbient(false, "input detected"); // wake → dismissAmbient decides on the lock
+    } else if (AmbientWake.shouldOpenAmbient({ enabled: cfg.enabled, idle, idleSeconds: cfg.idleSeconds, screenLocked, alreadyOpen: false })) {
       openAmbient(false); // idle-triggered
     }
   }, 1000);

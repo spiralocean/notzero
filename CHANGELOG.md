@@ -6,6 +6,20 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.84
 
+**Ambient view — important if you use "lock when I come back"**
+- **Moving your mouse onto a Mac you're using as a second screen no longer locks it.** If you drive one Mac
+  from another — Universal Control, Sidecar, screen sharing — the borrowed cursor looks to macOS's idle timer
+  exactly like someone sitting down at the keyboard. So the ambient view treated your pointer drifting across
+  that screen as "the owner is back", and locked the machine. Every five minutes, for as long as you kept
+  working. It now checks whether any *physical* key or trackpad input actually happened before locking: the
+  view still gets out of your way when the cursor arrives, but your machine stays unlocked unless someone is
+  really there. Nothing changes if you only ever use the Mac in front of you.
+- **The ambient view no longer opens on a screen that's already locked.** It had been putting a full-screen
+  window on top of the lock screen every five minutes and re-locking an already-locked Mac, which is what kept
+  the loop above going long after you'd walked away.
+- **The app now writes down when it locks your screen, and why.** It locks your machine and left no record of
+  having done it, which made the problem above almost impossible to see from the outside.
+
 **App**
 - **The window comes back the size you left it, and where you left it.** The app never remembered its window,
   so every restart snapped back to the same default shape in the same default spot. You'd mostly notice it
