@@ -808,7 +808,8 @@ function startNotifier() {
     const pollAt = m ? Date.parse(m.last_poll_at || "") : NaN;
     if (isFinite(pollAt)) {
       const lastPollAgeSec = (Date.now() - pollAt) / 1000;
-      if (isMinerStalled({ lastPollAgeSec }) && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
+      const minerUptimeSec = engineStartedAt.miner ? (Date.now() - engineStartedAt.miner) / 1000 : undefined;
+      if (isMinerStalled({ lastPollAgeSec, minerUptimeSec }) && Date.now() - lastMinerKick > MINER_KICK_COOLDOWN_MS) {
         lastMinerKick = Date.now();
         console.warn(`[notzero] miner stalled (its poll loop last ran ${Math.round(lastPollAgeSec)}s ago, expected every ${POLL_INTERVAL_SEC}s) — restarting the miner engine`);
         try { if (procs.miner) procs.miner.kill(); } catch (_) {} // exit handler respawns it (~2s) with current config; no-op if it already crashed/respawned
@@ -821,6 +822,11 @@ function startNotifier() {
 
 // ---- engine: our own miner + bridge, in an isolated data dir ----
 const procs = {};
+// When each engine was last spawned. Only the miner's is read (by the liveness watchdog), and only to tell a
+// freshly started miner apart from a wedged one — the heartbeat it reads lives on disk and outlives the
+// process that wrote it, so without this a restart looks identical to a hang. Set on the respawn path too,
+// since that is exactly when it matters.
+const engineStartedAt = {};
 let stopping = false, enginesStarted = false;
 
 function engineCmd(name) {
@@ -835,6 +841,9 @@ function startEngine(name) {
   const { cmd, args } = engineCmd(name);
   const p = spawn(cmd, args, { env: ENGINE_ENV, stdio: "ignore" });
   procs[name] = p;
+  engineStartedAt[name] = Date.now(); // the watchdog needs to know a miner is NEW: the heartbeat on disk
+                                      // is still the previous process's until this one finishes a pass
+
   p.on("error", () => { delete procs[name]; });
   p.on("exit", () => { delete procs[name]; if (!stopping) setTimeout(() => startEngine(name), 2000); }); // restart on crash
 }

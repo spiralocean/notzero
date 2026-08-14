@@ -59,6 +59,14 @@ HISTORY_LIMIT = 1000  # long on-disk record: seeds the odds-map cloud (zhist) ri
 # (was 50, then 200; dashboard graph still shows ~100, bridge sends ~120 — this only affects the stored record)
 PRICE_HISTORY_LIMIT = 96
 POLL_INTERVAL_SEC = 30
+# How long to wait on mempool.space for the chain tip. Two numbers, because the call has two jobs.
+# When we have no node of our own — symbolic mode, or a node that is not ready yet — the public tip IS the
+# thing that triggers an attempt, and waiting for it is the right call. When our own node is serving the tip,
+# this call is display only, and a slow route to a third party has no business holding up the loop that
+# exists to attempt blocks. Measured on a real install 2026-08-12: two stalls of 11s and 13s reported as
+# "BLOCKED in 'mempool.space tip'", each eating a third of a 30s cycle for a number nothing was waiting on.
+TIP_TIMEOUT_SEC = 15          # it is the trigger — be patient
+TIP_DISPLAY_TIMEOUT_SEC = 4   # it is decoration — give up early and get on with the poll
 # Backoff (seconds) between submitblock retries for a WON block. Aggressive early — a transient RPC blip
 # (node restarting) usually clears in a few seconds and the ~10-min window is unforgiving — then eased and
 # capped at 30s so we never hammer the node. We keep retrying until it lands or the height is taken.
@@ -892,8 +900,22 @@ def check_win(hash_bytes: bytes, target: int) -> bool:
     return int.from_bytes(hash_bytes, "little") <= target
 
 
-def get_tip_height() -> int:
-    return int(http_get(f"{MEMPOOL_API}/blocks/tip/height", timeout=15))
+def get_tip_height(timeout: int = TIP_TIMEOUT_SEC) -> int:
+    return int(http_get(f"{MEMPOOL_API}/blocks/tip/height", timeout=timeout))
+
+
+def tip_timeout_sec(mode: str, node: Optional[dict]) -> int:
+    """How long the poll loop should wait on mempool.space for the tip — see TIP_TIMEOUT_SEC.
+
+    Short only when our own node is demonstrably serving the tip, because then the public number is
+    decoration. Every other case — symbolic mode, a node still syncing, a node that just went away, no node
+    state at all — keeps the patient timeout, since the public tip is what triggers the next attempt and
+    cutting it short would cost real tickets. Wrong in the safe direction by construction.
+    """
+    node = node or {}
+    if mode == "live" and node.get("ready") and node.get("blocks"):
+        return TIP_DISPLAY_TIMEOUT_SEC
+    return TIP_TIMEOUT_SEC
 
 
 def get_block_hash(height: int) -> str:
@@ -1552,9 +1574,14 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
 
             # The network tip from mempool.space is display/fallback only — a public-API outage or a slow
             # route must never block the one thing this loop exists for (attempting the next block).
+            # Which job is this call doing right now? Decided from the PREVIOUS pass's node state, because
+            # refresh_node_status has not run yet this time round. If our node was serving the tip a moment
+            # ago it is almost certainly still there, and being wrong for one 30s pass costs nothing: the
+            # worst case is a display number we skip once, and the next pass corrects it.
             network_height: Optional[int] = None
             try:
-                network_height = _timed("mempool.space tip", get_tip_height)
+                network_height = _timed("mempool.space tip", get_tip_height,
+                                        tip_timeout_sec(mode, state.get("node")))
             except (urllib.error.URLError, RuntimeError, ValueError, OSError):
                 pass
             state["last_poll_at"] = utc_now()

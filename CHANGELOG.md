@@ -6,6 +6,21 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.85
 
+**Miner**
+- **A slow third-party server no longer holds up your miner.** The app reads the network's block height from
+  a public site to show alongside your own node's — useful, but nothing depends on it once your node is
+  running, because your node hears about new blocks first. It was still being given fifteen seconds to
+  answer, and twice this week it took eleven and thirteen, each time stalling a third of a thirty-second
+  cycle for a number already on screen. It now gets four seconds when your own node is the one keeping time,
+  and the full fifteen whenever that public number is genuinely what the miner is waiting on — while your
+  node is still syncing, or in practice mode, where cutting it short could cost you a ticket.
+- **The app no longer restarts the miner moments after starting it.** The miner writes a heartbeat so the app
+  can tell a working one from a stuck one. That heartbeat sits in a file, which outlives the miner that wrote
+  it — so just after launch the app was reading the *previous* miner's last heartbeat, deciding the brand-new
+  one had been silent for minutes, and restarting it. Its first pass is also its slowest, which widened the
+  window. A miner now gets the same couple of minutes to check in for the first time that a running one gets
+  to miss a check-in, and a genuinely stuck miner is still caught as quickly as before.
+
 ## 0.1.84
 
 **Ambient view — important if you use "lock when I come back"**

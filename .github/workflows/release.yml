@@ -123,6 +123,19 @@ jobs:
           node-version: "22"
       - name: Unit tests (desktop + web)
         run: node --test desktop/*.test.js web/*.test.js
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      # The Python tests had the same problem this whole job exists to fix, one language over: five of the six
+      # files under tests/ ran on NO machine in CI. Only test_process_sampler.py was wired up, and only in the
+      # Windows job, because that one had already shipped a dead branch. The rest — check_win, coinbase_height,
+      # payout_script, tip_current, tip_timeout — cover the miner's consensus-critical maths and executed
+      # nowhere. They are self-contained (no node, no network) and take under a second between them.
+      # Loop rather than a glob: `python tests/test_*.py` runs only the FIRST match and exits 0, which would
+      # look green while testing almost nothing.
+      - name: Unit tests (miner + bridge, Python)
+        run: |
+          for t in tests/test_*.py; do echo "--- $t"; python "$t" || exit 1; done
 
   # The bridge's Windows process sampler is a PowerShell pipeline that had executed on no machine anywhere:
   # CI compiled the bridge through PyInstaller but never RAN it, so the branch shipped to users unexecuted.
