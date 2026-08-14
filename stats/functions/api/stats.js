@@ -19,6 +19,24 @@ const DEMO_HOST = "demo.getnotzero.com";
 const CHANGELOG_PER_DAY = 48; // refreshUpdateHistory: one CHANGELOG.md fetch per install per 30 min
 const FEED_PER_DAY = 12;      // autoUpdater: one feed fetch per install per 2h (plus one per launch)
 
+// Polling volume -> machines awake in that hour.
+//
+// The cadence is the ONLY thing turning requests into a headcount, so it has to come from the constant
+// rather than a number typed in beside it. This used to divide by a literal `2` while CHANGELOG_PER_DAY sat
+// unused two hundred lines above it, the two free to drift apart with nothing to notice.
+//
+// It is an UPPER BOUND, and the bias only ever points one way: 48/day is the SCHEDULED cadence, and every
+// app launch adds two more polls on top (main.js refreshes the update history at startup, then again once
+// the node answers). So launches inflate this, and a release inflates it most, because every machine taking
+// the update restarts. That is why the headline figure is a median across hours rather than a sum — and why
+// it can still land above the fleet count, which is a real signal rather than something to hide.
+export function awakeFromPolls(pollsInHour, perDay = CHANGELOG_PER_DAY) {
+  const perHour = perDay / 24;
+  if (!Number.isFinite(pollsInHour) || pollsInHour < 0) return 0;
+  if (!Number.isFinite(perHour) || perHour <= 0) return 0;
+  return Math.round((pollsInHour / perHour) * 10) / 10;
+}
+
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -194,7 +212,7 @@ export async function onRequestGet({ request, env }) {
     const rows = hoursSeen.map((h) => bucket[h]);
     while (rows.length && rows[0].changelog === 0) rows.shift();
     while (rows.length && rows[rows.length - 1].changelog === 0) rows.pop();
-    for (const b of rows) b.installs = Math.round((b.changelog / 2) * 10) / 10;
+    for (const b of rows) b.installs = awakeFromPolls(b.changelog);
 
     const sum = (k) => rows.reduce((n, b) => n + b[k], 0);
     out.rows = rows;
@@ -227,7 +245,10 @@ export async function onRequestGet({ request, env }) {
       }), { mac: 0, win: 0, linux: 0 }),
       siteVisits: sum("siteVisits"),
       demoVisits: sum("demoVisits"),
-      // the quiet-hour floor is the honest headcount: release hours double-count restarts
+      // A median across hours, not a sum and not a peak: release hours double-count restarts (every machine
+      // that takes an update relaunches and polls again), so the middle hour is the least distorted view.
+      // Still an upper bound — see awakeFromPolls. The page compares it against `fleet` rather than
+      // asserting it must be smaller, because it is derived from a divisor that cannot see launches.
       installsSteady: rows.length ? median(rows.map((b) => b.installs)) : 0,
       perDay: { changelog: CHANGELOG_PER_DAY, feed: FEED_PER_DAY },
     };
