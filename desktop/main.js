@@ -211,6 +211,32 @@ function physicalIdleSeconds() {
   } catch (_) { return null; } // ioreg missing/slow/unparseable → "unknown", which keeps the old behaviour
 }
 
+// physicalIdleSeconds() spawns a process, and the ambient poller runs every second — so a cursor parked on
+// that screen would fork ioreg once a second forever. Cache briefly and AGE the cached value forward, so a
+// reading of "0.2s ago" taken 1.5s back correctly reports 1.7s rather than pretending to be fresh.
+let physIdleCache = { at: 0, val: null };
+function cachedPhysicalIdleSeconds(maxAgeMs = 2000) {
+  const now = Date.now();
+  if (physIdleCache.at && now - physIdleCache.at < maxAgeMs)
+    return physIdleCache.val === null ? null : physIdleCache.val + (now - physIdleCache.at) / 1000;
+  physIdleCache = { at: now, val: physicalIdleSeconds() };
+  return physIdleCache.val;
+}
+
+// The two INFERRED wake signals (idle clock moved / window lost focus) route through here instead of
+// dismissing outright. Deliberate input — a key, a click, Escape, an OS lock — does not, and still dismisses
+// immediately, which is what keeps the view from ever trapping anyone.
+let ambientHeldLogged = false; // one line per ambient session, not one per poll
+function maybeDismissOnInferredWake(reason, forceNoLock) {
+  if (!ambientWindow) return;
+  const { dismiss, why } = AmbientWake.shouldDismissOnInferredWake({ physicalIdleSeconds: cachedPhysicalIdleSeconds() });
+  if (!dismiss) {
+    if (!ambientHeldLogged) { ambientHeldLogged = true; console.log(`[notzero] ambient view kept up (${reason}) — ${why}`); }
+    return;
+  }
+  dismissAmbient(forceNoLock, reason);
+}
+
 // config.json: { ambient: { enabled, idleSeconds, lockOnWake } }
 function ambientCfg() {
   let c = {}; try { c = (JSON.parse(fs.readFileSync(configPath(), "utf8")).ambient) || {}; } catch (_) {}
@@ -299,9 +325,14 @@ function openAmbient(manual, forceDebug) {
   ambientWindow.on("closed", () => { ambientWindow = null; try { globalShortcut.unregister("Escape"); } catch (_) {} });
   // Escape hatches so the view can NEVER trap you: any key, losing focus (Cmd+Tab / click-away / Mission Control), and the idle poller.
   ambientWindow.webContents.on("before-input-event", (_e, input) => { if (input.type === "keyDown") dismissAmbient(false, "key press"); });   // any key = a wake → may lock
-  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) dismissAmbient(true, "focus lost"); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
+  // A CLICK is deliberate wherever it came from, so it dismisses immediately and never routes through the
+  // inferred-wake check — this is the escape hatch that still works from the other Mac now that a drifting
+  // cursor no longer tears the view down. before-input-event is keyboard-only; the mouse needs input-event.
+  ambientWindow.webContents.on("input-event", (_e, input) => { if (input && input.type === "mouseDown") dismissAmbient(false, "click"); });
+  ambientWindow.on("blur", () => { if (Date.now() - ambientShownAt > 800) maybeDismissOnInferredWake("focus lost", true); });                          // focus loss (Cmd+Tab) → dismiss but never lock (longer grace so the fullscreen transition doesn't self-dismiss)
   ambientWindow.webContents.on("did-fail-load", (_e, code, desc, url) => { console.error(`[notzero] ambient view failed to load: ${code} ${desc} ${url}`); });
   ambientShownAt = Date.now();
+  ambientHeldLogged = false;
   const cfg = ambientCfg();
   const page = cfg.style === "rain" ? "ambient-rain.html" : "ambient.html"; // The Deep (swarm→coin) or Matrix rain
   const q = (cfg.debug || forceDebug) ? "?debug=1" : ""; // config `ambient.debug:true` or the debug menu item → on-screen size readout + canvas markers
@@ -363,7 +394,7 @@ function startAmbientWatch() {
     if (ambientWindow) {
       // idle-opened: dismiss on any real input (screensaver behavior). manual preview stays until Esc/⌘W — never
       // auto-dismisses on mouse move, so you can actually look at it.
-      if (!ambientManual && idle < 2 && Date.now() - ambientShownAt > 1200) dismissAmbient(false, "input detected"); // wake → dismissAmbient decides on the lock
+      if (!ambientManual && idle < 2 && Date.now() - ambientShownAt > 1200) maybeDismissOnInferredWake("input detected", false); // inferred wake → held unless a person is actually here
     } else if (AmbientWake.shouldOpenAmbient({ enabled: cfg.enabled, idle, idleSeconds: cfg.idleSeconds, screenLocked, alreadyOpen: false })) {
       openAmbient(false); // idle-triggered
     }

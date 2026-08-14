@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.86
 
+**Ambient view**
+- **Your mouse wandering onto another Mac's screen no longer closes the ambient view.** If you leave a second
+  Mac running the ambient view as an always-on display and drive it from another machine, the cursor drifting
+  across counted as "you're back" and the view you were watching disappeared — then took five minutes of idle
+  to return. It now stays up unless someone is actually at that machine. Nothing else changes: a key press, a
+  click, or Escape still closes it instantly from either Mac, so it can never get in your way, and physically
+  touching that Mac still closes it *and* locks the screen if you have that switched on.
+
 ## 0.1.85
 
 **Miner**

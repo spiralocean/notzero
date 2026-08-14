@@ -8,7 +8,7 @@
 
 const test = require("node:test");
 const assert = require("node:assert");
-const { shouldOpenAmbient, lockDecision, REMOTE_WAKE_MAX_PHYSICAL_IDLE } = require("./ambient-wake.js");
+const { shouldOpenAmbient, lockDecision, shouldDismissOnInferredWake, REMOTE_WAKE_MAX_PHYSICAL_IDLE } = require("./ambient-wake.js");
 
 const open = (over = {}) => shouldOpenAmbient({ enabled: true, idle: 300, idleSeconds: 300, screenLocked: false, alreadyOpen: false, ...over });
 const wake = (over = {}) => lockDecision({ forceNoLock: false, manual: false, lockOnWake: true, physicalIdleSeconds: 0.4, ...over });
@@ -86,5 +86,48 @@ test("every decision explains itself, because this one locks a computer", () => 
     const d = wake(over);
     assert.equal(typeof d.why, "string");
     assert.ok(d.why.length > 10, `unhelpful reason for ${JSON.stringify(over)}: ${d.why}`);
+  }
+});
+
+// ---- holding the view up for a cursor that is not a person -----------------------------------------------
+// A Mac left running as an always-on ambient display: the saver vanished whenever a Universal Control cursor
+// drifted onto that screen. Measured on the affected install, of the dismissals since 0.1.84, five were a
+// real person (correctly locked) and five were a mouse wandering across. Injected input already could not
+// LOCK; it should not tear the view down either — same signal, same reasoning.
+
+const held = (over = {}) => shouldDismissOnInferredWake({ physicalIdleSeconds: 0.4, ...over });
+
+test("a person at the keyboard still dismisses the view", () => {
+  const d = held({ physicalIdleSeconds: 0.2 });
+  assert.equal(d.dismiss, true);
+  assert.match(d.why, /physical input/);
+});
+
+test("THE ANNOYANCE: a drifting Universal Control cursor leaves the view up", () => {
+  const d = held({ physicalIdleSeconds: 1400 }); // the real number from the log line that prompted this
+  assert.equal(d.dismiss, false);
+  assert.match(d.why, /Universal Control/);
+  assert.match(d.why, /stays up/);
+});
+
+test("the hold uses the same physical-input threshold as the lock decision", () => {
+  // One notion of "is a person here", not two that can drift apart.
+  assert.equal(held({ physicalIdleSeconds: REMOTE_WAKE_MAX_PHYSICAL_IDLE }).dismiss, true);
+  assert.equal(held({ physicalIdleSeconds: REMOTE_WAKE_MAX_PHYSICAL_IDLE + 0.01 }).dismiss, false);
+  // and the two decisions agree at the boundary, which is the point of sharing it
+  for (const phys of [0, 1, REMOTE_WAKE_MAX_PHYSICAL_IDLE, 60, 1400]) {
+    const dismissed = shouldDismissOnInferredWake({ physicalIdleSeconds: phys }).dismiss;
+    const locked = lockDecision({ lockOnWake: true, physicalIdleSeconds: phys }).lock;
+    assert.equal(dismissed, locked, `at ${phys}s both should agree a person is/is not present`);
+  }
+});
+
+test("an unreadable hardware clock dismisses, rather than holding a window up on a guess", () => {
+  // Wrong in the opposite direction from lockDecision, deliberately: guessing wrong about LOCKING risks
+  // locking someone out, guessing wrong about HOLDING leaves an always-on-top window nobody asked to keep.
+  for (const phys of [null, undefined, NaN, "nope"]) {
+    const d = shouldDismissOnInferredWake({ physicalIdleSeconds: phys });
+    assert.equal(d.dismiss, true, `physicalIdleSeconds=${String(phys)}`);
+    assert.match(d.why, /no hardware idle clock/);
   }
 });
