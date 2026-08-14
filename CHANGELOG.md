@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.85
 
+**Miner**
+- **A slow third-party server no longer holds up your miner.** The app reads the network's block height from
+  a public site to show alongside your own node's — useful, but nothing depends on it once your node is
+  running, because your node hears about new blocks first. It was still being given fifteen seconds to
+  answer, and twice this week it took eleven and thirteen, each time stalling a third of a thirty-second
+  cycle for a number already on screen. It now gets four seconds when your own node is the one keeping time,
+  and the full fifteen whenever that public number is genuinely what the miner is waiting on — while your
+  node is still syncing, or in practice mode, where cutting it short could cost you a ticket.
+
 ## 0.1.84
 
 **Ambient view — important if you use "lock when I come back"**
