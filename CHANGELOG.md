@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.87
 
+**App**
+- **An update no longer drops you out of full screen.** If you were running the app full screen, it now comes
+  back full screen after it updates itself, instead of reopening in a normal window with the dock and menu bar
+  over the top of it. Only if that is how it was actually running — an update will never put you into full
+  screen when you were not already there.
+
 ## 0.1.86
 
 **Ambient view**
