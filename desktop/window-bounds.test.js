@@ -101,3 +101,42 @@ test("no displays reported at all → defaults rather than a crash", () => {
     assert.deepEqual(placement(saved, displays, DEFAULTS), { width: 1400, height: 900 });
   }
 });
+
+// ---- full screen: restored, but only when it was genuinely the running state ----------------------------
+// Reported after an auto-update: a Mac left running the ambient view in full screen came back in a normal
+// frame, so the dock and menu bar reappeared over the view. The geometry was being restored; the full-screen
+// state was not, because the first version of this file deliberately declined to.
+
+test("a window that was in full screen comes back in full screen", () => {
+  const saved = { x: 47, y: 30, width: 1280, height: 810, fullScreen: true };
+  const got = placement(saved, [LAPTOP], DEFAULTS);
+  assert.equal(got.fullScreen, true);
+  // the pre-full-screen size still rides along, so leaving full screen lands back where it was
+  assert.equal(got.width, 1280);
+  assert.equal(got.height, 810);
+});
+
+test("a window that was NOT in full screen is never dropped into it", () => {
+  // The failure that would matter more than the bug: a background auto-update putting someone into a macOS
+  // full-screen Space they never asked for, possibly on a display they cannot see.
+  for (const saved of [
+    { x: 47, y: 30, width: 1280, height: 810 },                        // the real recorded state before this
+    { x: 47, y: 30, width: 1280, height: 810, fullScreen: false },
+    { x: 47, y: 30, width: 1280, height: 810, maximized: true },       // maximised is NOT full screen
+    { x: 47, y: 30, width: 1280, height: 810, fullScreen: "true" },    // hand-edited JSON, wrong type
+    { x: 47, y: 30, width: 1280, height: 810, fullScreen: 1 },
+  ]) {
+    assert.equal(placement(saved, [LAPTOP], DEFAULTS).fullScreen, undefined,
+      `must not infer full screen from ${JSON.stringify(saved)}`);
+  }
+});
+
+test("full screen survives the display it was on disappearing", () => {
+  // Full screen is not tied to the saved coordinates — dropping an off-screen POSITION must not also throw
+  // away the state, or undocking would silently change how the app runs.
+  const saved = { x: 9000, y: 9000, width: 1280, height: 810, fullScreen: true };
+  const got = placement(saved, [LAPTOP], DEFAULTS);
+  assert.equal(got.fullScreen, true, "still full screen, on whichever display the OS picks");
+  assert.equal(got.x, undefined, "but the dead position is still dropped");
+  assert.equal(got.width, 1280);
+});

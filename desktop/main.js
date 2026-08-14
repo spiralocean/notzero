@@ -142,7 +142,7 @@ function persistWindowBounds(win) {
     // overwrite the size the user actually chose with a screen-sized or zero-sized rectangle.
     const b = win.getNormalBounds();
     if (!b || b.width < 1 || b.height < 1) return;
-    fs.writeFileSync(windowStatePath(), JSON.stringify({ ...b, maximized: win.isMaximized() }));
+    fs.writeFileSync(windowStatePath(), JSON.stringify({ ...b, maximized: win.isMaximized(), fullScreen: win.isFullScreen() }));
   } catch (_) { /* geometry is a nicety — never let it break a close or a quit */ }
 }
 // Saving on close alone would cover the auto-update path (quitAndInstall closes the window first) but lose
@@ -1438,18 +1438,25 @@ async function createWindow() {
   // lands on a connected display, so an unplugged monitor can't strand the window off-screen.
   let savedBounds = null;
   try { savedBounds = JSON.parse(fs.readFileSync(windowStatePath(), "utf8")); } catch (_) {}
-  const { maximized, ...geometry } = WindowBounds.placement(
+  const { maximized, fullScreen, ...geometry } = WindowBounds.placement(
     savedBounds, screen.getAllDisplays(), { width: 1280, height: 880, minWidth: 900, minHeight: 600 });
   const win = new BrowserWindow({
-    ...geometry, minWidth: 900, minHeight: 600,
+    ...geometry, minWidth: 900, minHeight: 600, fullscreen: !!fullScreen,
     backgroundColor: "#05040a", title: "Bitcoin Lottery", icon: ICON, autoHideMenuBar: false, // keep the menu visible so Settings is reachable (Win/Linux)
     webPreferences: { contextIsolation: true, nodeIntegration: false },
   });
   mainWindow = win;
   if (maximized) win.maximize();
-  // Fullscreen is deliberately NOT restored. Relaunching straight into a macOS full-screen space is the exact
-  // situation that made the ambient view take the whole app down in 0.1.81 — not a state to re-enter on the
-  // user's behalf for the sake of a nicety.
+  // Full screen IS restored, via the constructor rather than a setFullScreen() call afterwards, so the window
+  // opens directly into its Space instead of visibly flying into one.
+  //
+  // This was deliberately NOT done when bounds persistence landed, on the grounds that relaunching into a
+  // macOS full-screen Space is the state that made the ambient view abort the app in 0.1.81. Revisited
+  // because that reasoning does not survive contact with how the app is actually used: 0.1.81 shipped the
+  // guard (openAmbient skips its own full-screen presentation while another window owns a Space), it is
+  // observably firing on the affected install, and full screen is that user's PERMANENT running state — so
+  // refusing to restore it does not avoid the risky combination, it just makes every auto-update dump them
+  // out of it, dock and menu bar reappearing over the ambient view they leave running.
   win.on("resize", () => scheduleBoundsSave(win));
   win.on("move", () => scheduleBoundsSave(win));
   win.on("close", () => persistWindowBounds(win)); // synchronous: quitAndInstall closes the window on its way out

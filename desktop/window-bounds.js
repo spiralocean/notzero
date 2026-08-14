@@ -32,7 +32,7 @@ function intersects(rect, area, minVisible = MIN_VISIBLE) {
  * defaults: {width, height, minWidth, minHeight}
  *
  * Returns {width, height} (let the OS place it) or {x, y, width, height} (restore in full), plus
- * `maximized` when the window should come back maximized.
+ * `maximized` / `fullScreen` when the window should come back in that state.
  */
 function placement(saved, displays, defaults) {
   const { width: dw, height: dh, minWidth = 0, minHeight = 0 } = defaults;
@@ -48,6 +48,11 @@ function placement(saved, displays, defaults) {
     out.height = Math.round(h);
   }
   if (saved.maximized === true) out.maximized = true;
+  // Full screen is restored only when it was EXPLICITLY recorded, never inferred from a maximised window or
+  // a window that happened to fill a display. Someone who was not in full screen must not be dropped into a
+  // macOS full-screen Space by a background auto-update — that is a jarring thing to do to a person, and
+  // harder to get out of than it looks if the window comes back on a display they cannot see.
+  if (saved.fullScreen === true) out.fullScreen = true;
 
   const x = num(saved.x), y = num(saved.y);
   if (x === null || y === null) return out;
