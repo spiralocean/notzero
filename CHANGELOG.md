@@ -14,6 +14,12 @@ version number and bump `desktop/package.json`.
   cycle for a number already on screen. It now gets four seconds when your own node is the one keeping time,
   and the full fifteen whenever that public number is genuinely what the miner is waiting on — while your
   node is still syncing, or in practice mode, where cutting it short could cost you a ticket.
+- **The app no longer restarts the miner moments after starting it.** The miner writes a heartbeat so the app
+  can tell a working one from a stuck one. That heartbeat sits in a file, which outlives the miner that wrote
+  it — so just after launch the app was reading the *previous* miner's last heartbeat, deciding the brand-new
+  one had been silent for minutes, and restarting it. Its first pass is also its slowest, which widened the
+  window. A miner now gets the same couple of minutes to check in for the first time that a running one gets
+  to miss a check-in, and a genuinely stuck miner is still caught as quickly as before.
 
 ## 0.1.84
 

@@ -83,3 +83,42 @@ test("the threshold is overridable without changing the shape of the answer", ()
   assert.equal(isMinerStalled({ lastPollAgeSec: 90 }), false, "default 120s tolerates it");
   assert.equal(isMinerStalled({ lastPollAgeSec: 90, minStaleSec: 60 }), true, "a tighter bound flags it");
 });
+
+// ---- incident 5: 2026-08-11, a miner killed for being NEW ------------------------------------------------
+// Twice in one evening — "poll loop last ran 357s ago" and "179s ago" — both moments after the app restarted.
+// Nothing was wrong. last_poll_at lives in state.json, which OUTLIVES the process that wrote it, so a fresh
+// miner is judged on a dead one's last breath. Its first pass is also its slowest (node RPC, price, balance),
+// so the window is real, and restarting inside it just makes it happen again.
+test("a miner that only just started is never called stalled", () => {
+  // The exact shape of the incident: a six-minute-old heartbeat from the previous process, 20s after launch.
+  assert.equal(isMinerStalled({ lastPollAgeSec: 357, minerUptimeSec: 20 }), false, "the 05:19 firing");
+  assert.equal(isMinerStalled({ lastPollAgeSec: 179, minerUptimeSec: 45 }), false, "the 06:24 firing");
+});
+
+test("the startup grace is exactly the staleness budget, and then it is over", () => {
+  // A new miner gets the same allowance to produce its FIRST heartbeat that a running one gets to miss
+  // passes. Longer would blind the watchdog after every restart; shorter reopens the incident above.
+  const edge = POLL_INTERVAL_SEC * STALE_POLLS;
+  assert.equal(isMinerStalled({ lastPollAgeSec: 9999, minerUptimeSec: edge }), false, "still within grace");
+  assert.equal(isMinerStalled({ lastPollAgeSec: 9999, minerUptimeSec: edge + 0.1 }), true, "grace spent, and it never reported in");
+});
+
+test("the grace does not protect a miner that has been up a long time", () => {
+  // The whole point of the watchdog: a genuinely wedged loop must still be caught, however long it has run.
+  assert.equal(isMinerStalled({ lastPollAgeSec: 300, minerUptimeSec: 3600 }), true);
+  assert.equal(isMinerStalled({ lastPollAgeSec: 300, minerUptimeSec: 86400 }), true);
+});
+
+test("a fresh heartbeat is alive regardless of uptime", () => {
+  for (const up of [0, 5, 120, 99999]) {
+    assert.equal(isMinerStalled({ lastPollAgeSec: 5, minerUptimeSec: up }), false, `uptime ${up}s`);
+  }
+});
+
+test("an unknowable uptime keeps the old behaviour rather than disabling the watchdog", () => {
+  // A caller that cannot say when the miner started must not thereby switch the watchdog off — that would
+  // trade a rare wrong restart for never restarting a wedged miner at all, which is the worse failure.
+  for (const bad of [undefined, null, NaN, Infinity, "soon", -1]) {
+    assert.equal(isMinerStalled({ lastPollAgeSec: 300, minerUptimeSec: bad }), true, `minerUptimeSec=${bad}`);
+  }
+});

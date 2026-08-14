@@ -29,9 +29,22 @@ const POLL_INTERVAL_SEC = 30;          // lottery_miner.py POLL_INTERVAL_SEC —
 const STALE_POLLS = 4;                 // 4 missed passes (~2 min) before calling it dead: survives a slow RPC
                                        // or a scheduler hiccup, still catches a real wedge inside two minutes
 
-function isMinerStalled({ lastPollAgeSec, minStaleSec = POLL_INTERVAL_SEC * STALE_POLLS } = {}) {
+// …which leaves one way to kill a healthy miner that has nothing to do with the chain, and it bit on
+// 2026-08-11 (twice, "poll loop last ran 357s ago" and "179s ago", both moments after an app restart):
+//
+//   5. a miner that has only just STARTED has not stamped its own heartbeat yet, and the timestamp still on
+//      disk belongs to the PREVIOUS process. The reader is measuring the age of a dead miner's last breath
+//      and attributing it to the live one. The first pass is also the slowest — node RPC, price, balance —
+//      so the window is real, and restarting inside it makes it recur.
+//
+// Same error as the other four, one level up: inferring liveness from data the CURRENT miner did not write.
+// So a miner is given the same budget to produce its first heartbeat that a running one gets to miss passes.
+function isMinerStalled({ lastPollAgeSec, minerUptimeSec, minStaleSec = POLL_INTERVAL_SEC * STALE_POLLS } = {}) {
   if (!Number.isFinite(lastPollAgeSec)) return false;   // no last_poll_at (older miner, or bridge not updated) -> never guess
   if (lastPollAgeSec < 0) return false;                 // clock skew between writer and reader -> never guess
+  // Unknown uptime (an older caller, or the miner isn't ours to time) keeps the previous behaviour rather
+  // than silently disabling the watchdog — an unguessable start time must not mean "never restart anything".
+  if (Number.isFinite(minerUptimeSec) && minerUptimeSec >= 0 && minerUptimeSec <= minStaleSec) return false;
   return lastPollAgeSec > minStaleSec;                  // the loop has missed several passes: it is not running
 }
 
