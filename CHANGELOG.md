@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.85
+## Unreleased — next: 0.1.86
+
+## 0.1.85
 
 **Miner**
 - **A slow third-party server no longer holds up your miner.** The app reads the network's block height from
