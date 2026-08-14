@@ -121,8 +121,8 @@ jobs:
       - uses: actions/setup-node@v7
         with:
           node-version: "22"
-      - name: Unit tests (desktop + web)
-        run: node --test desktop/*.test.js web/*.test.js
+      - name: Unit tests (desktop + web + stats)
+        run: node --test desktop/*.test.js web/*.test.js stats/*.test.js
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

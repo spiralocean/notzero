@@ -170,7 +170,7 @@
     <summary>Hourly figures</summary>
     <div class="tw">
       <table>
-        <thead><tr><th>Hour (UTC)</th><th>Changelog polls</th><th>Implied installs</th><th>Installers</th><th>Proof fetches</th><th>mac</th><th>win</th><th>linux</th><th>Site visits</th><th>Demo visits</th></tr></thead>
+        <thead><tr><th>Hour (UTC)</th><th>Changelog polls</th><th>Awake (est.)</th><th>Installers</th><th>Proof fetches</th><th>mac</th><th>win</th><th>linux</th><th>Site visits</th><th>Demo visits</th></tr></thead>
         <tbody id="tbody"></tbody>
       </table>
     </div>
@@ -233,7 +233,7 @@ function drawInstalls(rows) {
     i = Math.max(0, Math.min(rows.length - 1, i));
     const r = rows[i];
     focus.setAttribute("cx", x(i)); focus.setAttribute("cy", y(r.installs)); focus.setAttribute("opacity", 1);
-    tip.show(`<span class="th">${r.hour}:00 UTC</span><br>${r.installs} installs<br><span class="th">${r.changelog} polls</span>${REL[r.hour] ? `<br><span class="th">v${REL[r.hour]} shipped</span>` : ""}`, (x(i) / W) * bb.width, (y(r.installs) / Hh) * bb.height);
+    tip.show(`<span class="th">${r.hour}:00 UTC</span><br>~${r.installs} awake<br><span class="th">${r.changelog} polls</span>${REL[r.hour] ? `<br><span class="th">v${REL[r.hour]} shipped</span>` : ""}`, (x(i) / W) * bb.width, (y(r.installs) / Hh) * bb.height);
   });
   svg.addEventListener("pointerleave", () => { focus.setAttribute("opacity", 0); tip.hide(); });
 }
@@ -339,6 +339,22 @@ function drawMachines(machines, fleet) {
 // restart every machine that updates, and crawlers/uptime probes/a curl during release verification all hit
 // the same URL), and a verification sweep touching all three files equally skewed the split as well as the
 // total. These numbers come from the same source as the fleet count, so the two now agree by construction.
+// "Lower than the machine count because some are asleep" was asserted, never checked — and it is the first
+// thing to break, because this figure is polls divided by a cadence that cannot see app launches (each adds
+// two) while the machine count comes from installer fetches, one per machine per release. When the estimate
+// lands ABOVE the fleet, say so and name both candidates rather than printing two numbers that quietly
+// contradict each other. Deliberately NOT clamped to the fleet: that tally only holds hours the page has
+// actually observed, so it under-reports releases predating it, and clamping would hide a real disagreement
+// behind a denominator that is itself incomplete.
+function awakeNote(t) {
+  const awake = Number(t.installsSteady) || 0;
+  const fleet = Number(t.fleet || t.machinesSeen) || 0;
+  if (!fleet) return "Median hour, estimated from polling volume.";
+  if (awake === fleet) return `Median hour — about ${awake} of ${fleet} machines, so essentially all of them are up.`;
+  if (awake < fleet) return `Median hour — about ${awake} of ${fleet} machines. The rest are asleep or shut down.`;
+  return `Median hour, but this is ABOVE the ${fleet} machines counted from installers, so one of the two is off: either extra polls inflating it (every app launch adds two), or an installer tally missing releases from before it started recording.`;
+}
+
 function drawPlatform(platform) {
   const host = clear("p-platform");
   const rows = [
@@ -413,7 +429,7 @@ function tiles(d) {
   $("tiles").innerHTML = `
     <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Every machine counted once, on the release it is actually running. From installer fetches — real computers, not an average.</span></div>
     <div class="tile lead"><span class="k">New downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time. Someone clicking the button on getnotzero.com, once per browser. Does NOT move when existing installs auto-update — that is the fetches chart below.</span></div>
-    <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">Median hour. Lower than the machine count because some are asleep.</span></div>
+    <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">${awakeNote(t)}</span></div>
     <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;
 }
 
