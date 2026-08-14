@@ -59,4 +59,30 @@ function lockDecision({ forceNoLock, manual, lockOnWake, physicalIdleSeconds } =
   return { lock: true, why: `woken by physical input ${phys.toFixed(1)}s ago` };
 }
 
-module.exports = { shouldOpenAmbient, lockDecision, REMOTE_WAKE_MAX_PHYSICAL_IDLE };
+/**
+ * A wake we only INFERRED — the system idle clock moved, or the window lost focus — should it tear the view
+ * down at all?
+ *
+ * Same reasoning as lockDecision, carried one step further, and for the same reason: neither signal can tell
+ * a person at this keyboard from a cursor arriving over Universal Control. 0.1.84 stopped injected input
+ * LOCKING the machine. It still dismissed the view, which on a Mac left running as an always-on ambient
+ * display means the thing you are watching disappears whenever your mouse drifts onto that screen. Measured
+ * on the affected install: of the dismissals since 0.1.84, five were a real person (and correctly locked) and
+ * five were a cursor wandering across.
+ *
+ * This does NOT weaken the escape hatches, which is the property that matters — the view must never trap
+ * anyone. Everything DELIBERATE still dismisses instantly and does not come through here: a key press, a
+ * click on the view, Escape, and the OS lock/suspend events. All of those are deliverable from the other Mac
+ * too, so a remote user is never stuck either. Only the two INFERRED signals are held back.
+ */
+function shouldDismissOnInferredWake({ physicalIdleSeconds, maxPhysicalIdle = REMOTE_WAKE_MAX_PHYSICAL_IDLE } = {}) {
+  const phys = typeof physicalIdleSeconds === "number" && Number.isFinite(physicalIdleSeconds) ? physicalIdleSeconds : null;
+  // Unknown hardware clock (non-macOS, or ioreg failed) keeps the old behaviour: dismiss. Holding the view up
+  // on a guess would be the worse failure — an always-on-top window nobody asked to keep.
+  if (phys === null) return { dismiss: true, why: "no hardware idle clock to check against" };
+  if (phys > maxPhysicalIdle)
+    return { dismiss: false, why: `no physical input for ${Math.round(phys)}s — injected input (Universal Control / Sidecar / remote desktop), so the view stays up` };
+  return { dismiss: true, why: `physical input ${phys.toFixed(1)}s ago` };
+}
+
+module.exports = { shouldOpenAmbient, lockDecision, shouldDismissOnInferredWake, REMOTE_WAKE_MAX_PHYSICAL_IDLE };
