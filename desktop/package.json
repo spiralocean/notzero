@@ -39,6 +39,7 @@
       "miner-watchdog.js",
       "window-bounds.js",
       "ambient-wake.js",
+      "boot-settle.js",
       "package.json",
       "assets/icon.png",
       "wizard.html",

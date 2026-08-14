@@ -75,6 +75,7 @@ const { createNodeRecovery } = require("./node-recovery.js"); // restarts the ma
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
 const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
 const { isMinerStalled, POLL_INTERVAL_SEC } = require("./miner-watchdog.js"); // is the miner's poll loop actually running
+const { createBootSettle, CEILING_MS: SETTLE_CEILING_MS } = require("./boot-settle.js"); // holds the node/engines back until a booting machine settles
 let modalDepth = 0; // native modal dialogs currently on screen (only whatsNewDialog dwells long enough to matter)
 const crypto = require("node:crypto");
 // on-chain (OpenTimestamps) update verification against the local node — OPTIONAL. Guard the require so a
@@ -118,6 +119,7 @@ const STEP_LABEL = {
   "downloading-core": "Downloading Bitcoin Core", "extracting": "Verifying & installing Bitcoin Core",
   "starting": "Starting your private node", "loading-snapshot": "Loading the verified chain snapshot",
   "syncing": "Syncing the blockchain", "ready": "Ready", "error": "Something went wrong",
+  "settling": "Waiting for your computer to finish starting up",
 };
 function logManaged(s) {
   const key = `${s.state}|${s.detail || ""}`; // log on step/detail change — not on every progress tick
@@ -128,6 +130,19 @@ function logManaged(s) {
   managedLog.push(line);
   try { fs.appendFileSync(path.join(DATA_DIR, "install.log"), line + "\n"); } catch (_) {}
 }
+// Boot settle gate: on a login-item launch into a freshly-booted machine, hold the node + engines back until
+// the startup stampede dies down. It always starts on its own (boot-settle's ceiling) — nobody has to click
+// anything. `settleReportsToUi` keeps the status out of an external-node install's state, where the setup
+// screen that would render it never appears.
+let settleReportsToUi = false;
+const bootSettle = createBootSettle({
+  onStatus: (detail) => {
+    if (!settleReportsToUi) return;
+    managedState = { state: "settling", progress: null, detail };
+    logManaged(managedState);
+  },
+  log: (m) => console.log(`[notzero] boot-settle: ${m}`),
+});
 const configPath = () => path.join(DATA_DIR, "config.json");
 // Window geometry gets its OWN file, deliberately. config.json holds the RPC credentials and the payout
 // address; a geometry save fires on every drag and resize, and that is not something to run repeatedly over
@@ -1403,6 +1418,9 @@ function startServer() {
 // ---- Windows + Linux system tray: lets the app keep the node + miner running after the window is closed,
 // matching macOS's "closing keeps it running" behavior. Mac keeps its dock; Windows/Linux get a tray. ----
 function showMainWindow() {
+  // Coming to look at it means you want it mining — skip whatever is left of the boot settle wait. (A no-op
+  // once it has started, which is the normal case.)
+  bootSettle.startNow("you opened the window");
   if (mainWindow && !mainWindow.isDestroyed()) { if (mainWindow.isMinimized()) mainWindow.restore(); mainWindow.show(); mainWindow.focus(); }
   else createWindow();
 }
@@ -1586,8 +1604,14 @@ if (!app.requestSingleInstanceLock()) {
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
     applyAutoStart(cfg); // keep the login item in sync with the setting on every launch
     if (fs.existsSync(configPath())) { // configured already → mine; otherwise the wizard sets it up
-      if (cfg.node_mode === "managed") startManagedNode(); // provision/resume our own node, then start engines when it's mineable
-      else startEngines();
+      // Not directly: a login-item launch into a booting machine waits for it to settle first (boot-settle.js).
+      // Launching by hand, or relaunching after an auto-update, runs this immediately — and either way it runs
+      // WITHOUT anyone clicking anything, because the gate has a hard deadline of its own.
+      settleReportsToUi = cfg.node_mode === "managed";
+      bootSettle.schedule(
+        () => { if (cfg.node_mode === "managed") startManagedNode(); else startEngines(); }, // provision/resume our own node (engines follow when it's mineable), or just the engines against an external one
+        { bootHidden, uptimeSec: os.uptime() },
+      );
     }
     buildMenu();
     createTray(); // tray icon: reachable after a hidden/boot launch, and closing the window keeps mining
@@ -1595,7 +1619,10 @@ if (!app.requestSingleInstanceLock()) {
     if (!bootHidden) { createWindow(); setTimeout(maybeShowWhatsNew, 2000); } // normal launch: show window, then recap what changed after an auto-update
     initAutoUpdate();
     refreshUpdateHistory(); // populate the dashboard list ASAP from the published proofs (seconds) — don't make users stare at an empty section while the node boots
-    (async () => { await waitForNodeReachable(); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })(); // then re-confirm each release against your just-booted node (upgrades "anchored" → node-verified)
+    // then re-confirm each release against your just-booted node (upgrades "anchored" → node-verified). The
+    // budget has to cover the settle gate as well as the node's own boot, or a held-back node misses this pass
+    // entirely and the list sits on "anchored" until the 30-minute interval below comes round.
+    (async () => { await waitForNodeReachable(bootSettle.waiting() ? 300000 + SETTLE_CEILING_MS : undefined); refreshCurrentVersionAnchor(); refreshUpdateHistory(); })();
     setInterval(refreshCurrentVersionAnchor, 30 * 60 * 1000); // running version's on-chain badge; re-check so a pending proof flips to confirmed
     setInterval(refreshUpdateHistory, 30 * 60 * 1000); // verified-releases list for the dashboard
     startNotifier(); // OS notifications for block won / new best / node sync changes
@@ -1603,7 +1630,7 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.on("activate", () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } else createWindow(); }); // dock click → show the existing (hidden) window, preserving its size/position; only build a new one if none exists
-app.on("before-quit", () => { isQuitting = true; nodeRecovery.cancel(); stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node). cancel() first: stopping the node emits an error state, and a pending retry must not restart it into the shutdown
+app.on("before-quit", () => { isQuitting = true; bootSettle.cancel(); nodeRecovery.cancel(); stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node). cancel() first: stopping the node emits an error state, and a pending retry must not restart it into the shutdown
 // macOS keeps the app in the dock; Windows + Linux hide to the tray — in all three the miner keeps running and
 // only the tray Quit / menu Exit / ⌘Q stops it. We only quit here as a fallback: no tray could be created
 // (headless / unsupported desktop), so there'd be nothing to reopen from.

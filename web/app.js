@@ -259,6 +259,7 @@ function nodeSetupView() {
   if (s.state === "ready" || s.state === "idle" || !s.state) return null; // node up (or nothing happening) → the live node.json drives the panel
   const P = s.progress != null ? Math.max(0, Math.min(1, s.progress)) : null, pct = P != null ? ` ${Math.round(P * 100)}%` : "";
   const M = {
+    "settling":         { head: "Waiting for your computer",           detail: "Still finishing startup — mining begins by itself in a few minutes, with nothing to click." },
     "downloading-core": { head: "Downloading Bitcoin Core" + pct,      detail: "Fetching the node software — a one-time download." },
     "extracting":       { head: "Unpacking Bitcoin Core",              detail: "Almost ready to start your node." },
     "starting":         { head: "Starting your node",                  detail: "Bringing Bitcoin Core online…" },
