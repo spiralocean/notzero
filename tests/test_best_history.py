@@ -83,6 +83,26 @@ def main() -> int:
     state = lm.record_attempt(state, attempt(2001, 4), "seed", "live")
     check("a worse ticket adds no step", len(state["best_history"]) - before, 1)
 
+    # --- a poisoned history must not take the miner down with it ---
+    #
+    # load_state() calls normalize_stats with no guard, and this seeding loop runs on EVERY existing install
+    # (best_history is a new key), over every ticket on their disk. An unparseable hash there would be a miner
+    # that will not start — for everyone, on the first launch after updating.
+    print("a malformed ticket is skipped, not fatal")
+    poisoned = [
+        ticket(1100, 3, stamp(20)),
+        {"mode": "live", "height": 1101, "hash_hex": "not-a-hash", "attempted_at": stamp(21)},
+        {"mode": "live", "height": 1102, "hash_hex": None, "attempted_at": stamp(22)},
+        {"mode": "live", "height": 1103, "attempted_at": stamp(23)},
+        ticket(1104, 8, stamp(24)),
+    ]
+    state = lm.normalize_stats({"history": list(reversed(poisoned))})
+    check("good tickets still seed the ladder", [e["zero_bits"] for e in state["best_history"]], [3, 8])
+    check("…and the histogram", sorted(state["zhist"]), ["3", "8"])
+    check("…and the standing record", state["best"]["zero_bits"], 8)
+    check("a non-numeric stored best is ignored, not compared", "best_history" in
+          lm.normalize_stats({"history": [], "best": {"zero_bits": None, "hash": "00ff"}}), True)
+
     # --- the ladder is bounded ---
     print("the ladder is bounded")
     state = {"best_history": [{"zero_bits": i, "at": stamp(1)} for i in range(lm.BEST_HISTORY_LIMIT + 40)], "history": []}

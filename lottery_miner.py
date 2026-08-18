@@ -185,6 +185,21 @@ def validate_payout_address(address: str) -> str:
     return address
 
 
+def zero_bits(hash_hex) -> Optional[int]:
+    """Leading zero bits of a hash, or None if it isn't one.
+
+    Every seeding loop below walks a ticket history that has been accumulating on a user's disk for months,
+    and `load_state` calls them with no guard around it — so a single unparseable hash_hex would be a miner
+    that won't start. That was survivable while the seeds only ran on installs missing `best` or `zhist`
+    (nobody's, by now); best_history is a NEW key, so its loop runs once on every existing install, over
+    every ticket they have. The one place a bad value could take everything down is the one place it must not.
+    """
+    try:
+        return 256 - int(hash_hex, 16).bit_length()
+    except (TypeError, ValueError):
+        return None
+
+
 def normalize_stats(state: dict) -> dict:
     stats = state.get("stats", {"total_attempts": 0, "wins": 0})
     if "live_attempts" not in stats:
@@ -198,8 +213,8 @@ def normalize_stats(state: dict) -> dict:
         best = None
         for h in state.get("history", []):
             hh = h.get("hash_hex")
-            if h.get("mode") == "live" and hh:
-                z = 256 - int(hh, 16).bit_length()
+            z = zero_bits(hh) if h.get("mode") == "live" and hh else None
+            if z is not None:
                 if best is None or z > best["zero_bits"]:
                     best = {"zero_bits": z, "height": h.get("height"), "hash": hh, "nonce": h.get("nonce"), "at": h.get("attempted_at")}
         if best:
@@ -210,22 +225,24 @@ def normalize_stats(state: dict) -> dict:
             hh = h.get("hash_hex")
             if h.get("mode") != "live" or not hh:
                 continue
-            z = 256 - int(hh, 16).bit_length()
-            if ladder and z <= ladder[-1]["zero_bits"]:
+            z = zero_bits(hh)
+            if z is None or (ladder and z <= ladder[-1]["zero_bits"]):
                 continue
             # seeded=True: reconstructed from the stored ticket window, not observed live. The FIRST entry is
             # especially soft — it is only a "record" because nothing older is on disk to beat it.
             ladder.append({"zero_bits": z, "height": h.get("height"), "hash": hh, "nonce": h.get("nonce"), "at": h.get("attempted_at"), "seeded": True})
         best = state.get("best")  # a record set before the stored window still belongs on the ladder
-        if best and best.get("hash") and (not ladder or ladder[-1].get("hash") != best.get("hash")) and best.get("zero_bits", -1) > (ladder[-1]["zero_bits"] if ladder else -1):
+        bz = best.get("zero_bits") if isinstance(best, dict) else None
+        if isinstance(bz, int) and best.get("hash") and (not ladder or ladder[-1].get("hash") != best.get("hash")) \
+                and bz > (ladder[-1]["zero_bits"] if ladder else -1):
             ladder.append(dict(best))
         state["best_history"] = ladder[-BEST_HISTORY_LIMIT:]
     if "zhist" not in state:  # seed the leading-zero-bits histogram (heat map) from recent history
         zh: dict[str, int] = {}
         for h in state.get("history", []):
             hh = h.get("hash_hex")
-            if h.get("mode") == "live" and hh:
-                z = 256 - int(hh, 16).bit_length()
+            z = zero_bits(hh) if h.get("mode") == "live" and hh else None
+            if z is not None:
                 zh[str(z)] = zh.get(str(z), 0) + 1
         state["zhist"] = zh
     return state
@@ -510,8 +527,8 @@ def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: 
         if attempt.won:
             stats["live_wins"] = stats.get("live_wins", 0) + 1
     state["stats"] = stats
-    if mode == "live" and attempt.hash_hex:  # track the best-ever attempt + the leading-zero-bits histogram
-        z = 256 - int(attempt.hash_hex, 16).bit_length()
+    z = zero_bits(attempt.hash_hex) if mode == "live" and attempt.hash_hex else None
+    if z is not None:  # track the best-ever attempt + the leading-zero-bits histogram
         best = state.get("best")
         if best is None or z > best.get("zero_bits", -1):
             record = {"zero_bits": z, "height": attempt.height, "hash": attempt.hash_hex, "nonce": attempt.nonce, "at": attempt.attempted_at}
