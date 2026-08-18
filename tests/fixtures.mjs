@@ -30,6 +30,19 @@ const PRICE = 62978;
 // a winning-style hash for recent blocks / the celebration preview (~19 leading zero hex)
 const winHash = (n) => "0000000000000000000" + (BigInt("0x1a2b3c4d5e6f") + BigInt(n)).toString(16).padStart(45, "a");
 
+// The record list, at fixed offsets from NOW rather than fixed instants: the rows say how long each record
+// STOOD and how long the standing one has stood so far, both measured against the clock, so absolute stamps
+// would drift the panel's text by the day. Offsets keep every pixel identical each run.
+//
+// The oldest is deliberately >1 year back: a stamp older than the current year carries its year ("13 Jun 2023 ·
+// 09:28"), which is ~40px wider, and the block-number column used to be drawn straight through it.
+const BEST_HASH = "000000" + "a3c1f5".padEnd(58, "9");
+const BEST_LADDER = [[420, 5], [60, 9], [9, 14], [1.5, 24]].map(([daysAgo, bits], i, a) => ({
+  zero_bits: bits, height: 953700 + i * 149, nonce: 7 + i, seeded: i === 0,
+  hash: i === a.length - 1 ? BEST_HASH : "0".repeat(bits >> 2) + "c4b1e7".padEnd(64 - (bits >> 2), "9"),
+  at: new Date(Date.now() - daysAgo * 86400e3).toISOString(),
+}));
+
 // fixed leading-zero-bits histogram so the odds-map heat cloud is identical every run
 const ZHIST = {}; for (let b = 0; b <= 12; b++) ZHIST[b] = Math.round(1400 * Math.pow(0.55, b));
 
@@ -44,7 +57,8 @@ const NODE = {
     attempt: { height: ATT.height, hash: ATT_HASH, target: TARGET_HEX, nonce: ATT.nonce, won: false,
       leading_zero_bits: ATT_LZ, version: ATT.version, prev_hash: ATT.prev_hash, merkle_root: ATT.merkle_root,
       timestamp: ATT.timestamp, bits: ATT.bits, tx_count: ATT.tx_count },
-    best: { zero_bits: 24, height: 954001, hash: "000000" + "a3c1f5".padEnd(58, "9"), nonce: 7, at: 1718800000 },
+    best: { zero_bits: 24, height: 954001, hash: BEST_HASH, nonce: 7, at: BEST_LADDER[BEST_LADDER.length - 1].at },
+    best_history: BEST_LADDER,
     zhist: ZHIST,
   },
   miner_proc: { cpu: 0.0, mem_mb: 14.9 },
@@ -87,6 +101,10 @@ const RECENT_TXS = [
   { txid: "a3", fee: 320, vsize: 140, value: 8_900_000 }, { txid: "a4", fee: 64000, vsize: 1800, value: 1_240_000_000 },
   { txid: "a5", fee: 2100, vsize: 380, value: 71_000_000 }, { txid: "a6", fee: 540, vsize: 220, value: 3_200_000 },
 ];
+
+// The node payload itself, so a test can serve a VARIANT of it (a field dropped, a value changed) without
+// hand-building a second one that drifts from this one.
+export const NODE_PAYLOAD = NODE;
 
 export async function installMocks(page) {
   const json = (route, body) => route.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(body) });

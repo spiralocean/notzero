@@ -57,6 +57,9 @@ LOG_FILE = APP_SUPPORT / "daemon.log"
 DEFAULT_CONFIG_FILE = Path(__file__).resolve().parent / "config.default.json"
 HISTORY_LIMIT = 1000  # long on-disk record: seeds the odds-map cloud (zhist) richly + retained for future use
 # (was 50, then 200; dashboard graph still shows ~100, bridge sends ~120 — this only affects the stored record)
+BEST_HISTORY_LIMIT = 64  # every time the record improves, one entry — records get exponentially rarer, so 64
+# covers a lifetime of mining. Kept apart from `history` deliberately: that window rolls over, and a record
+# that scrolled off it is still the record.
 PRICE_HISTORY_LIMIT = 96
 POLL_INTERVAL_SEC = 30
 # How long to wait on mempool.space for the chain tip. Two numbers, because the call has two jobs.
@@ -201,6 +204,22 @@ def normalize_stats(state: dict) -> dict:
                     best = {"zero_bits": z, "height": h.get("height"), "hash": hh, "nonce": h.get("nonce"), "at": h.get("attempted_at")}
         if best:
             state["best"] = best
+    if "best_history" not in state:  # seed the record-by-record ladder (WHEN each best was set) from stored history
+        ladder: list[dict] = []
+        for h in reversed(state.get("history", [])):  # history is newest-first; records are read oldest-first
+            hh = h.get("hash_hex")
+            if h.get("mode") != "live" or not hh:
+                continue
+            z = 256 - int(hh, 16).bit_length()
+            if ladder and z <= ladder[-1]["zero_bits"]:
+                continue
+            # seeded=True: reconstructed from the stored ticket window, not observed live. The FIRST entry is
+            # especially soft — it is only a "record" because nothing older is on disk to beat it.
+            ladder.append({"zero_bits": z, "height": h.get("height"), "hash": hh, "nonce": h.get("nonce"), "at": h.get("attempted_at"), "seeded": True})
+        best = state.get("best")  # a record set before the stored window still belongs on the ladder
+        if best and best.get("hash") and (not ladder or ladder[-1].get("hash") != best.get("hash")) and best.get("zero_bits", -1) > (ladder[-1]["zero_bits"] if ladder else -1):
+            ladder.append(dict(best))
+        state["best_history"] = ladder[-BEST_HISTORY_LIMIT:]
     if "zhist" not in state:  # seed the leading-zero-bits histogram (heat map) from recent history
         zh: dict[str, int] = {}
         for h in state.get("history", []):
@@ -495,7 +514,11 @@ def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: 
         z = 256 - int(attempt.hash_hex, 16).bit_length()
         best = state.get("best")
         if best is None or z > best.get("zero_bits", -1):
-            state["best"] = {"zero_bits": z, "height": attempt.height, "hash": attempt.hash_hex, "nonce": attempt.nonce, "at": attempt.attempted_at}
+            record = {"zero_bits": z, "height": attempt.height, "hash": attempt.hash_hex, "nonce": attempt.nonce, "at": attempt.attempted_at}
+            state["best"] = record
+            ladder = state.setdefault("best_history", [])
+            ladder.append(dict(record))  # the ladder is the record's history: one entry per improvement, oldest-first
+            state["best_history"] = ladder[-BEST_HISTORY_LIMIT:]
         zh = state.setdefault("zhist", {})
         zh[str(z)] = zh.get(str(z), 0) + 1
     state = update_display_stats(state, new_block=True)

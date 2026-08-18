@@ -181,6 +181,28 @@ function proximity(hashHex, target) {
   const percent = Math.max(0, Math.min(99.999999, ratio * 100));
   return { won: false, percent, leadingZeroBits: leading, label: percent.toFixed(8) + "%" };
 }
+// Miner timestamps: the bridge sends ISO-8601 UTC; a numeric unix stamp (older builds, test fixtures) also
+// shows up. Both → a Date in the viewer's own timezone, which is the one they can place against their day.
+function minerTime(v) {
+  if (v == null || v === "") return null;
+  const ms = typeof v === "number" ? (v > 1e11 ? v : v * 1000) : Date.parse(v);
+  return isFinite(ms) ? new Date(ms) : null;
+}
+const STAMP_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function stampStr(d, withYear) { // "15 Aug · 01:35" — the year only when it isn't this one (or when asked)
+  if (!d) return "—";
+  const yr = withYear || d.getFullYear() !== new Date().getFullYear() ? ` ${d.getFullYear()}` : "";
+  return `${d.getDate()} ${STAMP_MONTHS[d.getMonth()]}${yr} · ${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
+}
+function spanStr(sec) { // a DURATION (how long a record stood), where agoStr says how long ago something was
+  if (!isFinite(sec) || sec < 0) return "—";
+  if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))} min`;
+  if (sec < 172800) return `${sec < 36000 ? (sec / 3600).toFixed(1) : Math.round(sec / 3600)} h`;
+  if (sec < 7776000) return `${sec < 864000 ? (sec / 86400).toFixed(1) : Math.round(sec / 86400)} days`;
+  if (sec < 63115200) return `${(sec / 2629800).toFixed(sec < 15778800 ? 1 : 0)} months`;
+  const yr = sec / 31557600; // records this deep are expected to stand for years — say so in years, not 7,000 days
+  return yr < 1e4 ? `${yr < 10 ? yr.toFixed(1) : Math.round(yr).toLocaleString()} years` : `${sciWords(yr)} years`;
+}
 function leadingZeroHexChars(hashHex) { let n = 0; for (const c of hashHex) { if (c === "0") n++; else break; } return n; }
 // Rarity of a hash with ≥ b leading zero BITS: exactly 1 in 2^b random hashes. Human words while it's small
 // enough to feel (up to ~a trillion), then powers of ten — matching the odds-map's "1 in ~10^N" style.
@@ -802,7 +824,7 @@ const quoteSrc = (i) => (typeof QUOTES[i] === "string" ? "" : QUOTES[i].src);
 // ---- layout + sections ----
 const PAD = 36, HEADER_H = 40, GAP = 12, TOP = 122; // TOP 116 -> 122 with the header block: the subtitle moved off the title
 // tickets: 180 -> 214, the extra 34 is the 0→win rail drawn under the strip
-const CONTENT_H = { win: 150, nextBlock: 214, mempool: 256, closeness: 278, tickets: 214, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
+const CONTENT_H = { win: 150, nextBlock: 214, mempool: 256, closeness: 298, tickets: 214, merkle: 300, hashBuild: 366, avalanche: 206, verify: 262, hashInside: 478, fold: 268, oneRound: 454, shift: 282, churn: 424, sigma1: 300, ch: 258, maj: 252, bitOps: 306, network: 215, broadcast: 250, sync: 540, updates: 460 };
 // Lab flag — the deep, still-evolving hashing panels (SHIFT / CHURN / ONE STEP · Σ1·Ch·Maj, plus the register
 // breakout + shift-format churn inside INSIDE THE HASH) are hidden from the public demo + shipped app so users
 // don't see work-in-progress. On by default on a `lab.` host (e.g. lab.notzero-demo.pages.dev — a private
@@ -821,9 +843,13 @@ if (!LAB) CONTENT_H.hashInside = 300; // simpler INSIDE THE HASH (no register br
 // height increase doesn't push the panel taller — it silently steals from the charts, squashing them and
 // running their labels together. Anything conditional drawn above those charts has to be declared here.
 const ROW_H = 19;
+const MAX_RECORD_ROWS = 4; // YOUR RECORDS shows the newest few bests; the rest are counted, not listed
 function contentH(s) {
   let h = CONTENT_H[s];
   if (s === "network" && model.node && model.node.miner_proc && model.node.miner_proc.node) h += ROW_H; // the node's CPU/RAM row
+  // YOUR RECORDS is as tall as it has rows (see drawBestRecords) — no rows, no reserved space, which is what the
+  // public demo shows: its payload has no record list, so the panel keeps its original height.
+  if (s === "closeness") { const n = Math.min(MAX_RECORD_ROWS, (model.node?.miner?.best_history || []).length); if (n) h += 16 + 15 * n; }
   return h;
 }
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
@@ -832,7 +858,7 @@ const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "
 const BUILD_CHILDREN = new Set(["merkle", "avalanche", "verify", "hashInside"]); // everything hashing nests under HASH BUILD; INSIDE THE HASH is itself a sub-parent (its dives = HASH_CHILDREN, one level deeper)
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
-let ticketHits = [], youHit = null, bestHit = null, mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
+let ticketHits = [], youHit = null, bestHit = null, recordHits = [], mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -2573,6 +2599,112 @@ function drawVerify(r) {
   text("Change one transaction → the merkle root changes → the header changes → the hash changes → it no longer beats the target. Tamper-evident, checkable by anyone in microseconds.", x0, r.y + r.h - 14, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
 }
 
+// YOUR RECORDS — one row per personal best: when it landed, and how long it STOOD against how long the maths
+// says it should have. A wall-clock strip was the first attempt and it decays by construction: records arrive
+// logarithmically (≈ ln N + 0.58 of them after N tickets — ~7 in the first week, ~11 after a year, ~14 after a
+// decade), so half of them always land in the first two days and any linear time axis ends up 90% flat line.
+// Simulated a year of mining and that is exactly what it drew: four steps crushed into the left 8%, the day
+// labels overlapping into a smear. One row per record cannot decay — a year produces about eleven of them.
+//
+// The comparison is the part worth drawing. Beating a z-bit record needs a hash with z+1 zero bits, which turns
+// up once per 2^(z+1) tickets — one ticket per block, so ~2^(z+1) × 10 min. That is what a dry spell IS: a
+// 13-bit record standing three days is not a stall, it is 3% of the way through its expected ~114-day life.
+function drawBestRecords(x0, x1, top, best, mn) {
+  const now = Date.now(), bd = minerTime(best && best.at);
+  const all = (Array.isArray(mn.best_history) ? mn.best_history : [])
+    .map((e) => ({ t: minerTime(e && e.at), bits: e && e.zero_bits, height: e && e.height, hash: e && e.hash, seeded: !!(e && e.seeded) }))
+    .filter((e) => e.t && typeof e.bits === "number")
+    .sort((a, b) => a.t - b.t);
+  // Fallback — a fresh install, or a build whose bridge predates the ladder. The plain question ("when was this
+  // set?") still gets its answer; the rows fill in from the first record onwards.
+  if (!all.length) {
+    if (bd) text(`◆ record set ${stampStr(bd, true)} · ${agoStr((now - bd) / 1000)} — the record list builds from here, one row per best`,
+      x0, top + 14, { size: 11, weight: 700, color: "rgba(255,215,90,0.9)", baseline: "middle" });
+    window.__records = { rows: 0, total: 0, fallback: true, standingAt: bd ? bd.toISOString() : null }; // test hook
+    return;
+  }
+  // Newest first, and only the last few: the early records are a first-day flurry of 0–5 bit hashes that nobody
+  // is waiting on. The count of what's above them is kept, so nothing silently vanishes.
+  const shown = all.slice(-MAX_RECORD_ROWS).reverse(), earlier = all.length - shown.length;
+  const expSec = (bits) => Math.pow(2, bits + 1) * 600; // beat z bits ⇒ z+1 zero bits ⇒ 2^(z+1) tickets, 10 min each
+  const stoodSec = (i) => {                             // shown is newest-first, so [i-1] is what beat it
+    const e = shown[i], beatenBy = i ? shown[i - 1] : null;
+    return ((beatenBy ? beatenBy.t : now) - e.t) / 1000;
+  };
+  text(`YOUR RECORDS · ${all.length} best${all.length === 1 ? "" : "s"} · how long each one stood vs how long the odds said it would`,
+    x0, top + 8, { size: 11, weight: 600, color: "rgba(255,255,255,0.6)", baseline: "middle" });
+  if (earlier) { // the older records aren't listed, but they aren't a dead end either — the count carries them
+    const lbl = `+${earlier} earlier`;
+    text(lbl, x1, top + 8, { size: 10, color: "rgba(255,255,255,0.35)", align: "right", baseline: "middle" });
+    ctx.font = "10px -apple-system, system-ui, sans-serif";
+    const lw = ctx.measureText(lbl).width, older = all.slice(0, earlier).reverse();
+    recordHits.push({ x: x1 - lw - 4, y: top + 1, w: lw + 8, h: 14, lines: [
+      `${earlier} earlier record${earlier === 1 ? "" : "s"} — the first-day flurry, when almost any hash was a personal best`,
+      ...older.slice(0, 9).map((e) => `${e.bits} bit${e.bits === 1 ? "" : "s"} · ${stampStr(e.t, true)}${e.height ? ` · block #${(e.height || 0).toLocaleString()}` : ""}`),
+      older.length > 9 ? `…and ${older.length - 9} older still` : "",
+    ].filter(Boolean) });
+  }
+
+  // Reserve exactly what the widest right-hand label needs, so a narrow window shortens the BARS rather than
+  // running the two into each other (the failure the odds-map rows above had before their own reserve).
+  recordHits = [];
+  ctx.font = "600 11px -apple-system, system-ui, sans-serif";
+  const labels = shown.map((e, i) => `${i ? "stood" : "standing"} ${spanStr(stoodSec(i))} · expected ~${spanStr(expSec(e.bits))}`);
+  const stamps = shown.map((e) => stampStr(e.t)), blocks = shown.map((e) => `#${(e.height || 0).toLocaleString()}`);
+  const widest = (arr) => arr.reduce((m, t) => Math.max(m, ctx.measureText(t).width), 0);
+  // Measured columns, not fixed offsets. A stamp carries its year once the record is older than this one
+  // ("13 Jun 2023 · 09:38" vs "14 Aug · 21:35"), which is ~40px wider — and at a fixed offset the block number
+  // was drawn straight through it. Anything whose width depends on the DATA has to be measured.
+  const labW = widest(labels), colStamp = x0 + widest(shown.map((e) => `${e.bits} bits`)) + 22;
+  const colBlock = colStamp + widest(stamps) + 14, barX = colBlock + widest(blocks) + 16;
+  const barW = Math.max(0, x1 - labW - 14 - barX), bars = barW >= 70;
+
+  for (let i = 0; i < shown.length; i++) {
+    const e = shown[i], y = top + 26 + i * 15, standing = i === 0, ratio = stoodSec(i) / expSec(e.bits);
+    const lit = standing ? "rgba(255,215,90,1)" : "rgba(255,215,90,0.72)";
+    const d = 3.4, dx = x0 + 4; // a ◆ per record, matching the odds map's marker for the same thing
+    ctx.fillStyle = e.seeded ? "rgba(255,215,90,0.45)" : lit; ctx.strokeStyle = "rgba(10,8,4,0.7)"; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(dx, y - d); ctx.lineTo(dx + d, y); ctx.lineTo(dx, y + d); ctx.lineTo(dx - d, y); ctx.closePath(); ctx.fill(); ctx.stroke();
+    text(`${e.bits} bits`, x0 + 14, y, { size: 11, weight: standing ? 700 : 600, color: lit, baseline: "middle" });
+    text(stamps[i], colStamp, y, { size: 11, weight: 600, color: "rgba(255,255,255,0.62)", baseline: "middle" });
+    text(blocks[i], colBlock, y, { size: 11, color: "rgba(255,255,255,0.42)", baseline: "middle" });
+    if (bars) {
+      // Every bar is scaled to its OWN expectation, so the expected mark lands at the same x on every row and
+      // the rows compare directly — which raw durations spanning hours to years never could. Half-width = "as
+      // expected", full width = twice that, and anything beyond is capped with a ›.
+      const mid = barX + barW / 2, len = ratio > 0 ? Math.max(2, Math.min(1, ratio / 2) * barW) : 0;
+      ctx.fillStyle = "rgba(255,255,255,0.05)"; ctx.fillRect(barX, y - 4, barW, 8);
+      ctx.fillStyle = standing ? "rgba(255,215,90,0.55)" : "rgba(255,215,90,0.38)"; ctx.fillRect(barX, y - 4, len, 8);
+      ctx.strokeStyle = "rgba(255,255,255,0.55)"; ctx.lineWidth = 1; // the expected-wait mark
+      ctx.beginPath(); ctx.moveTo(mid + 0.5, y - 6); ctx.lineTo(mid + 0.5, y + 6); ctx.stroke();
+      if (ratio > 2) text("›", barX + barW + 3, y, { size: 11, weight: 700, color: "rgba(255,215,90,0.8)", baseline: "middle" });
+      if (standing) {
+        // A closed row's bar is a finished measurement: short = that record was beaten sooner than the odds said.
+        // The top row's bar is the SAME shape meaning the opposite — not beaten yet, still growing — and the
+        // stood/standing wording alone was too thin a thread to hang that on. The tip gets a growing edge.
+        ctx.fillStyle = "rgba(255,235,150,0.95)";
+        ctx.beginPath(); ctx.moveTo(barX + len, y - 5); ctx.lineTo(barX + len + 5, y); ctx.lineTo(barX + len, y + 5); ctx.closePath(); ctx.fill();
+        ctx.setLineDash([2, 3]); ctx.strokeStyle = "rgba(255,215,90,0.3)"; ctx.lineWidth = 1; // …and the run still to come
+        ctx.beginPath(); ctx.moveTo(barX + len + 7, y + 0.5); ctx.lineTo(Math.max(barX + len + 7, mid), y + 0.5); ctx.stroke(); ctx.setLineDash([]);
+      }
+      if (i === 0) text("expected", mid, top + 26 - 12, { size: 8.5, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+    }
+    text(labels[i], x1, y, { size: 11, weight: standing ? 700 : 600, color: standing ? "rgba(255,215,90,0.92)" : "rgba(255,255,255,0.55)", align: "right", baseline: "middle" });
+    recordHits.push({ x: x0, y: y - 7, w: x1 - x0, h: 14, lines: [
+      `◆ record ${all.length - i} of ${all.length} · ${e.bits} zero bit${e.bits === 1 ? "" : "s"}${e.hash ? ` (${leadingZeroHexChars(e.hash)} leading zero${leadingZeroHexChars(e.hash) === 1 ? "" : "s"})` : ""}`,
+      `set ${stampStr(e.t, true)} · ${agoStr((now - e.t) / 1000)}${e.height ? ` · block #${(e.height || 0).toLocaleString()}` : ""}`,
+      e.hash ? `odds of a hash this good: ${oddsExact(rarityBits(e.hash))}` : "",
+      `beating it needs ${e.bits + 1} zero bits — 1 ticket in ${Math.pow(2, e.bits + 1).toLocaleString()}, so ~${spanStr(expSec(e.bits))} of mining`,
+      standing ? `still standing after ${spanStr(stoodSec(i))} — ${ratio < 1 ? `${Math.round(ratio * 100)}% of that so far` : `${ratio.toFixed(1)}× that already`}, and this bar is still growing`
+               : `stood ${spanStr(stoodSec(i))} — ${ratio < 1 ? `${ratio.toFixed(2)}× the expected wait, so it was beaten early` : `${ratio.toFixed(1)}× the expected wait before it fell`}, to a ${shown[i - 1].bits}-bit hash`,
+    standing ? "the wait is memoryless — a record that has stood a long time is no more \"due\" to fall than a fresh one" : "",
+      e.seeded ? "reconstructed from your stored tickets, not watched live" : "",
+    ].filter(Boolean) });
+  }
+  window.__records = { rows: shown.length, total: all.length, fallback: false, standingBits: shown[0].bits, // test hook
+    standingAt: shown[0].t.toISOString(), stoodSec: Math.round(stoodSec(0)), expectedSec: Math.round(expSec(shown[0].bits)) };
+}
+
 function drawCloseness(r) {
   // LIVE: compare your daemon's real last attempt to a winning block — the leading-zero "wall" tells the story
   const mn = model.node && model.node.miner, at = mn && mn.attempt;
@@ -2694,8 +2826,9 @@ function drawCloseness(r) {
       `like ${coinFlips(bestBits)} — 4 per leading zero`,
       `${bestBits} heads in a row turns up ${expectedEvery(bestBits)} here (1 ticket / 10 min)`,
       best && best.height ? `on block #${(best.height || 0).toLocaleString()}` : "this session's record",
+      minerTime(best && best.at) ? `set ${stampStr(minerTime(best.at), true)} · ${agoStr((Date.now() - minerTime(best.at)) / 1000)}` : "",
       `a win = ${tBits} heads in a row (${leadingZeroHexChars(at.target || "")} zeros) — ${expectedEvery(winL2)} of nonstop mining`,
-    ] };
+    ].filter(Boolean) };
     // #14: YOUR current hash — drawn ON TOP, ringed + ticked + labelled so it's never lost in the cloud
     const yx = px(youBits), yy = tkY + bandH / 2;
     ctx.strokeStyle = "rgba(10,8,4,0.75)"; ctx.lineWidth = 3.5; ctx.beginPath(); ctx.moveTo(yx, tkY - 7); ctx.lineTo(yx, tkY + bandH + 7); ctx.stroke();
@@ -2712,6 +2845,7 @@ function drawCloseness(r) {
     ] };
     text(`◄ BELOW target = WIN · ${tBits} heads in a row · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
     text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
+    drawBestRecords(tkX, tkX + tkW, tkY + bandH + 34, best, mn);
     if (best && best.hash) // the felt version of the best hash: lead with zeros (quickest to grasp), then coin-flips (the doubling), then time at this machine's cadence
       text(`◆ your best hash: ${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits — that's ${bestBits} coin-flips all landing heads — turns up ${expectedEvery(bestBits)} at 1 ticket every 10 min`,
         tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
@@ -4233,7 +4367,8 @@ function agoStr(sec) {
   if (!isFinite(sec)) return "—";
   if (sec < 45) return "just now";
   if (sec < 5400) return `${Math.max(1, Math.round(sec / 60))}m ago`;
-  return `${Math.round(sec / 3600)}h ago`;
+  if (sec < 172800) return `${Math.round(sec / 3600)}h ago`;
+  return `${Math.round(sec / 86400)}d ago`;
 }
 // Ask the MINER whether its loop is running, rather than inferring it from the chain. Four earlier versions
 // inferred — ticket vs tip age, then the tip having "stood" a while, then a drift grace, then heights — and
@@ -4476,7 +4611,7 @@ function render(ts) {
     drawQuoteMorph(srcText(quoteIdx), srcText(quoteNext), qp, 0.72, quoteIdx, SRC_LINE);
   }
 
-  headerHits = []; ticketHits = []; youHit = null; bestHit = null;
+  headerHits = []; ticketHits = []; youHit = null; bestHit = null; recordHits = [];
   // NOTE: an unreachable mempool.space (model.error) does NOT gate this loop — it used to replace every panel
   // with a single error line, so a wifi blip blanked the entire app including the panels that never needed
   // that host. Panels keep their last known values (and their own "loading…" placeholders on a cold start);
@@ -4621,6 +4756,7 @@ function drawHoverTooltip() {
   if (!lines) for (const h of mempoolHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
   if (!lines && youHit && mouseX >= youHit.x && mouseX <= youHit.x + youHit.w && my >= youHit.y && my <= youHit.y + youHit.h) lines = youHit.lines;
   if (!lines && bestHit && mouseX >= bestHit.x && mouseX <= bestHit.x + bestHit.w && my >= bestHit.y && my <= bestHit.y + bestHit.h) lines = bestHit.lines;
+  if (!lines) for (const hh of recordHits) if (mouseX >= hh.x && mouseX <= hh.x + hh.w && my >= hh.y && my <= hh.y + hh.h) { lines = hh.lines; break; } // a row in YOUR RECORDS
   if (!lines) return;
   const pad = 8, lh = 15;
   ctx.font = "600 11px -apple-system, system-ui, sans-serif";

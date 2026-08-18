@@ -661,6 +661,7 @@ def build(url, user, pw, cookie=""):
                     "prefix_match": win.get("prefix_match_chars"),
                 } if win.get("hash_hex") else None,
                 "best": st.get("best"),  # best-ever attempt: {zero_bits, height, hash, nonce, at}
+                "best_history": (st.get("best_history") or [])[-40:],  # the record ladder, oldest-first — WHEN each best landed
                 "zhist": st.get("zhist"),  # leading-zero-bits histogram {bits: count} for the heat map
                 "history": [  # recent tickets (newest-first) for the YOUR TICKETS timeline; gaps in height = downtime
                     {"h": e.get("height"), "z": 256 - int(e["hash_hex"], 16).bit_length(), "w": bool(e.get("won")), "s": bool(e.get("submitted")), "at": e.get("attempted_at")}

@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import { installMocks } from "./fixtures.mjs";
+import { installMocks, NODE_PAYLOAD } from "./fixtures.mjs";
 
 // Wait until the node payload has been APPLIED to the model, then let the canvas repaint from it.
 //
@@ -716,6 +716,53 @@ test("node tip: a node that is behind (headers ahead of blocks) is not treated a
   const h = await page.evaluate(() => window.__model.block && window.__model.block.height);
   console.log(`   tip height in use: ${h} (the stale local tip was 960001)`);
   expect(h).not.toBe(960001);
+});
+
+// YOUR CLOSENESS says how good your best hash is and says nothing about WHEN it happened, which is the first
+// thing anyone asks of a record. The odds map can't answer it — it drops time entirely, so a record set an hour
+// ago and one set last month plot at the same point.
+//
+// The rows carry the comparison that makes a dry spell legible: how long each record STOOD against the ~2^(z+1)
+// tickets the odds say it takes to beat z bits. Asserted as arithmetic, not pixels — a screenshot diff would go
+// red for a moved label and stay green if the expectation were computed off by a factor of two.
+//
+// Two paths, and the second is the one that rots silently: a payload with no record list (the public demo, or an
+// app running against an older miner) must still print the standing record's date, and must NOT reserve rows.
+test("closeness: the record rows date each best and price its expected wait, and fold away when there are none", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.goto("/");
+  await page.waitForFunction(() => window.__records, null, { timeout: 20000 });
+  const rec = await page.evaluate(() => window.__records);
+  const withRows = await page.evaluate(() => window.__frames.closeness.h);
+  console.log(`   records: ${JSON.stringify(rec)}  panel h: ${withRows}`);
+
+  const fixture = NODE_PAYLOAD.miner.best_history, standing = fixture[fixture.length - 1];
+  expect(rec.fallback).toBe(false);
+  expect(rec.total).toBe(fixture.length);                                   // every record counted…
+  expect(rec.rows).toBe(Math.min(4, fixture.length));                       // …even where only the newest few are listed
+  expect(rec.standingBits).toBe(standing.zero_bits);                        // the top row is the record that still stands
+  expect(rec.standingAt).toBe(new Date(standing.at).toISOString());         // …dated to when it landed
+  // beating z bits needs z+1, i.e. 1 ticket in 2^(z+1), one ticket per ~10-minute block
+  expect(rec.expectedSec).toBe(Math.pow(2, standing.zero_bits + 1) * 600);
+  expect(rec.stoodSec).toBeGreaterThan(86400);                              // "standing for" measures from the record to NOW
+  expect(rec.stoodSec).toBeLessThan(rec.expectedSec);                       // 24 bits is expected to stand ~600 years; it has stood days
+
+  // …now the same app against a payload from before the record list existed
+  const older = { ...NODE_PAYLOAD, miner: { ...NODE_PAYLOAD.miner, best_history: undefined } };
+  await page.unroute("**/node.json*");
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(older) }));
+  await page.evaluate(() => { window.__records = null; });
+  await page.reload();
+  await page.waitForFunction(() => window.__records, null, { timeout: 20000 });
+  const fb = await page.evaluate(() => window.__records);
+  const noRows = await page.evaluate(() => window.__frames.closeness.h);
+  console.log(`   fallback: ${JSON.stringify(fb)}  panel h: ${noRows}`);
+  expect(fb.fallback).toBe(true);
+  expect(fb.standingAt).toBe(new Date(NODE_PAYLOAD.miner.best.at).toISOString()); // the date still shows — the plain question is answered
+  expect(noRows).toBeLessThan(withRows);                                          // and the rows' space is given back
 });
 
 // NEXT BLOCK's histogram shows the SHAPE of block times but drops their order, so two blocks a minute apart and
