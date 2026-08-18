@@ -4,7 +4,33 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.88
+## Unreleased — next: 0.1.89
+
+## 0.1.88
+
+**Your closeness**
+- **Your best hashes now carry a date, and say how long each one lasted.** The dashboard showed your best-ever
+  hash and never said when it happened, so a record set an hour ago and one set last month looked identical.
+  YOUR RECORDS lists your bests newest first — each with the date and time it landed, the block it was on, and
+  how long it stood before a better one turned up. Alongside each is how long the odds said it *should* have
+  stood, which is the number that puts a quiet spell in proportion: beating a 13-bit best takes about four
+  months of tickets on average, so three days without beating it is not the miner stalling — it is three days
+  into four months. The top row is the record still standing, and is drawn as still running. None of it is a
+  prediction: the wait is memoryless, so a record that has stood a long time is no more due to fall than a
+  fresh one.
+- Your record history is now kept properly. It used to be worked out from the last thousand tickets, which
+  roll over, so the oldest records quietly rewrote themselves as tickets aged off the end. Each record is now
+  written down when it happens and stays put. Existing records are recovered from your stored tickets on first
+  run, so the list is not empty on day one.
+
+**App**
+- **A computer that has just started up gets a moment to itself before mining begins.** When the app is
+  launched *for* you at login, it now lets the machine finish starting up before spawning the Bitcoin node —
+  at least a minute, and up to ten if the machine is still busy — rather than adding a multi-gigabyte cache
+  and heavy disk activity to a computer already working through its own startup. Opening the app yourself
+  starts everything straight away, as does opening its window, and there is always a deadline, so mining
+  resumes even with nobody at the keyboard. (Windows does not report the "still busy?" reading the wait uses,
+  so there it is the one-minute minimum only.)
 
 ## 0.1.87
 
