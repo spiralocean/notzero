@@ -1664,7 +1664,18 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                             print(msg, file=sys.stderr)
                         time.sleep(POLL_INTERVAL_SEC)
                         continue
-                    attempt = live_attempt(
+                    # _timed like every other step, and for two reasons beyond symmetry. It is the slowest
+                    # call in the loop (getblocktemplate + coinbase + hashing) and was the ONLY one the
+                    # monitor could not see, so a wedge inside it got reported as IDLE — "not stuck in a
+                    # call" — when being stuck in a call was exactly what had happened. And because
+                    # note_poll_done() advances the tip BEFORE the attempt is built while note_ticket()
+                    # only advances attempt_h after it (record_attempt), `tip >= attempt_h` holds for the
+                    # whole duration of this call: on 2026-08-20T02:50:28 the 15s monitor tick landed in
+                    # that window after an ordinary 18-minute block and reported a healthy miner idle.
+                    # Naming the step closes both — the IDLE branch requires `not step`.
+                    attempt = _timed(
+                        "live attempt",
+                        live_attempt,
                         settings["rpc_url"],
                         settings["rpc_user"],
                         settings["rpc_pass"],
@@ -1674,7 +1685,7 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                         settings.get("coinbase_tag", ""),
                     )
                 else:
-                    attempt = symbolic_attempt(height, settings["machine_seed"])
+                    attempt = _timed("symbolic attempt", symbolic_attempt, height, settings["machine_seed"])
                 state = record_attempt(state, attempt, settings["machine_seed"], mode)
                 output = format_attempt(attempt)
                 if daemon:

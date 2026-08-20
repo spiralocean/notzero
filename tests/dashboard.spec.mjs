@@ -854,3 +854,103 @@ test("block history: a current node supplies it, with no per-height fetches", as
   expect(bt).toBe(gaps.length);           // histogram fed from the same data
   expect(byHeight).toBe(0);               // the point: no external walk for headers the node already has
 });
+
+// ── A rolling-rate window must never span a sleep ──────────────────────────────────────────────────────
+// Both throughput estimates (chain sync, background verify) sample every ~3s and divide Δheight by Δtime.
+// The prune used to be `while (hist.length > 2 && age > 90s)`, so two samples survived NO MATTER HOW OLD —
+// and on a machine that woke after seven hours the oldest one was pre-sleep. The documented "~90s window"
+// silently became a seven-hour window measuring blocks per hour-of-nap, and the estimate it produced was the
+// length of the nap wearing an ETA's clothes. Found 2026-08-20 on the Intel Mac after a 7h03m sleep.
+//
+// Stub the page's clock forward mid-run and assert the estimate goes SILENT and rebuilds from post-wake
+// samples, rather than inflating. The node keeps reporting the same honest catch-up rate throughout, so the
+// ONLY thing that changes is the clock — which is exactly the variable under test.
+test("sleep: the sync ETA rebuilds after a wall-clock jump instead of measuring across it", async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  // one skewable clock for the whole page — setting __skewMs IS the sleep
+  await page.addInitScript(() => { const real = Date.now.bind(Date); window.__skewMs = 0; Date.now = () => real() + window.__skewMs; });
+  await installMocks(page);
+  await page.addInitScript(() => { localStorage.removeItem("bl.everSynced"); localStorage.removeItem("bl.expanded"); });
+
+  let skewMs = 0, n = 0;                 // skewMs mirrors the page's clock so the payload stays self-consistent
+  const HEADERS = 1_000_000;
+  await page.route("**/node.json*", (r) => {
+    const t = Math.floor((Date.now() + skewMs) / 1000);
+    const blocks = 900_000 + (n++) * 2000;   // ~2k blocks per poll: a real, measurable rate, ~100k to go
+    r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+      ts: t, reachable: true, blocks, headers: HEADERS, verificationprogress: blocks / HEADERS,
+      initialblockdownload: true, size_on_disk: 4.8e9, pruned: true,
+      tip_time: t - 7200,                    // mid-IBD, so "stale" holds steady either side of the jump
+      miner: { mode: "live" },
+    }) });
+  });
+  await page.goto("/");
+
+  // An honest ETA first: the window has to be demonstrably working before a jump can be shown not to corrupt it.
+  await page.waitForFunction(() => /left|caught up/.test((window.__sync && window.__sync.eta) || ""), null, { timeout: 90000 });
+  const before = await page.evaluate(() => window.__sync.eta);
+  console.log(`   ETA before the sleep: ${JSON.stringify(before)}`);
+  expect(before).not.toMatch(/day|h \d+m/);          // minutes at this rate — nothing here is hours away
+
+  skewMs = 7 * 3600 * 1000;                          // …the lid closes for seven hours
+  await page.evaluate((ms) => { window.__skewMs = ms; }, skewMs);
+
+  const seen = [];
+  for (let i = 0; i < 40; i++) { seen.push(await page.evaluate(() => (window.__sync && window.__sync.eta) || "")); await page.waitForTimeout(750); }
+  console.log(`   distinct ETAs after waking: ${JSON.stringify([...new Set(seen)])}`);
+  expect(seen.some((e) => /day/.test(e))).toBe(false);        // the pathology: divide 100k blocks by seven hours
+  expect(seen.some((e) => /h \d+m left/.test(e))).toBe(false); // ...or anything else hours-long
+  expect(seen.some((e) => /left|caught up/.test(e))).toBe(true); // and it must come BACK, not fall silent forever
+});
+
+// ── NEXT BLOCK measures "now minus the tip's timestamp" ───────────────────────────────────────────────
+// On a woken machine that tip is hours old, so the ring wrapped into a multi-hour "overrun" that was really
+// the length of the sleep — the 7h29m reading behind the original report. The guard is deliberately gated on
+// the node ALSO reporting itself behind, and this pair pins both halves of that: an old block on a healthy
+// node still gets its overrun ring (long intervals are normal Poisson behaviour and worth showing), while an
+// old block on a node that knows it is behind does not get presented as a block interval at all.
+test("next block: an old tip on a healthy node still runs the overrun ring", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);   // fixture: blocks === headers, no tip_time, and a tip timestamp from 2024
+  await page.addInitScript(() => { localStorage.setItem("bl.everSynced", "1"); localStorage.setItem("bl.expanded", JSON.stringify(["nextBlock"])); });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__nextBlock, null, { timeout: 20000 });
+  const nb = await page.evaluate(() => window.__nextBlock);
+  console.log(`   next block (healthy node): ${JSON.stringify(nb)}`);
+  expect(nb.elapsedMin).toBeGreaterThan(90);   // the reading is long...
+  expect(nb.catchingUp).toBe(false);           // ...but the node says it is at the tip, so we show it
+});
+
+test("next block: a woken machine reports catching up instead of an hours-long overrun", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.addInitScript(() => { localStorage.setItem("bl.everSynced", "1"); localStorage.setItem("bl.expanded", JSON.stringify(["nextBlock"])); });
+
+  // The real shape of the 2026-08-20 wake: node at 963228, headers already at 963258, tip 7h09m old.
+  const t = Math.floor(Date.now() / 1000), tipTime = t - (7 * 3600 + 9 * 60);
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    ts: t, reachable: true, blocks: 963228, headers: 963258, verificationprogress: 1,
+    initialblockdownload: false, size_on_disk: 10.4e9, pruned: true, tip_time: tipTime,
+    miner: { mode: "live" },
+  }) }));
+  // headers run ahead of blocks, so nodeTip() abstains and the header comes from the public API — still the
+  // pre-sleep block, which is the whole problem.
+  await page.route("**/api/block/*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({
+    id: "000000000000000000012867b029407baf207b03dd7618014718de003a94ca3e", height: 963228, version: 536870912,
+    previousblockhash: "00000000000000000000c69002d15244e674f1acac0a887661982f90c53eb6fd",
+    merkle_root: "b3f844e320db829380af5411acb8c19fc0e5785dd2f027dee3eb418fe193e38e",
+    timestamp: tipTime, bits: 386020669, nonce: 960607125, tx_count: 3958, difficulty: 1.27e14,
+  }) }));
+  await page.goto("/");
+  await page.waitForFunction(() => window.__nextBlock, null, { timeout: 20000 });
+  const nb = await page.evaluate(() => window.__nextBlock);
+  console.log(`   next block (just woken): ${JSON.stringify(nb)}`);
+  expect(nb.elapsedMin).toBeGreaterThan(400);  // ~429 — the number that started this
+  expect(nb.catchingUp).toBe(true);            // so it is never drawn as a block interval
+});
