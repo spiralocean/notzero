@@ -1073,6 +1073,18 @@ const VERSION = "web v0.118.0";
 const DEFAULT_PAYOUT_MASKED = "bc1qxs…fph2fn";
 const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the bottom of the sync panel
 
+// A node that is caught up has a tip a few minutes old. Hours old means this machine slept (or the node
+// stalled), and every readout computed as "now minus that timestamp" is then measuring the nap rather than
+// the network. Defined once so the sync panel and NEXT BLOCK cannot drift apart on what "stale" means.
+// Trade-off every caller inherits: a genuinely long block (>90 min happens roughly once every couple of
+// months) also reads as stale. Being briefly over-cautious beats confidently reporting a nap as network data.
+const STALE_TIP_S = 90 * 60;
+function tipIsStale(n = model.node) { return !!(n && n.tip_time && (Date.now() / 1000 - n.tip_time) > STALE_TIP_S); }
+// Both throughput estimates below (chain sync, background verify) sample a rolling window and divide. The
+// window must never span a sleep: pairing a pre-sleep sample with a post-wake one measures blocks per hour-
+// of-nap, which is how a 30-block catch-up once reported ~7 hours remaining.
+const RATE_WINDOW_MS = 90_000;
+const RATE_MIN_SPAN_S = 20; // too short a window is noise — and it is what a freshly reset window holds, so it stays silent
 // While the node is still syncing, the mining panels (next block / mempool / closeness / hash build)
 // only show "come back once synced" placeholders. Collapse the dashboard to just the BLOCKCHAIN SYNC
 // visualization + the NETWORK panel so the syncing screen is focused, not a wall of waiting panels.
@@ -1083,8 +1095,8 @@ function syncInfo() {
   const tip = n.headers || 0, head = Math.floor(n.blocks || 0), behind = Math.max(0, tip - head);
   const prog = n.verificationprogress != null ? n.verificationprogress : (tip ? Math.min(1, head / tip) : 1);
   // After wake, peers/headers haven't refreshed yet so headers==blocks==stale tip → behind reads 0 ("at the
-  // tip") while the node is really hours back. The tip BLOCK TIME catches this: a synced tip is minutes old.
-  const stale = n.tip_time ? (Date.now() / 1000 - n.tip_time) > 90 * 60 : false;
+  // tip") while the node is really hours back. The tip BLOCK TIME catches this (see tipIsStale).
+  const stale = tipIsStale(n);
   return { tip, head, behind, prog, stale, syncing: behind > 0 || !!n.initialblockdownload || stale };
 }
 function nodeSyncing() { const si = syncInfo(); return !!(si && si.syncing); }
@@ -1104,16 +1116,25 @@ let verifyHist = [];
 function backgroundVerifyEta(bv) {
   const now = Date.now();
   if (!verifyHist.length || now - verifyHist[verifyHist.length - 1].ts > 3000) verifyHist.push({ ts: now, h: bv.blocks });
-  while (verifyHist.length > 2 && now - verifyHist[0].ts > 90000) verifyHist.shift();
+  // Prune by AGE ALONE. The old `verifyHist.length > 2` floor kept two samples alive no matter how old, so
+  // after a sleep this "~90s window" silently became a seven-hour one and the rate it measured was fiction.
+  while (verifyHist.length && now - verifyHist[0].ts > RATE_WINDOW_MS) verifyHist.shift();
   if (verifyHist.length < 2) return "";
   const first = verifyHist[0], last = verifyHist[verifyHist.length - 1];
-  const bps = (last.h - first.h) / Math.max(1, (last.ts - first.ts) / 1000);
+  const span = (last.ts - first.ts) / 1000;
+  if (span < RATE_MIN_SPAN_S) return "";            // window just opened (or was reset on wake) — nothing honest to divide yet
+  const bps = (last.h - first.h) / span;
   if (bps <= 0.02) return "";                       // stalled or too early to say — better silent than wrong
   const s = (bv.target - bv.blocks) / bps;
   return s > 172800 ? `~${(s / 86400).toFixed(1)} days left`
     : s > 3600 ? `~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left`
     : s > 90 ? `~${Math.round(s / 60)} min left` : "almost done";
 }
+// Wall-clock jumped far more than a frame (lid-open / wake-from-sleep). Any sample taken before the jump
+// would pair with a post-wake one and measure the sleep, so drop both windows and rebuild them from data an
+// awake machine actually observed. Pruning by age already covers gaps over RATE_WINDOW_MS; this also catches
+// the shorter naps, where a straddling sample would survive and quietly skew the rate.
+function resetRateHistories() { syncState.etaHist = []; verifyHist = []; }
 // `everSynced` (persisted): has this machine ever caught up to the tip? Gates the focused sync view.
 let everSynced = false;
 try { everSynced = localStorage.getItem("bl.everSynced") === "1"; } catch {}
@@ -2126,6 +2147,18 @@ function drawNextBlock(r) {
   // make room for the strip; measuring from r.h would drift the ring downward and stretch the histogram bars.
   const topH = 170, cx = r.x + 78, cy = r.y + topH / 2, rad = 52;
   const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - model.block.timestamp));
+  // Every number below is Date.now() minus the tip's timestamp. On a machine that just woke, that tip is
+  // hours old, so the ring wraps into a multi-hour "overrun" that is really the length of the sleep — a
+  // 7-hour nap read as "449:05 · over ~10 min est". Gated on the node ALSO reporting itself behind, so a
+  // genuinely long block still gets its overrun ring on a node that is caught up.
+  const catchingUp = elapsed > STALE_TIP_S && nodeSyncing();
+  window.__nextBlock = { catchingUp, elapsedMin: Math.round(elapsed / 60) }; // test hook: the reading, and whether it was trusted
+  if (catchingUp) {
+    const cx0 = r.x + r.w / 2, cy0 = r.y + r.h / 2;
+    text("catching up after sleep", cx0, cy0 - 12, { size: 15, weight: 700, color: "rgba(255,210,110,0.9)", align: "center", baseline: "middle" });
+    text("your node is fetching the blocks mined while this computer slept — the timer starts again at the real tip", cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    return;
+  }
   const over = elapsed > 600; // past the ~10-min estimate — count UP the overrun (long blocks are normal: Poisson)
   const progress = Math.min(1, elapsed / 600);
   ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255,255,255,0.18)"; ctx.beginPath(); ctx.arc(cx, cy, rad, 0, Math.PI * 2); ctx.stroke();
@@ -3591,13 +3624,14 @@ function drawSync(r) {
   syncState.etaHist = syncState.etaHist || [];
   const eh = syncState.etaHist, nowMs = Date.now();
   if (!eh.length || nowMs - eh[eh.length - 1].ts > 3000) eh.push({ ts: nowMs, h: Math.floor(head) });
-  while (eh.length > 2 && nowMs - eh[0].ts > 90000) eh.shift();
+  while (eh.length && nowMs - eh[0].ts > RATE_WINDOW_MS) eh.shift(); // by age alone — see the note on RATE_WINDOW_MS
   let etaStr = "";
-  if (behind > 0 && eh.length >= 2) {
-    const bps = (eh[eh.length - 1].h - eh[0].h) / Math.max(1, (eh[eh.length - 1].ts - eh[0].ts) / 1000);
+  const etaSpan = eh.length >= 2 ? (eh[eh.length - 1].ts - eh[0].ts) / 1000 : 0;
+  if (behind > 0 && etaSpan >= RATE_MIN_SPAN_S) {
+    const bps = (eh[eh.length - 1].h - eh[0].h) / etaSpan;
     if (bps > 0.02) { const s = behind / bps; etaStr = s > 172800 ? ` · ~${(s / 86400).toFixed(1)} days left` : s > 3600 ? ` · ~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left` : s > 90 ? ` · ~${Math.round(s / 60)} min left` : " · almost caught up"; }
     else etaStr = " · estimating time…";
-  }
+  } else if (behind > 0 && eh.length >= 2) etaStr = " · estimating time…"; // window still filling after a wake
   text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 63, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 78, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
   else drawBackgroundVerify(r); // same row, mutually exclusive: that note needs blocks-behind; this only runs at the tip
@@ -3776,7 +3810,7 @@ function drawSync(r) {
 
   // live state for the headless probe (scripts/probe.mjs) — cheap object, no canvas effect
   window.__sync = {
-    version: VERSION, hasNode: !!node, tip, head: Math.floor(head), behind,
+    version: VERSION, hasNode: !!node, tip, head: Math.floor(head), behind, stale, eta: etaStr,
     phase: syncState.phase, fp: +(syncState.fp || 0).toFixed(3), fillPct: Math.round(newestFill * 100),
     flowKBs: Math.round(syncState.flow / 1000), fillPerSec: +fillPerSec.toFixed(3),
     downloading, arriving, filling, flowing, minedAnim, pending: syncState.pending || 0, nh: +(syncState.nh || 0).toFixed(2), nt: +(syncState.nt || 0).toFixed(2),
@@ -4563,7 +4597,7 @@ function render(ts) {
   // Lid-open / wake-from-sleep: wall-clock jumped far more than a frame, so every timer-driven poll is late
   // and the wifi has probably only just come back. Refetch immediately instead of showing stale-or-offline
   // data until the next 30s tick. (Runs before the frame-rate governor's early-return so it never gets skipped.)
-  { const now = Date.now(); if (lastTickMs && now - lastTickMs > 45_000) recoverNow(); lastTickMs = now; }
+  { const now = Date.now(); if (lastTickMs && now - lastTickMs > 45_000) { resetRateHistories(); recoverNow(); } lastTickMs = now; }
   // Frame-rate governor. The loop is always scheduled, but we only actually repaint when enough time has
   // passed for the current mode — the early-return is essentially free, so idle CPU tracks the draw rate:
   //   off      → 1fps heartbeat (a safety net; real changes repaint instantly via requestRender)
