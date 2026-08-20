@@ -4,7 +4,34 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.89
+## Unreleased — next: 0.1.90
+
+## 0.1.89
+
+**After your computer wakes**
+- **A machine that slept no longer reports the nap as network data.** Opening a laptop that had been closed for
+  seven hours showed "429 min until the node caught up" while the node was in fact already at the tip — it had
+  connected the thirty blocks it missed in forty-one seconds. Every figure on that screen was measuring the
+  length of the sleep rather than the state of the chain. NEXT BLOCK counts from the timestamp of the newest
+  block, so a seven-hour-old block wrapped its ring into a seven-hour "overrun"; it now says it is catching up
+  instead, and only when your node agrees it is behind, so a genuinely slow block still gets the dramatic ring
+  it deserves. The two "time remaining" estimates sample how fast blocks are arriving over the last ninety
+  seconds, and a sample taken before the sleep was being paired with one taken after it — an estimate built
+  from a rate of blocks-per-hours-of-nap. Both now discard anything older than the window and rebuild from
+  what an awake machine actually saw, so they go briefly quiet after waking rather than confidently wrong.
+  A number this app cannot stand behind is worse than no number.
+
+**Diagnostics**
+- **The miner's stall reporter can now see the one call that matters.** Building a ticket was the only step of
+  the poll loop the monitor could not watch, which had two consequences. A perfectly healthy miner could be
+  reported idle — "not seeing the new block" — during the seconds it spent building the ticket for that very
+  block, which is what an ordinary eighteen-minute gap between blocks produced on a real install. And had the
+  attempt itself ever hung, the report would have said "not stuck in a call", which was the one thing it could
+  not have been. Neither changed what the miner does; both made its own account of itself untrustworthy, and
+  a diagnostic that cannot be believed is worse than none.
+- **A malformed ticket on disk can no longer be a miner that will not start.** A single unparseable hash in a
+  long ticket history would have stopped the miner on the first launch after updating, for a value that had
+  been sitting harmlessly on disk for months.
 
 ## 0.1.88
 
