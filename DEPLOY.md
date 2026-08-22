@@ -55,11 +55,24 @@ static files, but may miss the KV binding the counter Function needs — prefer 
 getnotzero.com auto-updates to the new deployment within seconds.
 
 ## Demo dashboard → demo.getnotzero.com  (project `notzero-demo`)
-Serves the canvas dashboard from `web/`. No wrangler.toml there, so pass the project name:
+Serves the canvas dashboard from `web/`. **Stage it first — do not deploy `web/` directly:**
 
 ```
-npx wrangler pages deploy web --project-name=notzero-demo
+node scripts/stage-demo.mjs
+npx wrangler pages deploy .demo-build --project-name=notzero-demo
 ```
+
+`wrangler pages deploy` uploads the **directory**, and `web/node.json` is gitignored local state written by
+your running bridge — it carries **this machine's seed**. Deploying `web/` published it; that is how the demo
+came to serve a real machine seed next to a thin 533-attempt, 7-bit node state (found 2026-08-22).
+
+Simply dropping `node.json` is *not* the fix: the odds map and YOUR RECORDS only render inside
+`drawCloseness`'s live branch (`at && at.hash`), so a payload-less demo silently loses the two richest panels
+on the page — verified by rendering it. `stage-demo.mjs` writes a **synthetic** payload instead (the same one
+the tests use, so it stays realistic), with timestamps anchored to generation time — which is why it runs at
+deploy rather than sitting in the repo ageing. It refuses to stage if this machine's seed reaches the build.
+
+⚠ **Never** `--project-name=notzero` here — that publishes the dashboard over the landing page.
 
 ## Verify after deploying
 ```

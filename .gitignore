@@ -47,3 +47,6 @@ latest*.yml
 
 # wrangler local state
 .wrangler/
+
+# staged demo build (scripts/stage-demo.mjs)
+.demo-build/
