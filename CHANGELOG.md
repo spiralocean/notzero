@@ -6,6 +6,32 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.90
 
+**Your closeness**
+- **The odds map now says what its own axis means.** Attempts are placed by leading-zero bits, and that is a
+  logarithmic scale: each step leftward is a doubling, not a step of equal effort. Unlabelled, the eye reads
+  horizontal distance as progress — a typical best sits perhaps a sixth of the way from the hash cloud to the
+  win line, which *looks* like a sixth of the journey, when the sixty-odd bits still to go are around nine
+  billion billion times harder than everything behind it. The lose zone is now ticked in powers of ten and
+  captioned "each tick ×10 rarer", so distance reads as an exponent instead. Nothing on the map moved; the gap
+  simply stopped flattering. The thin win zone was already drawn this carefully for exactly this reason — this
+  is the same honesty applied to the other ninety-one percent of the width.
+- **YOUR RECORDS says how far the ladder still goes.** Every row is a rung — beating a record needs one more
+  zero bit and twice the wait — but nothing said how many rungs a win is. A line under the rows now does: "a
+  win is 79 bits — 63 doublings above your best · each one twice the wait of the last". A count is something a
+  person can hold; ten billion billion years is not, and it ticks down by one each time a record lands. A win
+  *row* was built first and thrown out: its bar would sit on the two-pixel floor for a century, which reads as
+  "your progress is nothing" rather than as scale, and would have brought back the flat line that
+  one-row-per-record exists to avoid.
+- **A record that stands on luck now says so.** The top row's bar grows toward the wait the odds predict, and
+  for a record several bits deeper than your ticket count would usually give, that wait is centuries — so the
+  bar sits at its floor and stays there. Simulated across four hundred installs at each of one, three and ten
+  years, that is about one in twenty at any moment, and it does not worsen with time (4.8% at a year, 4.0% at
+  ten). Nor do the rows decay with depth: the wait is memoryless, so the median row stands 0.59 of its
+  expectation at every horizon and a 24-bit row is exactly as lively as a 9-bit one. But a flat bar reads as a
+  stall when it means the opposite — that you got lucky. The row now says which, measured against log2 of your
+  lifetime tickets: "~91× luckier than typical", and only when the luck is real, so an ordinary record stays
+  quiet. A flat line here is a trophy and should not be mistaken for a stall.
+
 ## 0.1.89
 
 **After your computer wakes**

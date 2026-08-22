@@ -750,6 +750,23 @@ test("closeness: the record rows date each best and price its expected wait, and
   expect(rec.stoodSec).toBeGreaterThan(86400);                              // "standing for" measures from the record to NOW
   expect(rec.stoodSec).toBeLessThan(rec.expectedSec);                       // 24 bits is expected to stand ~600 years; it has stood days
 
+  // The footer under the rows is where the ladder ENDS: a win is N doublings above the standing record. It is a
+  // count rather than a bar because a win bar would sit at the 2px floor forever — but a count draws NOTHING when
+  // it is zero, so a regression that stopped passing the win threshold in would delete the line silently and no
+  // pixel diff on this panel would necessarily catch it. Assert the arithmetic instead.
+  const winBits = 256 - BigInt("0x" + NODE_PAYLOAD.miner.attempt.target).toString(2).length;
+  expect(rec.winBits).toBe(winBits);                                        // the top of the ladder, read off the real target
+  expect(rec.toGo).toBe(winBits - standing.zero_bits);                      // …minus the record that stands = the rungs left
+  expect(rec.toGo).toBeGreaterThan(0);                                      // and it is drawn at all
+
+  // A record far deeper than your ticket count typically gives pins the standing bar at its 2px floor for years.
+  // The bar cannot say why, so the row says it instead — but only when the luck is real, which is arithmetic that
+  // would rot silently if the ticket counter were ever renamed (the note would just stop appearing).
+  const typical = Math.log2(NODE_PAYLOAD.miner.total_attempts);
+  expect(rec.tickets).toBe(NODE_PAYLOAD.miner.total_attempts);              // the yardstick is the lifetime draw count
+  expect(rec.deeperBits).toBeCloseTo(standing.zero_bits - typical, 1);      // …and depth is measured against log2 of it
+  expect(rec.deeperBits).toBeGreaterThan(3);                                // this fixture is a lucky one, so the note shows
+
   // …now the same app against a payload from before the record list existed
   const older = { ...NODE_PAYLOAD, miner: { ...NODE_PAYLOAD.miner, best_history: undefined } };
   await page.unroute("**/node.json*");
