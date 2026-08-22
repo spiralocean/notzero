@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.90
+## Unreleased — next: 0.1.91
+
+## 0.1.90
 
 **Your closeness**
 - **The odds map now says what its own axis means.** Attempts are placed by leading-zero bits, and that is a
