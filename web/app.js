@@ -849,7 +849,9 @@ function contentH(s) {
   if (s === "network" && model.node && model.node.miner_proc && model.node.miner_proc.node) h += ROW_H; // the node's CPU/RAM row
   // YOUR RECORDS is as tall as it has rows (see drawBestRecords) — no rows, no reserved space, which is what the
   // public demo shows: its payload has no record list, so the panel keeps its original height.
-  if (s === "closeness") { const n = Math.min(MAX_RECORD_ROWS, (model.node?.miner?.best_history || []).length); if (n) h += 16 + 15 * n; }
+  // +12 is the odds map's ×10 tick row, which sits under the band in every live state. The records block adds
+  // its rows plus 14 for the "how far the ladder still goes" footer beneath them.
+  if (s === "closeness") { const n = Math.min(MAX_RECORD_ROWS, (model.node?.miner?.best_history || []).length); h += 12; if (n) h += 30 + 15 * n; }
   return h;
 }
 // INSIDE THE HASH is a parent panel: the deeper hashing dives nest under it (indented), so collapsing it
@@ -2642,7 +2644,7 @@ function drawVerify(r) {
 // The comparison is the part worth drawing. Beating a z-bit record needs a hash with z+1 zero bits, which turns
 // up once per 2^(z+1) tickets — one ticket per block, so ~2^(z+1) × 10 min. That is what a dry spell IS: a
 // 13-bit record standing three days is not a stall, it is 3% of the way through its expected ~114-day life.
-function drawBestRecords(x0, x1, top, best, mn) {
+function drawBestRecords(x0, x1, top, best, mn, winBits) {
   const now = Date.now(), bd = minerTime(best && best.at);
   const all = (Array.isArray(mn.best_history) ? mn.best_history : [])
     .map((e) => ({ t: minerTime(e && e.at), bits: e && e.zero_bits, height: e && e.height, hash: e && e.hash, seeded: !!(e && e.seeded) }))
@@ -2660,6 +2662,7 @@ function drawBestRecords(x0, x1, top, best, mn) {
   // is waiting on. The count of what's above them is kept, so nothing silently vanishes.
   const shown = all.slice(-MAX_RECORD_ROWS).reverse(), earlier = all.length - shown.length;
   const expSec = (bits) => Math.pow(2, bits + 1) * 600; // beat z bits ⇒ z+1 zero bits ⇒ 2^(z+1) tickets, 10 min each
+  const tickets = mn.total_attempts || mn.live_attempts || 0; // lifetime draws — the yardstick a record's depth is lucky AGAINST
   const stoodSec = (i) => {                             // shown is newest-first, so [i-1] is what beat it
     const e = shown[i], beatenBy = i ? shown[i - 1] : null;
     return ((beatenBy ? beatenBy.t : now) - e.t) / 1000;
@@ -2694,6 +2697,12 @@ function drawBestRecords(x0, x1, top, best, mn) {
 
   for (let i = 0; i < shown.length; i++) {
     const e = shown[i], y = top + 26 + i * 15, standing = i === 0, ratio = stoodSec(i) / expSec(e.bits);
+    // The median best after N tickets is ~log2(N), and every bit above that is 2× luckier. A record several bits
+    // deep leaves this bar pinned at its 2px floor for years — and a flat bar reads as a stall when it is the
+    // exact opposite. Simulated: ~4-5% of installs show a pinned standing bar at any moment (flat across 1, 3.5
+    // and 10 years — the rows do NOT decay with depth), and about a third of those are this case rather than a
+    // merely fresh record. Luck is the whole point of the app; when it lands, the panel should say so.
+    const deeper = standing && tickets > 1 ? e.bits - Math.log2(tickets) : 0, lucky = deeper >= 3;
     const lit = standing ? "rgba(255,215,90,1)" : "rgba(255,215,90,0.72)";
     const d = 3.4, dx = x0 + 4; // a ◆ per record, matching the odds map's marker for the same thing
     ctx.fillStyle = e.seeded ? "rgba(255,215,90,0.45)" : lit; ctx.strokeStyle = "rgba(10,8,4,0.7)"; ctx.lineWidth = 1;
@@ -2719,6 +2728,12 @@ function drawBestRecords(x0, x1, top, best, mn) {
         ctx.beginPath(); ctx.moveTo(barX + len, y - 5); ctx.lineTo(barX + len + 5, y); ctx.lineTo(barX + len, y + 5); ctx.closePath(); ctx.fill();
         ctx.setLineDash([2, 3]); ctx.strokeStyle = "rgba(255,215,90,0.3)"; ctx.lineWidth = 1; // …and the run still to come
         ctx.beginPath(); ctx.moveTo(barX + len + 7, y + 0.5); ctx.lineTo(Math.max(barX + len + 7, mid), y + 0.5); ctx.stroke(); ctx.setLineDash([]);
+        if (lucky) { // measured, not assumed — if it will not fit clear of the expected mark it is dropped, not overlapped
+          const luck = `~${sciWords(Math.pow(2, deeper))}× luckier than typical`;
+          ctx.font = "10px -apple-system, system-ui, sans-serif";
+          if (ctx.measureText(luck).width < barX + barW - mid - 12)
+            text(luck, barX + barW, y, { size: 10, color: "rgba(255,215,90,0.8)", align: "right", baseline: "middle" });
+        }
       }
       if (i === 0) text("expected", mid, top + 26 - 12, { size: 8.5, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
     }
@@ -2731,11 +2746,34 @@ function drawBestRecords(x0, x1, top, best, mn) {
       standing ? `still standing after ${spanStr(stoodSec(i))} — ${ratio < 1 ? `${Math.round(ratio * 100)}% of that so far` : `${ratio.toFixed(1)}× that already`}, and this bar is still growing`
                : `stood ${spanStr(stoodSec(i))} — ${ratio < 1 ? `${ratio.toFixed(2)}× the expected wait, so it was beaten early` : `${ratio.toFixed(1)}× the expected wait before it fell`}, to a ${shown[i - 1].bits}-bit hash`,
     standing ? "the wait is memoryless — a record that has stood a long time is no more \"due\" to fall than a fresh one" : "",
+      lucky ? `${e.bits} bits on ${tickets.toLocaleString()} tickets — about ${Math.round(Math.log2(tickets))} is typical, so you are ~${Math.pow(2, deeper).toFixed(0)}× ahead of it` : "",
+      lucky ? "so this bar sits near empty and will for a long time — that is the trophy, not a stall" : "",
       e.seeded ? "reconstructed from your stored tickets, not watched live" : "",
     ].filter(Boolean) });
   }
+  // Where the ladder ENDS. The rows above are the achievable tier and should keep feeling that way — every rung
+  // on them is one a person actually reaches, on roughly the schedule the bar draws. A win row would not be:
+  // its bar is ~10^-20 of its own expectation, so it clamps to the 2px floor and stays there for a century,
+  // reintroducing the flat line one-row-per-record exists to avoid — and reading as "your progress is nothing".
+  // The rung COUNT does the same job without the despair. It is countable where 10^19 years is not, it ticks
+  // down by one every time a record lands, and it carries the real shape of the thing: each step is 2× the last.
+  const toGo = winBits ? Math.max(0, Math.round(winBits - shown[0].bits)) : 0;
+  if (toGo) {
+    const fy = top + 26 + shown.length * 15 + 3;
+    text(`a win is ${Math.round(winBits)} bits — ${toGo} doubling${toGo === 1 ? "" : "s"} above your best · each one twice the wait of the last`,
+      x0, fy, { size: 10, color: "rgba(255,255,255,0.45)", baseline: "middle" });
+    recordHits.push({ x: x0, y: fy - 7, w: x1 - x0, h: 14, lines: [
+      `the top of the ladder — a win needs ${Math.round(winBits)} zero bits`,
+      `your best is ${shown[0].bits}, so ${toGo} doublings remain, each one twice the wait of the one before`,
+      `that is 2^${toGo} ≈ 10^${Math.round(toGo * 0.30103)} times rarer than the record you already hold`,
+      `at 1 ticket every 10 minutes: ${expectedEvery(winBits)}`,
+      "this is why it is a count and not a bar — the gap is multiplicative, and no bar can draw it",
+    ] });
+  }
   window.__records = { rows: shown.length, total: all.length, fallback: false, standingBits: shown[0].bits, // test hook
-    standingAt: shown[0].t.toISOString(), stoodSec: Math.round(stoodSec(0)), expectedSec: Math.round(expSec(shown[0].bits)) };
+    standingAt: shown[0].t.toISOString(), stoodSec: Math.round(stoodSec(0)), expectedSec: Math.round(expSec(shown[0].bits)),
+    winBits: winBits ? Math.round(winBits) : null, toGo,
+    tickets, deeperBits: tickets > 1 ? +(shown[0].bits - Math.log2(tickets)).toFixed(2) : 0 };
 }
 
 function drawCloseness(r) {
@@ -2806,6 +2844,18 @@ function drawCloseness(r) {
     const wzg = ctx.createLinearGradient(tkX, 0, winX, 0); // win zone — fade to nothing leftward so it reads as a thin sliver at the line, not winnable space
     wzg.addColorStop(0, "rgba(90,210,140,0.015)"); wzg.addColorStop(1, "rgba(90,210,140,0.2)");
     ctx.fillStyle = wzg; ctx.fillRect(tkX, tkY, winX - tkX, bandH);
+    // A bits axis is a LOG axis: equal steps leftward are equal DOUBLINGS, not equal effort. Unlabelled, the eye
+    // reads horizontal distance as progress — a 16-bit best sits ~a sixth of the way from the cloud to the win
+    // line while the remaining 63 bits are 2^63 (~10^19) times harder. Ticking the lose zone in powers of ten
+    // makes that distance read as an EXPONENT instead. Nothing moves; the gap just stops flattering.
+    const DEC_BITS = Math.log2(10); // 3.32 zero bits per ×10 rarer
+    for (let d = 1; d * DEC_BITS < tBits; d++) {
+      const gx = Math.round(px(d * DEC_BITS));
+      ctx.fillStyle = d % 4 ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.12)"; // every 4th is the labelled one
+      ctx.fillRect(gx, tkY, 1, bandH);
+      if (d % 4 === 0) text(`10^${d}`, gx, tkY + bandH + 13, { size: 8.5, color: "rgba(255,255,255,0.33)", align: "center", baseline: "middle" });
+    }
+    text("each tick ×10 rarer", tkX + tkW, tkY + bandH + 13, { size: 8.5, color: "rgba(255,255,255,0.35)", align: "right", baseline: "middle" });
     ctx.strokeStyle = "rgba(255,255,255,0.12)"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(tkX, tkY + bandH); ctx.lineTo(tkX + tkW, tkY + bandH); ctx.stroke(); // baseline
     // heat dots from the leading-zero-bits histogram (amber where common → green as it nears the target)
     const zhist = mn.zhist || {}, loseSlot = tkW * (1 - WIN_FRAC) / Math.max(1, tBits); // px between adjacent zero-bit columns; jitter by ~this so the heat blends into a cloud instead of hard bands
@@ -2844,7 +2894,7 @@ function drawCloseness(r) {
         ctx.save(); ctx.translate(luckyX, tkY + bandH / 2); ctx.beginPath();
         for (let s = 0; s < 10; s++) { const rr = s % 2 ? 2.3 : 5.4, a = -Math.PI / 2 + s * Math.PI / 5; ctx.lineTo(Math.cos(a) * rr, Math.sin(a) * rr); }
         ctx.closePath(); ctx.fillStyle = "rgba(255,215,90,1)"; ctx.fill(); ctx.strokeStyle = "rgba(10,8,4,0.85)"; ctx.lineWidth = 1; ctx.stroke(); ctx.restore();
-        text(`★ beat target by +${beat} bits`, luckyX, tkY + bandH + 26, { size: 10, weight: 700, color: "rgba(255,215,90,0.95)", align: "center", baseline: "middle" });
+        text(`★ beat target by +${beat} bits`, luckyX, tkY + bandH + 38, { size: 10, weight: 700, color: "rgba(255,215,90,0.95)", align: "center", baseline: "middle" });
       }
     }
     // best = a DIAMOND (◆, matching the legend) so it's told apart from the round winner/you dots by SHAPE, not just colour
@@ -2876,9 +2926,9 @@ function drawCloseness(r) {
       `a win = ${tBits} heads in a row (${leadingZeroHexChars(at.target || "")} zeros) · ${oddsExact(winL2)}`,
       `that's ${expectedEvery(winL2)} of nonstop mining`,
     ] };
-    text(`◄ BELOW target = WIN · ${tBits} heads in a row · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 14, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
-    text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 14, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
-    drawBestRecords(tkX, tkX + tkW, tkY + bandH + 34, best, mn);
+    text(`◄ BELOW target = WIN · ${tBits} heads in a row · 1 in ~10^${Math.round(tBits * 0.30103)}`, tkX, tkY + bandH + 26, { size: 10, weight: 600, color: "rgba(90,220,140,0.9)", baseline: "middle" });
+    text("most hashes land here — above the target ►", tkX + tkW, tkY + bandH + 26, { size: 10, color: "rgba(255,190,110,0.85)", align: "right", baseline: "middle" });
+    drawBestRecords(tkX, tkX + tkW, tkY + bandH + 46, best, mn, tBits);
     if (best && best.hash) // the felt version of the best hash: lead with zeros (quickest to grasp), then coin-flips (the doubling), then time at this machine's cadence
       text(`◆ your best hash: ${bestZeros} leading zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits — that's ${bestBits} coin-flips all landing heads — turns up ${expectedEvery(bestBits)} at 1 ticket every 10 min`,
         tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
