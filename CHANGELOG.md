@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.91
 
+**Your tickets**
+- **A restarted miner no longer draws the block it already drew.** "Which block did I last ticket?" lived
+  only in memory, so every restart began from nothing and the new process ticketed the current tip again —
+  same seed, same height, same nonce, same hash. Not a second draw: the same ticket logged twice. Seen on a
+  real install: 22 of 1,000 stored tickets were repeats, each a minute or two after a watchdog "miner stalled"
+  restart, one block logged four times in ten minutes. They inflated the lifetime ticket count — the yardstick
+  a record's depth is judged lucky against — by about 2%, and the odds map counted one hash twice. The last
+  attempt was on disk all along; the loop now reads it back on start. A draw in the other mode still counts
+  as owed (a symbolic draw does not settle a live one), and a changed machine seed deliberately does not
+  reopen a block: one ticket per block is the contract. Records already set are untouched.
+
 ## 0.1.90
 
 **Your closeness**

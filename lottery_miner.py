@@ -1567,11 +1567,33 @@ def resolve_runtime_settings(
     return resolved
 
 
+def resume_height(state: dict, mode: str) -> Optional[int]:
+    """The block the previous miner process already drew — this one must not draw it again.
+
+    "Which block did I last ticket?" lived only in a local variable, so every restart began at None and the
+    new process ticketed the current tip a second time. Same seed, same height, same nonce, same hash: not a
+    second draw, the same ticket logged twice. Seen on a real install 2026-08-29/30: 22 of 1,000 stored
+    tickets were repeats, each a minute or two after a watchdog "miner stalled" restart (one block was logged
+    four times across three restarts in ten minutes). They inflated total_attempts — the yardstick a record's
+    depth is judged lucky against — by ~2%, and the odds map counted one hash twice.
+
+    The last attempt is already on disk; this reads it back. Only an attempt of the SAME mode counts: a block
+    drawn symbolically is still owed a live draw once the node is ready, and vice versa. The machine seed is
+    deliberately NOT compared — a seed that flipped (the hostname reads .local one boot and .localdomain the
+    next) would give a genuinely different hash, and one ticket per block is the whole contract.
+    """
+    last = state.get("last_attempt")
+    if not isinstance(last, dict) or last.get("mode") != mode:
+        return None
+    height = last.get("height")
+    return height if isinstance(height, int) and not isinstance(height, bool) else None
+
+
 def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
-    last_height: Optional[int] = None
     mode = settings["mode"]
     config = load_config()
     state = load_state()
+    last_height: Optional[int] = resume_height(state, mode)
     state["daemon_started_at"] = utc_now()
     state["machine_seed"] = settings["machine_seed"]
     state["mode"] = mode
