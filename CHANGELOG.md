@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.91
+## Unreleased — next: 0.1.92
+
+## 0.1.91
 
 **Your tickets**
 - **A restarted miner no longer draws the block it already drew.** "Which block did I last ticket?" lived
