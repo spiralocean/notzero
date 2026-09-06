@@ -6,6 +6,16 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.92
 
+**Demo site**
+- **demo.getnotzero.com no longer presents itself as your live miner.** The synthetic payload the demo has
+  shipped since 2026-08-22 is a healthy, synced, mode "live" node, so every check the footer runs passed on it:
+  the page said "◉ LIVE solo mining — submits a block if it wins" in green beside a payout address, the word
+  "demo" appeared nowhere, and the canvas-only page had no link out. The staged payload now carries a demo
+  flag the dashboard branches on: the footer reads "demo — real Bitcoin network · simulated tickets" with a
+  real "get the free app → getnotzero.com" link in its centre, and the demo build gets its own title, search
+  snippet and social card that say demo and point at the download. The desktop app is untouched — it never
+  sets the flag, so its footer, title and controls are exactly as before.
+
 ## 0.1.91
 
 **Your tickets**

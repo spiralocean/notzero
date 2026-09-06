@@ -377,6 +377,10 @@ async function pollNode() {
   try {
     const r = await fetch("./node.json", { cache: "no-store" });
     model.node = r.ok ? await r.json() : null;
+    // The public demo's payload is flagged (scripts/stage-demo.mjs). It is the ONLY thing that shows the DOM
+    // "get the app" link: the desktop app never sets it, and a payload-less page is not proof of a demo (a
+    // bridge blip inside the app also yields null for a poll or two).
+    { const home = document.getElementById("home"); if (home) home.hidden = !isDemoPayload(); }
     // remember the last moment the node was genuinely up + has chain data, so a brief drop (e.g. the engines
     // restarting when you save settings) can show "reconnecting…" instead of a scary "no node connected".
     if (model.node && model.node.reachable !== false && ((model.node.headers || 0) > 0 || (model.node.blocks || 0) > 0)) model.nodeLastOk = Date.now();
@@ -2934,7 +2938,8 @@ function drawCloseness(r) {
         tkX + tkW / 2, r.y + r.h - 46, { size: 11, weight: 700, color: "rgba(255,215,90,0.92)", align: "center", baseline: "middle" });
     text("your inputs are fixed — SHA-256 makes the result an unpredictable draw in 2²⁵⁶; there's no way to aim", tkX + tkW / 2, r.y + r.h - 26, { size: 10, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     const att = mn.live_attempts || 0, won = mn.live_wins || 0;
-    text(`● LIVE · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestZeros} zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits · ● last ${youBits} bit${youBits === 1 ? "" : "s"}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: "rgba(90,220,140,0.92)", baseline: "middle" });
+    // The demo's tally is the fixture's, not anyone's: say so in the same slot, in the footer's grey, not LIVE green.
+    text(`${isDemoPayload() ? "◷ DEMO" : "● LIVE"} · ${att.toLocaleString()} attempts · ${won} found & submitted · ◆ best ${bestZeros} zero${bestZeros === 1 ? "" : "s"} · ${bestBits} bits · ● last ${youBits} bit${youBits === 1 ? "" : "s"}`, rowX, r.y + r.h - 11, { size: 11, weight: 700, color: isDemoPayload() ? "rgba(255,255,255,0.5)" : "rgba(90,220,140,0.92)", baseline: "middle" });
     return;
   }
   // a node is configured (the desktop app) but there's no live attempt yet — syncing/connecting, not a demo
@@ -4462,6 +4467,12 @@ function agoStr(sec) {
 // miner's loop regardless of what the chain does, which is the actual thing being tested.
 // Mirrors desktop/miner-watchdog.js, which is canonical and carries the tests — a browser ES module can't
 // require() a CommonJS one and web/ is served raw, so this copy is deliberate. Change both.
+// The public demo ships a synthetic, healthy, mode "live" payload (scripts/stage-demo.mjs) so the odds map and
+// YOUR RECORDS still render. Every "is this real?" check passes on it — synced, live, no heartbeat to go stale —
+// so without this flag the demo footer said "LIVE solo mining" with a payout address, and nothing on the page
+// said demo. The flag travels WITH the data rather than hanging off the hostname, so a staged build opened
+// locally is a demo too.
+function isDemoPayload() { return !!(model.node && model.node.demo === true); }
 function minerStalled(n) {
   const lp = n && n.miner && n.miner.last_poll_at ? Date.parse(n.miner.last_poll_at) : NaN;
   if (!isFinite(lp)) return false;                           // no heartbeat field → never guess
@@ -4747,7 +4758,7 @@ function render(ts) {
   let fmsg, fcol;
   const ver = appVersion ? `v${appVersion}` : VERSION; // desktop shows the app release (for support); web demo shows the dashboard version
   if (!node && nodeReconnecting()) { fmsg = `◌ reconnecting to your node… · ${ver}`; fcol = "rgba(255,200,90,0.95)"; }
-  else if (!node) { fmsg = `◷ live demo · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
+  else if (!node || isDemoPayload()) { fmsg = `◷ demo — nothing here is mining for you · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (!reachable) { const sv = nodeMode === "managed" ? nodeSetupView() : null; fmsg = nodeReconnecting() ? `◌ reconnecting to your node… · ${ver}` : sv ? `${sv.isError ? "○" : "◌"} ${sv.head}${sv.isError ? "" : "…"} · ${ver}` : nodeMode === "managed" ? `◌ starting your node… · ${ver}` : `○ node unreachable — check your node · ${ver}`; fcol = sv && sv.isError ? "rgba(255,120,110,0.95)" : "rgba(255,150,80,0.95)"; }
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
@@ -4769,10 +4780,11 @@ function render(ts) {
     // Managed node mid-setup: the SYNC panel already shows progress + disk, and the right pill shows "syncing
     // X%". A second fixed line on the left just overlaps the panel's disk readout, so we draw nothing here until
     // the node is ready — the payout appears once it's actually mining.
-  } else if (!node) {
+  } else if (!node || isDemoPayload()) {
     // public / demo view — nobody is mining here, so DON'T show a payout warning (it reads as "your
-    // rewards go to a stranger"). Explain what this is and how to take part.
-    leftMsg = "◷ demo — real Bitcoin network · simulated tickets · run the miner to take a real shot";
+    // rewards go to a stranger"). Say what this is; the "take a real shot" half is the #home link in the
+    // footer's centre (index.html), a real anchor so it is clickable, crawlable and readable off-canvas.
+    leftMsg = "◷ demo — real Bitcoin network · simulated tickets";
     text(leftMsg, PAD, H - 14, { size: 13, weight: 700, color: "rgba(255,255,255,0.5)", baseline: "middle" });
   } else if (symbolic) {
     // practice mode — real attempts, but no node and no rewards yet, so don't show a payout warning

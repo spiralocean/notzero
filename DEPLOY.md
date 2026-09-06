@@ -72,6 +72,12 @@ on the page — verified by rendering it. `stage-demo.mjs` writes a **synthetic*
 the tests use, so it stays realistic), with timestamps anchored to generation time — which is why it runs at
 deploy rather than sitting in the repo ageing. It refuses to stage if this machine's seed reaches the build.
 
+The staged payload also carries **`demo: true`** — the dashboard branches on it (`isDemoPayload()` in `app.js`)
+to show the demo footer and the "get the free app → getnotzero.com" link instead of "LIVE solo mining" +
+payout. Without the flag the healthy synthetic node passes every live check (that was the state from
+2026-08-22 to 2026-09-06). The script also rewrites the staged `index.html`'s title/description/social tags
+to say demo — `web/index.html` itself stays the product's, since the desktop app ships it.
+
 ⚠ **Never** `--project-name=notzero` here — that publishes the dashboard over the landing page.
 
 ## Verify after deploying

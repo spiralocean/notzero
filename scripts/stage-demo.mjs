@@ -24,7 +24,9 @@ mkdirSync(OUT, { recursive: true });
 cpSync("web", OUT, { recursive: true });
 rmSync(`${OUT}/node.json`, { force: true }); // whatever the local bridge left behind
 
-const demo = { ...NODE_PAYLOAD, miner: { ...NODE_PAYLOAD.miner, seed: "demo" } };
+// demo: true is what the dashboard branches on (isDemoPayload in app.js). This payload is otherwise a healthy,
+// synced, mode "live" node, so without the flag the page reported "LIVE solo mining" with a payout address.
+const demo = { ...NODE_PAYLOAD, demo: true, miner: { ...NODE_PAYLOAD.miner, seed: "demo" } };
 writeFileSync(`${OUT}/node.json`, JSON.stringify(demo, null, 2) + "\n");
 
 // Guard, not decoration: if the local bridge's payload is on this machine, prove none of it reached the build.
@@ -38,7 +40,28 @@ if (existsSync("web/node.json")) {
     }
   }
 }
+// web/index.html is shared with the desktop app, so its title/description describe the product. The demo
+// gets its own: the tab, the search snippet and the social card all say demo and point at the download.
+// Each replacement must hit exactly once — if the source markup drifts, fail here rather than ship the old copy.
+const HTML = `${OUT}/index.html`;
+let html = readFileSync(HTML, "utf8");
+const DEMO_TITLE = "₿itcoin Lottery — live demo (nothing here is mining for you)";
+const DEMO_DESC = "A demo of the notzero dashboard on the live Bitcoin network — simulated tickets, real blocks. Nothing here is mining for you: get the free, non-custodial app at getnotzero.com for a real ticket.";
+for (const [re, to] of [
+  [/<title>[^<]*<\/title>/, `<title>${DEMO_TITLE}</title>`],
+  [/(<meta name="description" content=")[^"]*(")/, `$1${DEMO_DESC}$2`],
+  [/(<meta property="og:title" content=")[^"]*(")/, `$1${DEMO_TITLE}$2`],
+  [/(<meta property="og:description" content=")[^"]*(")/, `$1${DEMO_DESC}$2`],
+  [/(<meta name="twitter:title" content=")[^"]*(")/, `$1${DEMO_TITLE}$2`],
+  [/(<meta name="twitter:description" content=")[^"]*(")/, `$1${DEMO_DESC}$2`],
+]) {
+  const hits = (html.match(new RegExp(re.source, "g")) || []).length;
+  if (hits !== 1) { console.error(`REFUSING TO STAGE: expected exactly one match for ${re}, found ${hits} in web/index.html`); process.exit(1); }
+  html = html.replace(re, to);
+}
+writeFileSync(HTML, html);
+
 const m = JSON.parse(out).miner;
-console.log(`staged ${OUT}/ — seed "${m.seed}", payout ${m.payout}`);
+console.log(`staged ${OUT}/ — seed "${m.seed}", payout ${m.payout}, demo flag: ${JSON.parse(out).demo === true}`);
 console.log(`  ${m.best_history.length} records (${m.best_history.map((e) => e.zero_bits).join("/")} bits), live attempt present: ${!!m.attempt?.hash}`);
 console.log(`  deploy: npx wrangler pages deploy ${OUT} --project-name=notzero-demo`);

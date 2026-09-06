@@ -26,10 +26,19 @@
     body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; }
     #stage { display: block; width: 100vw; height: 100vh; cursor: default; }
     #stage.clickable { cursor: pointer; }
+    /* Demo only (app.js un-hides it on a demo-flagged payload). A DOM anchor over the canvas, sitting in the
+       footer's centre between the demo notice (left) and the status pill (right): the one way off this page
+       that works for a click, a crawler and a screen reader. Hidden in the desktop app, which has no demo. */
+    #home { position: fixed; left: 50%; bottom: 6px; transform: translateX(-50%); z-index: 2; font: 700 13px -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif; color: #f7931a; text-decoration: none; padding: 3px 10px; border: 1px solid rgba(247,147,26,0.45); border-radius: 6px; background: rgba(5,4,10,0.85); white-space: nowrap; }
+    #home:hover { border-color: #f7931a; background: rgba(247,147,26,0.12); }
+    /* Below ~1040px the footer's left notice + right pill leave no room in the middle: step the link up one
+       row rather than let three strings overprint each other. Its own background keeps it legible over content. */
+    @media (max-width: 1040px) { #home { bottom: 34px; } }
   </style>
 </head>
 <body>
   <canvas id="stage"></canvas>
+  <a id="home" hidden href="https://getnotzero.com/">get the free app → getnotzero.com</a>
   <script type="module" src="./app.js"></script>
 </body>
 </html>
