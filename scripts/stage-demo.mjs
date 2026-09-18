@@ -21,7 +21,9 @@ import { NODE_PAYLOAD } from "../tests/fixtures.mjs";
 const OUT = ".demo-build";
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT, { recursive: true });
-cpSync("web", OUT, { recursive: true });
+// Tests stay home: the demo has no use for them, and a test file in here is one tests/test_ci_runs_every_test.py
+// finds on disk with nothing in CI running it — this directory is gitignored, so that guard failed only locally.
+cpSync("web", OUT, { recursive: true, filter: (src) => !/\.(test|spec)\.[cm]?js$/.test(src) });
 rmSync(`${OUT}/node.json`, { force: true }); // whatever the local bridge left behind
 
 // demo: true is what the dashboard branches on (isDemoPayload in app.js). This payload is otherwise a healthy,
