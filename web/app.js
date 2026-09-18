@@ -3063,7 +3063,7 @@ function drawHashBuild(r) {
   // ---- ZONE 2: the REAL 80-byte header — the exact contiguous bytes that get hashed, built in the SAME
   // order as the fields above, as each one locks
   const concatY = valY + 54;
-  text("packed into the 80-byte header — the exact bytes that get hashed (little-endian):", r.x + r.w / 2, concatY - 18, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
+  text("packed into the 80-byte header — the exact bytes that get hashed · little-endian: each field's bytes are reversed, so prev block's zeros land on the right", r.x + r.w / 2, concatY - 18, { size: 10, color: "rgba(255,255,255,0.4)", align: "center", baseline: "middle" });
   drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, concatY);
 
   // caption (phase-aware) — narrates the current step
@@ -3083,12 +3083,20 @@ function drawHashBuild(r) {
 }
 
 // the real 80-byte header, exactly as it's hashed (from serializeHeader): 160 contiguous hex chars,
-// colour-tinted per field so the six fields are still legible inside the one string, resolving
-// left-to-right in sync with the fields locking above. Little-endian — so prev block / merkle root read
+// colour-tinted per field so the six fields are still legible inside the one string, each field resolving
+// char-for-char with its value in the field row above. Little-endian — so prev block / merkle root read
 // byte-reversed vs the human values in zone 1; that's how Bitcoin serializes them.
 const FIELD_HEX = [8, 64, 64, 8, 8, 8];        // version, prev, merkle, time, bits, nonce — bytes × 2
 const FIELD_OFF = [0, 8, 72, 136, 144, 152];   // start offset of each field within the 160-hex string
 const fieldOfChar = (i) => { for (let f = 5; f >= 0; f--) if (i >= FIELD_OFF[f]) return f; return 0; };
+// which char of a field's zone-1 value packed hex char k IS. version / prev / merkle / bits are the same hex
+// with the bytes reversed (each byte's two nibbles keep their order); bits is shown as "0x…" above, so skip
+// that prefix. time and nonce are shown as a clock / a decimal — no shared chars — so they scatter by position.
+function packedSrcChar(f, k, b) {
+  if (f === 3 || f === 5) return k;
+  const n = FIELD_HEX[f] / 2, h = 2 * (n - 1 - (k >> 1)) + (k & 1); // index into the field's big-endian hex
+  return f === 4 ? h + 2 - (8 - b.bits.toString(16).length) : h;
+}
 function drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   const hex = bytesToHex(serializeHeader(b, tk.nonce)); // exactly the bytes the node hashes (verified)
   // fit all 160 chars across the panel
@@ -3096,12 +3104,13 @@ function drawPreimageRow(r, b, tk, lockedCount, fillFrac, assembling, y) {
   let cw = ctx.measureText("0").width; const maxW = r.w - 72;
   if (cw * 160 > maxW) { fs = Math.max(8, fs * maxW / (cw * 160)); ctx.font = `${fs}px ui-monospace, monospace`; cw = ctx.measureText("0").width; }
   const totalW = cw * 160, x0 = r.x + r.w / 2 - totalW / 2;
-  // chars resolved so far (rest churn) — in lockstep with the header fields locking above
-  let revealed = 160;
-  if (assembling) { revealed = 0; for (let f = 0; f < lockedCount; f++) revealed += FIELD_HEX[f]; if (lockedCount < 6) revealed += Math.ceil(fillFrac * FIELD_HEX[lockedCount]); }
+  // the filling field resolves the SAME characters, at the same instant, as its value in the field row above
+  // (shared revealThresh) — so a char settling up there lands here at its byte-reversed spot, and prev block's
+  // leading zeros visibly arrive on the right. Locked fields are solid; fields not yet reached churn.
   ctx.textAlign = "center"; ctx.textBaseline = "middle";
   for (let i = 0; i < 160; i++) {
-    const on = i < revealed, f = fieldOfChar(i);
+    const f = fieldOfChar(i);
+    const on = !assembling || f < lockedCount || (f === lockedCount && fillFrac > revealThresh(f + 1, packedSrcChar(f, i - FIELD_OFF[f], b)));
     ctx.fillStyle = on ? (f === 5 ? "rgb(255,206,84)" : f % 2 === 0 ? `rgba(${ACCENT},0.9)` : "rgba(255,255,255,0.82)") : "rgba(255,255,255,0.18)"; // nonce = distinct gold (the field you control), not the bits' accent
     ctx.fillText(on ? hex[i] : churnChar(i), x0 + cw * (i + 0.5), y);
   }

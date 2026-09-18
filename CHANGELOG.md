@@ -6,6 +6,16 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.92
 
+**Hash build**
+- **The packed header now fills with the same characters as the fields above it.** The field row decoded
+  in scattered order while the 80-byte row beneath it filled strictly left to right, so the two looked
+  unrelated — and prev block, whose zeros lead in the field row, showed them trailing in the packed row with
+  only the words "(little-endian)" to say why. That is correct: Bitcoin hashes each field byte-reversed. Now
+  every character settles in both rows at the same instant, landing at its byte-reversed spot below, so you
+  watch prev block's leading zeros arrive on the right; the caption says so in plain words. Version, prev
+  block, merkle root and bits match character for character; time and the nonce are shown as a clock and a
+  decimal above, sharing no characters with their hex, so they scatter in step instead.
+
 **Demo site**
 - **demo.getnotzero.com no longer presents itself as your live miner.** The synthetic payload the demo has
   shipped since 2026-08-22 is a healthy, synced, mode "live" node, so every check the footer runs passed on it:
