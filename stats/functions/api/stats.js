@@ -15,6 +15,15 @@ const DL_HOST = "dl.getnotzero.com";
 const SITE_HOST = "getnotzero.com";
 const DEMO_HOST = "demo.getnotzero.com";
 
+// Only the paths this page reads. The rows come back grouped by (hour × path), capped, oldest hour first —
+// so anything that multiplies distinct paths eats the cap from the wrong end: a crawler probing a few hundred
+// made-up URLs an hour would push the NEWEST hours off the end of the result, and the page would draw a quiet
+// evening that never happened. Filtering at the source means junk paths are never rows in the first place.
+// Everything the app and the release pipeline publish is one of the fixed feed files or starts with one of
+// two prefixes (installers + blockmaps: /notzero-…; proofs: /SHA256SUMS…).
+const DL_ROW_LIMIT = 5000;
+const DL_PATH_FILTER = `OR: [{clientRequestPath_in: ["/CHANGELOG.md", "/latest-mac.yml", "/latest.yml", "/latest-linux.yml"]}, {clientRequestPath_like: "/notzero-%"}, {clientRequestPath_like: "/SHA256SUMS%"}]`;
+
 // The app's polling cadences (desktop/main.js). Requests ÷ per-install-per-day = a headcount.
 const CHANGELOG_PER_DAY = 48; // refreshUpdateHistory: one CHANGELOG.md fetch per install per 30 min
 const FEED_PER_DAY = 12;      // autoUpdater: one feed fetch per install per 2h (plus one per launch)
@@ -147,12 +156,14 @@ export async function onRequestGet({ request, env }) {
 
   try {
     const q = `query { viewer { zones(filter: {zoneTag: "${zone}"}) {
-      dl: httpRequestsAdaptiveGroups(limit: 5000, filter: {datetime_geq: "${iso(since)}", datetime_lt: "${iso(now)}", clientRequestHTTPHost: "${DL_HOST}"}, orderBy: [datetimeHour_ASC]) {
+      dl: httpRequestsAdaptiveGroups(limit: ${DL_ROW_LIMIT}, filter: {datetime_geq: "${iso(since)}", datetime_lt: "${iso(now)}", clientRequestHTTPHost: "${DL_HOST}", ${DL_PATH_FILTER}}, orderBy: [datetimeHour_ASC]) {
         count dimensions { datetimeHour clientRequestPath } }
       sites: httpRequestsAdaptiveGroups(limit: 2000, filter: {datetime_geq: "${iso(since)}", datetime_lt: "${iso(now)}", clientRequestHTTPHost_in: ["${SITE_HOST}","${DEMO_HOST}"]}, orderBy: [datetimeHour_ASC]) {
         count sum { visits } dimensions { datetimeHour clientRequestHTTPHost } }
     } } }`;
     const z = (await gql(token, q)).viewer.zones[0] || { dl: [], sites: [] };
+    // Said out loud rather than discovered: a full page of rows means the newest hours may be missing.
+    if (z.dl.length >= DL_ROW_LIMIT) out.truncated = true;
 
     const hourKey = (s) => s.slice(11, 13);
     const hoursSeen = [];

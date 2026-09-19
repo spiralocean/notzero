@@ -482,7 +482,7 @@ function render(d) {
   $("vis-note").innerHTML = outlierNote(rows, (r) => r.siteVisits, t.siteVisits, "visits");
   $("demo-note").innerHTML = outlierNote(rows, (r) => r.demoVisits, t.demoVisits, "visits");
   $("window").textContent = `notzero · ${d.window.since.replace("T", " ").replace("Z", "")} → ${d.window.until.slice(11, 16)} UTC`;
-  $("foot").innerHTML = `Install figures are derived from request volume, not unique clients — a machine asleep for six hours stops counting until it wakes. Cloudflare caps this dataset at a 24-hour span. Sources: zone analytics for <code>dl.getnotzero.com</code>, <code>getnotzero.com</code> and <code>demo.getnotzero.com</code>, plus the public <code>getnotzero.com/api/downloads</code> counter.`;
+  $("foot").innerHTML = `${d.truncated ? "<b>Cloudflare returned a full page of rows, so the newest hours here may be incomplete.</b> " : ""}Install figures are derived from request volume, not unique clients — a machine asleep for six hours stops counting until it wakes. Cloudflare caps this dataset at a 24-hour span. Sources: zone analytics for <code>dl.getnotzero.com</code>, <code>getnotzero.com</code> and <code>demo.getnotzero.com</code>, plus the public <code>getnotzero.com/api/downloads</code> counter.`;
   $("error").classList.add("hidden");
 }
 
