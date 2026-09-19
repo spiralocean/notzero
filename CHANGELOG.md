@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.94
+## Unreleased — next: 0.1.95
+
+## 0.1.94
 
 **Updates**
 - **Updates now reach you already confirmed in the Bitcoin blockchain.** Every release's checksums have been
