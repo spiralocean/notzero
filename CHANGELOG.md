@@ -6,6 +6,16 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.94
 
+**Network**
+- **Without a node, the block-times history is extended instead of rebuilt.** The demo, and a new install
+  while its node syncs, draw the NEXT BLOCK histogram and arrival timeline from mempool.space. That history
+  was refetched whole every two minutes — five requests, 3,600 a day — although a new block changes exactly
+  one entry, and the first of the five duplicated a request the dashboard was already making for pool names.
+  The two now share that one request, a new block is added to the top of what is already held, and the older
+  pages are fetched only to fill a real hole: once at startup, and after a sleep too long for one page to
+  bridge. A handful of requests a day of its own instead of 3,600. With a synced node nothing changes — it
+  never asked.
+
 ## 0.1.93
 
 **Network**

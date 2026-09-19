@@ -345,6 +345,7 @@ function refreshChainData() {
       if (!Array.isArray(arr)) return;
       model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name, lottery: coinbaseHasLotteryTag(b.extras?.coinbaseRaw) }));
       if (arr.length && arr[0].height != null) chainDataTip.blocks = arr[0].height;
+      extendBlockHistory(arr); pollBlockTimes(); // the same page is the top of the block-times history — see extendBlockHistory
     }).catch(() => {}).finally(() => { asking.blocks = false; });
   }
   if (chainDataTip.diffAdjust < tip && !asking.diffAdjust) {
@@ -385,25 +386,54 @@ function nodeBlockHistory() {
   return rb.map((b) => ({ height: b.height, timestamp: b.time }));
 }
 let nodeProbed = false; // has node.json been fetched even once? (either answered or 404'd)
+
+// ---- block history WITHOUT a node: the public demo, and an install whose node is still syncing ----
+// It used to be rebuilt from nothing every 120 seconds: /v1/blocks plus four /v1/blocks/{height} pages, 3,600
+// requests a day, to redraw ~75 blocks of which — between blocks — none had changed, and after one, exactly
+// one had. And the first of those five was the same /v1/blocks that refresh() was already fetching for the
+// pool names, asked twice by two callers that never compared notes.
+//
+// So it is held and EXTENDED. The page refreshChainData() already fetches when the tip moves is handed here
+// too: a new block joins the top, the oldest falls off the bottom, and no request is made for the ~74 that
+// did not change. The four older pages are fetched only to fill a hole — once at boot, and again after a
+// sleep long enough that the newest page no longer reaches what is held.
+const HISTORY_BLOCKS = 75;   // five pages of 15 — the window the node path supplies too
+const HISTORY_SOLID = 61;    // an unbroken run this deep from the tip means every page has landed
+function extendBlockHistory(page) {
+  if (nodeBlockHistory()) return;   // a current node supplies this itself, and its headers are the authority
+  const byH = new Map((model.blockHistory || []).map((b) => [b.height, b.timestamp]));
+  for (const b of page || []) if (b && b.height != null && b.timestamp != null) byH.set(b.height, b.timestamp);
+  const merged = [...byH].map(([height, timestamp]) => ({ height, timestamp })).sort((a, b) => b.height - a.height).slice(0, HISTORY_BLOCKS);
+  // Same shaping as the node path — one place decides what counts as a usable interval.
+  applyBlockHistory(merged);
+}
+function blockHistorySolid() {
+  const h = model.blockHistory || [];
+  let run = h.length ? 1 : 0;
+  for (let i = h.length - 1; i > 0 && h[i].height === h[i - 1].height + 1; i--) run++;
+  return run >= HISTORY_SOLID;
+}
+let backfilling = false;
 async function pollBlockTimes() {
   // Your own node first: block timestamps live in the headers, which every node keeps (a pruned node drops
-  // block bodies, never headers). When it can answer, these five mempool.space requests don't happen at all.
+  // block bodies, never headers). When it can answer, none of these mempool.space requests happen at all.
   const local = nodeBlockHistory();
   if (local && applyBlockHistory(local)) return;
   // At boot this runs before the first node.json has landed, so "no node history" cannot yet be distinguished
   // from "no node". Fetching then would spend the external requests a node was about to make unnecessary —
   // so wait to be told. pollNode kicks this off the moment it knows there is nothing local to use.
   if (!nodeProbed) return;
+  // Nothing to anchor to until refreshChainData's page has arrived (it calls back in here when it does), and
+  // nothing to do once the run from the tip is unbroken. What is left is the hole: boot, a long sleep, or a
+  // page that failed last time — which is what the 120s timer is now for, a retry rather than a rebuild.
+  const h = model.blockHistory || [];
+  if (!h.length || blockHistorySolid() || backfilling) return;
+  backfilling = true;
   try {
-    const first = await (await fetch(`${API}/v1/blocks`)).json();
-    if (!Array.isArray(first) || !first.length) return;
-    const tip = first[0].height;
+    const tip = h[h.length - 1].height;
     const more = await Promise.all([15, 30, 45, 60].map((d) => fetch(`${API}/v1/blocks/${tip - d}`).then((r) => r.json()).catch(() => [])));
-    const byH = new Map();
-    for (const b of [first, ...more].flat()) if (b && b.height != null && b.timestamp != null) byH.set(b.height, b.timestamp);
-    // Same shaping as the node path — one place decides what counts as a usable interval.
-    applyBlockHistory([...byH].map(([height, timestamp]) => ({ height, timestamp })));
-  } catch (_) {}
+    extendBlockHistory(more.flat());
+  } catch (_) {} finally { backfilling = false; }
 }
 // Same-origin feed from your local node (written by the bridge from bitcoind:
 // getpeerinfo / getblockchaininfo). No external query; 404/error → no node data.

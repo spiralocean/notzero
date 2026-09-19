@@ -272,7 +272,7 @@ test("polling budget: chain-derived data is refetched when the tip moves, not on
   const settle = async () => { await page.evaluate(() => window.__refresh()); await page.waitForTimeout(400); };
   await settle();
   const boot = { ...hits };
-  // pollBlockTimes also reads the bare /v1/blocks once at boot, so the list baseline is taken here, not assumed.
+  // The baseline is taken here rather than assumed to be 1: a slow first answer can legitimately be asked twice.
 
   await settle(); await settle(); await settle();
   console.log(`   same tip, 3 refreshes → block body +${hits.body - boot.body}, /v1/blocks +${hits.list - boot.list}, difficulty +${hits.diff - boot.diff}  (all should be 0)`);
@@ -890,6 +890,60 @@ test("next block: the arrival timeline renders, including a back-to-back pair", 
   // The 1-minute gap must survive into the data the strip draws from — that is the whole point of the feature.
   const shortest = await page.evaluate(() => Math.min(...window.__model.blockTimes));
   expect(shortest).toBeLessThan(1.5);
+});
+
+// Without a node, the block-times history is EXTENDED, not rebuilt. It used to be refetched whole every 120s —
+// /v1/blocks plus four /v1/blocks/{height} pages, 3,600 requests a day — although a new block changes exactly one
+// entry and the first of those five requests duplicated the /v1/blocks that refresh() already makes. This pins
+// the three behaviours that replaced it: the bare list is fetched ONCE per tip and shared by both consumers,
+// a new block costs no per-height pages at all, and a jump too long for one page to bridge (a laptop asleep
+// for hours) is noticed and backfilled rather than drawn as if the missing blocks never happened.
+test("block history: without a node it is extended per block, and backfilled only across a gap", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 404, body: "" }));
+
+  const hash = (h) => h.toString(16).padStart(64, "0");
+  const T0 = Math.floor(Date.now() / 1000) - 600, H0 = 954469;
+  const stamp = (h) => T0 - (H0 - h) * 600;   // ten minutes a block, so every interval is usable
+  const blockAt = (h) => ({ id: hash(h), height: h, version: 671088640, previousblockhash: hash(h - 1),
+    merkle_root: "f576d43263ff8056c3cfa68d456e059d02d48d09413ead2e58ef020ffd0c3dc0", timestamp: stamp(h), bits: 386089497, nonce: 1, tx_count: 3000, difficulty: 1.25e14 });
+  const pageFrom = (h) => Array.from({ length: 15 }, (_, i) => blockAt(h - i));   // mempool.space's page: 15 blocks, newest first
+  let chainTip = H0, bare = 0, byHeight = 0;
+  for (const pat of ["**/api/blocks/tip/hash", "**/api/block/*", "**/api/v1/blocks*"]) await page.unroute(pat);
+  await page.route("**/api/blocks/tip/hash", (r) => r.fulfill({ status: 200, contentType: "text/plain", body: hash(chainTip) }));
+  await page.route("**/api/block/*", (r) => r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(blockAt(chainTip)) }));
+  await page.route(/\/api\/v1\/blocks\/(\d+)/, (r) => { byHeight++; const h = Number(/blocks\/(\d+)/.exec(r.request().url())[1]); return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(pageFrom(h)) }); });
+  await page.route(/\/api\/v1\/blocks(\?|$)/, (r) => { bare++; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(pageFrom(chainTip)) }); });
+
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.blockHistory.length >= 75, null, { timeout: 20000 });
+  await page.evaluate(() => window.__freezeRender(true));   // see the polling-budget test: keeps the app's own 30s timer out of the counts
+  const settle = async () => { await page.evaluate(() => window.__refresh()); await page.waitForTimeout(400); };
+  const hist = () => page.evaluate(() => { const h = window.__model.blockHistory; return { n: h.length, top: h[h.length - 1].height, bottom: h[0].height, intervals: window.__model.blockTimes.length }; });
+  await settle();
+  console.log(`   boot: bare /v1/blocks ${bare}, per-height ${byHeight}, history ${JSON.stringify(await hist())}`);
+  expect(bare).toBe(1);        // ONE fetch feeds both the pool-name list and the top of the history
+  expect(byHeight).toBe(4);    // the older pages, once
+  expect(await hist()).toEqual({ n: 75, top: H0, bottom: H0 - 74, intervals: 74 });
+
+  // A block arrives: the shared page extends the top, the oldest falls off, and no page is refetched.
+  chainTip = H0 + 1;
+  await settle(); await settle();
+  console.log(`   +1 block: bare ${bare}, per-height ${byHeight}, history ${JSON.stringify(await hist())}`);
+  expect(bare).toBe(2);
+  expect(byHeight).toBe(4);
+  expect(await hist()).toEqual({ n: 75, top: H0 + 1, bottom: H0 - 73, intervals: 74 });
+
+  // The machine sleeps through 40 blocks. One page reaches back 15, so there is a hole — it must be filled.
+  chainTip = H0 + 41;
+  await settle(); await settle();
+  console.log(`   +40 blocks: bare ${bare}, per-height ${byHeight}, history ${JSON.stringify(await hist())}`);
+  expect(bare).toBe(3);
+  expect(byHeight).toBe(8);
+  expect(await hist()).toEqual({ n: 75, top: H0 + 41, bottom: H0 - 33, intervals: 74 });
 });
 
 // The block-times histogram and the arrival timeline used to come entirely from mempool.space — five requests a
