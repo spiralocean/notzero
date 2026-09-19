@@ -19,6 +19,12 @@ version number and bump `desktop/package.json`.
   nothing on screen any staler than before. mempool.space is a free service someone else pays for; this is
   what being a polite client of it looks like at any size.
 
+**Settings**
+- **The Settings… menu item (and Cmd+, / Ctrl+,) opens Settings again.** With an app-managed node it made the
+  window blink and nothing else: the menu opened the first-run setup view, which hands straight back to the
+  dashboard once the node is running. The gear on the dashboard was fixed for this in June; the menu never
+  was. Both now open the same place, and a test holds them together.
+
 **Website**
 - **The download count comes from the CDN, not the button.** The landing page counted its own download
   clicks, which missed every direct link and would have stalled under a burst of traffic. A scheduled job

@@ -170,7 +170,10 @@ function scheduleBoundsSave(win) {
 async function ensureServer() { if (serverPort == null) serverPort = await startServer(); return serverPort; } // one server for the app's life
 
 // ---- application menu: gives a way back to Settings after first-run setup ----
-function openSettings() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/setup`); }
+// ?settings=1 is what makes this SETTINGS. A bare /setup is the first-run/boot entry: for an app-managed node it
+// shows install progress, which redirects to the dashboard the moment the node is ready — so the window blinked
+// and nothing opened. The gear was given the flag for exactly this on 2026-06-25; this menu item never was.
+function openSettings() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/setup?settings=1`); }
 function openDashboard() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`); }
 function buildMenu() {
   const isMac = process.platform === "darwin";
