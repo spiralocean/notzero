@@ -53,7 +53,7 @@
     <div class="card">
       <h2 style="margin-top:0">Where the risk actually is: your first download</h2>
       <p>Nearly all of the risk sits in one place — <strong>the very first copy you install</strong>. That's the one moment you're trusting bytes pulled off the internet, so it's the moment worth verifying. The steps below take about a minute.</p>
-      <p>After that, the trust is largely behind you. Every update is <strong>automatically integrity-checked</strong> before it installs, and notzero is moving to verify each update against <strong>your own Bitcoin node</strong> — so once you hold a genuine copy, you never have to trust our servers again. <span class="ok">Get the first download right, and the rest takes care of itself.</span></p>
+      <p>After that, the trust is largely behind you. Every update is <strong>automatically integrity-checked</strong> before it installs, and its Bitcoin timestamp is checked against <strong>your own Bitcoin node</strong> (step 3) — so once you hold a genuine copy, far less rests on trusting our servers. <span class="ok">Get the first download right, and the rest takes care of itself.</span></p>
     </div>
 
     <div class="card files">
@@ -83,12 +83,13 @@ shasum -a 256 -c SHA256SUMS  # macOS</code></pre>
     <p>Then, with <code>SHA256SUMS</code> and <code>SHA256SUMS.ots</code> in the same folder:</p>
     <pre><code>ots verify SHA256SUMS.ots</code></pre>
     <p>It reports the <strong>Bitcoin block and date</strong> the checksums were stamped into. That timestamp lives on the blockchain, independent of this website — so even if our servers were compromised, the on-chain record of the real release can't be forged.</p>
-    <p class="dim" style="color:var(--dim); font-size:14.5px">Just released? For the first few hours a fresh proof reads as a <em>pending</em> calendar attestation while it's being batched into a Bitcoin transaction; <code>ots verify</code> resolves it automatically once the block confirms.</p>
+    <p class="dim" style="color:var(--dim); font-size:14.5px">We hold each release back until its timestamp has confirmed in a block, so this should report a block straight away. The exception is an urgent fix sent out early: for its first few hours the proof reads as a <em>pending</em> calendar attestation while it's being batched into a Bitcoin transaction, and <code>ots verify</code> resolves it automatically once the block confirms.</p>
 
     <h2><span class="step">3.</span> Trust no one — verify with your own node</h2>
     <p>This is the part we're proudest of. If you run a Bitcoin node — including the one <strong>notzero runs for you</strong> — <code>ots verify</code> checks the proof against <em>your node's own copy of the blockchain</em>, which your node independently validated. No block explorer, no third party. Your node becomes the judge.</p>
     <p>And because the proof only needs block <em>headers</em>, an ordinary <strong>pruned</strong> node (like notzero's) is enough — you don't need a full archival copy of the chain.</p>
-    <p>notzero will soon do this <strong>automatically, in-app</strong>: check each build against your node before trusting it, and gate updates on that check. This page is the manual version of the same idea.</p>
+    <p>notzero now does this <strong>automatically, in-app</strong>. Before installing an update it checks the download's hash against that release's <code>SHA256SUMS</code>, checks the timestamp proof against your node, and refuses to install on a mismatch. The dashboard's <strong>Verified Updates</strong> section shows the result for each release, down to the Bitcoin block. This page is the manual version of the same idea — and the only version for your <em>first</em> download, which no app can check for you.</p>
+    <p style="color:var(--dim); font-size:14.5px">Honest scope: a timestamp proves <em>when</em> a file existed, not who made it — so a mismatch is the only thing that blocks an update outright. An urgent fix can reach you before its timestamp has confirmed (see step 2); the app then holds it, tells you so, and installs it once the block confirms — or straight away if you choose. If the app can't reach a node at all, it still updates on the matching hash: the updater is how a broken node gets fixed, so it never depends on one.</p>
 
     <h2 id="source"><span class="step">4.</span> See what's actually inside it</h2>
     <p>Everything above answers <em>"is this the file notzero published?"</em> It doesn't answer <em>"what does that file do?"</em> For that, the code is public and MIT-licensed: <a href="https://github.com/spiralocean/notzero" target="_blank" rel="noopener">github.com/spiralocean/notzero</a>. Every version is <a href="https://github.com/spiralocean/notzero/tags" target="_blank" rel="noopener">tagged</a>, so you can read the exact source any given release was cut from.</p>
