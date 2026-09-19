@@ -4,6 +4,12 @@
 #   1. REAL RELEASE — push a version tag matching desktop/package.json:
 #        git tag v0.1.18 && git push origin v0.1.18
 #      A deliberate tag (not every push) so a stray commit never auto-ships to all users.
+#      This builds, signs and STAGES the release — it does not make it live. The feeds, the website's download
+#      files, SHA256SUMS and the changelog land under staged/<version>/ in the bucket; the `anchor` job
+#      timestamps them on Bitcoin; and upgrade-timestamps.yml promotes the release (scripts/promote-release.sh)
+#      once that timestamp has confirmed in a block, usually a few hours later — so an update reaches users
+#      already on-chain. A HOTFIX that can't wait: Actions → "Upgrade timestamps · promote releases" →
+#      Run workflow → promote_now = the version.
 #   2. DRY RUN — Actions tab → "Release" → "Run workflow" (dry_run = true, the default):
 #      builds each platform's installer with signing/publish DISABLED — no secrets needed, nothing uploaded.
 #      Use it to confirm the build pipeline before trusting it with a real tag.
@@ -239,6 +245,7 @@ jobs:
         if: matrix.platform == 'mac'
         env:
           DRY_RUN: ${{ env.IS_DRY == 'true' && '1' || '' }}
+          STAGE: "1" # stage, don't go live — see the header
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
           MAC_SIGN_ID: ${{ secrets.MAC_SIGN_ID }}
@@ -249,6 +256,7 @@ jobs:
         if: matrix.platform == 'linux'
         env:
           DRY_RUN: ${{ env.IS_DRY == 'true' && '1' || '' }}
+          STAGE: "1"
         run: bash scripts/release-linux.sh
 
       - name: Release Windows
@@ -256,6 +264,7 @@ jobs:
         shell: pwsh
         env:
           DRY_RUN: ${{ env.IS_DRY == 'true' && '1' || '' }}
+          STAGE: "1"
         run: |
           # The runner checks out on D: but installs Python on C:; PyInstaller collects the Python runtime
           # (C:) into the build dir and computes a cross-drive relpath, which Windows can't do. Build from a
@@ -265,8 +274,9 @@ jobs:
           $global:LASTEXITCODE = 0
           & "C:\notzero\scripts\release-win.ps1"
 
-      # Publish the changelog to the CDN once (mac job) so the in-app "what's new" dialogs and the website
-      # release-notes page always fetch the version that shipped.
+      # Stage the changelog once (mac job); promotion publishes it to the CDN with the rest of the release, so the
+      # in-app "what's new" dialogs and the website release-notes page always fetch the version that shipped —
+      # and never list a version the feeds aren't offering yet.
       #
       # Five minutes of Cache-Control, unlike the no-cache on the feed files: this is the one file every running
       # install re-reads every 30 minutes (~90 KB, 48 times a day each), so it is nearly all of what the CDN is
@@ -275,27 +285,31 @@ jobs:
       # ("eligible for cache", edge TTL from the origin header) reads its TTL from. Worst case a "what's new"
       # dialog is five minutes behind a release. The feeds and SHA256SUMS stay no-cache on purpose: a stale
       # checksum beside a fresh feed would read as a failed verification.
-      - name: Publish CHANGELOG to CDN
+      # (The Cache-Control itself is applied at promotion — scripts/promote-release.sh — where the file goes live.)
+      - name: Stage CHANGELOG
         if: matrix.platform == 'mac' && env.IS_DRY != 'true'
         shell: bash
         run: |
-          rclone copyto CHANGELOG.md "$R2_BUCKET/CHANGELOG.md" --s3-no-check-bucket --header-upload "Cache-Control: public, max-age=300"
-          echo "published CHANGELOG.md:"; curl -s "https://dl.getnotzero.com/CHANGELOG.md" | head -3 || true  # head closes the pipe early → curl SIGPIPE; don't let pipefail fail the step (it cascaded to skip anchor in 0.1.30)
+          VER="$(node -p "require('./desktop/package.json').version")"
+          rclone copyto CHANGELOG.md "$R2_BUCKET/staged/$VER/CHANGELOG.md" --s3-no-check-bucket
 
-      - name: Verify the live feed
+      - name: Verify the staged feed
         if: env.IS_DRY != 'true'
         shell: bash
         run: |
+          VER="$(node -p "require('./desktop/package.json').version")"
           feed=$([ "${{ matrix.platform }}" = mac ] && echo latest-mac.yml || ([ "${{ matrix.platform }}" = win ] && echo latest.yml || echo latest-linux.yml))
-          echo "published feed:"; curl -s "https://dl.getnotzero.com/$feed" | head -3 || true  # same SIGPIPE/pipefail guard
+          echo "staged feed (staged/$VER/$feed):"; rclone cat "$R2_BUCKET/staged/$VER/$feed" | head -3 || true  # head closes the pipe early → SIGPIPE; don't let pipefail fail the step (it cascaded to skip anchor in 0.1.30)
 
   # Anchor this release's download hashes in the Bitcoin blockchain (OpenTimestamps). After all three platforms
-  # publish, hash the exact files the website serves, write one SHA256SUMS, and timestamp it — so anyone (and,
+  # have staged, hash the exact files the website will serve, write one SHA256SUMS, and timestamp it — so anyone (and,
   # later, the app itself via the local node) can prove a download matches a hash committed on-chain.
   #
   # The .ots proof is PENDING at first (a calendar attestation); it upgrades to a Bitcoin-block attestation once
-  # the OTS calendars aggregate + confirm (~a few hours). `ots verify` upgrades pending proofs automatically; a
-  # follow-up job (or the verify page / node check) can `ots upgrade` + republish once it's block-anchored.
+  # the OTS calendars aggregate + confirm (~a few hours). upgrade-timestamps.yml `ots upgrade`s + republishes it
+  # once it's block-anchored — and that is the moment it PROMOTES the staged release, so the release goes live
+  # already on-chain. The versioned pair (SHA256SUMS-<ver>) is published here, straight away: nothing points at
+  # it, the upgrade job needs it at the bucket root, and an install holding an early hotfix reads it.
   #
   # Runs only on a REAL release, and only if all three platform builds succeeded (needs: release).
   anchor:
@@ -324,24 +338,31 @@ jobs:
         run: |
           set -euo pipefail
           VER="$(python -c "import json;print(json.load(open('desktop/package.json'))['version'])")"
-          # the exact stable files the website's download buttons serve (overwritten each release)
+          STAGED="$R2_BUCKET/staged/$VER"
+          # the exact stable files the website's download buttons will serve once this release is promoted
           FILES="notzero-mac.dmg notzero-win.exe notzero-linux.AppImage"
           # also cover the mac AUTO-UPDATE artifact — the updater downloads the .zip (different bytes than the .dmg),
           # so include it too or in-app node verification can't confirm a mac update. (win/linux updaters reuse the
           # same file as the website download, already covered.) Its name is in the mac feed's `path:`.
-          MACZIP="$(rclone cat "$R2_BUCKET/latest-mac.yml" 2>/dev/null | sed -n 's/^path: *//p' | tr -d '\r' | head -1)"
+          MACZIP="$(rclone cat "$STAGED/latest-mac.yml" 2>/dev/null | sed -n 's/^path: *//p' | tr -d '\r' | head -1)"
           [ -n "$MACZIP" ] && FILES="$FILES $MACZIP"
           mkdir -p anchor && cd anchor
-          # pull straight from R2 (source of truth — no CDN cache lag), then hash
-          for f in $FILES; do echo "-> $f"; rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; done
+          # pull straight from R2 (source of truth — no CDN cache lag), then hash. The stable files come from the
+          # stage; the mac zip is already at its versioned url.
+          for f in $FILES; do
+            echo "-> $f"
+            if [ "$f" = "$MACZIP" ]; then rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; else rclone copyto "$STAGED/$f" "$f" --s3-no-check-bucket; fi
+          done
           sha256sum $FILES > SHA256SUMS
           echo "----- SHA256SUMS (notzero $VER) -----"; cat SHA256SUMS
           # timestamp the checksum file on the Bitcoin blockchain (submits to the public OTS calendars)
           ots stamp SHA256SUMS
           ots info SHA256SUMS.ots | sed -n '1,4p'
-          # publish: stable pair (current release, no-cache) + immutable versioned pair (permanent per-release record)
-          rclone copyto SHA256SUMS     "$R2_BUCKET/SHA256SUMS"           --s3-no-check-bucket --header-upload "Cache-Control: no-cache"
-          rclone copyto SHA256SUMS.ots "$R2_BUCKET/SHA256SUMS.ots"       --s3-no-check-bucket --header-upload "Cache-Control: no-cache"
+          # publish the immutable versioned pair now (permanent per-release record); STAGE the stable list, which
+          # promotion publishes beside the proof as it stands by then (scripts/promote-release.sh)
           rclone copyto SHA256SUMS     "$R2_BUCKET/SHA256SUMS-$VER"      --s3-no-check-bucket
           rclone copyto SHA256SUMS.ots "$R2_BUCKET/SHA256SUMS-$VER.ots"  --s3-no-check-bucket
+          rclone copyto SHA256SUMS     "$STAGED/SHA256SUMS"              --s3-no-check-bucket
           echo "anchored notzero $VER on Bitcoin (proof pending calendar → block attestation)"
+          echo "notzero $VER is STAGED, not live: it is promoted once this proof confirms in a block (upgrade-timestamps.yml),"
+          echo "or now, for a hotfix: Actions → Upgrade timestamps · promote releases → Run workflow → promote_now=$VER"

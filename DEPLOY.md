@@ -11,7 +11,7 @@ here on the mac, push, then the other boxes pull and build.** This single-origin
 diverge-and-merge mess of parallel edits.
 
 > **Current process = a tag-triggered CI workflow** (`.github/workflows/release.yml`) — it builds + signs +
-> notarizes + publishes all three platforms and anchors `SHA256SUMS` (OpenTimestamps). Standard flow:
+> notarizes all three platforms, **stages** them, and anchors `SHA256SUMS` (OpenTimestamps). Standard flow:
 > 1. Bump `desktop/package.json` + `desktop/package-lock.json` version, move `CHANGELOG.md` **Unreleased** under
 >    the new version → commit → **`git push origin main`**.
 > 2. **DRY RUN FIRST — always, before tagging.** GitHub → **Actions → "Release" → "Run workflow"** → branch
@@ -21,9 +21,21 @@ diverge-and-merge mess of parallel edits.
 >    reaching users, as 0.1.30 did.
 > 3. Only once the dry run is green: **`git tag vX.Y.Z && git push origin vX.Y.Z`** (must match package.json) →
 >    the real release runs. (Pre-flight the node-gated block check once locally: `python3 scripts/verify-block.py`.)
+> 4. **The tag does not make the release live — Bitcoin does.** The run ends with the release **staged**
+>    (`staged/X.Y.Z/` in the bucket: the three feeds, the website's download files, `SHA256SUMS`, the changelog)
+>    and its timestamp pending. The hourly **"Upgrade timestamps · promote releases"** workflow promotes it
+>    (`scripts/promote-release.sh`) once the proof has confirmed in a block — usually a few hours — so an update
+>    reaches users already on-chain. *Then* curl the three feeds. Until then the feeds still show the old version,
+>    and that is correct.
+> 5. **Hotfix that can't wait:** Actions → **"Upgrade timestamps · promote releases"** → Run workflow →
+>    `promote_now` = `X.Y.Z`. It goes live at once with its proof still pending. Installs on 0.1.94+ **hold** such
+>    an update — the pill reads "ready · waiting for Bitcoin", offers *Install Now*, and installs by itself when the
+>    proof confirms (or after 24h regardless; `desktop/update-hold.js`). Older installs take it immediately. A
+>    hotfix overtakes anything still staged behind it; those stages are dropped as superseded.
 >
 > The per-platform `scripts/release-*.sh` / `.ps1` below are what CI runs inside each matrix job; the old local
-> `source release.env && scripts/release-mac.sh` path still works but is superseded by the tag flow.
+> `source release.env && scripts/release-mac.sh` path still works but is superseded by the tag flow. Run by hand
+> (no `STAGE=1`) the scripts publish **straight to live**, as they always did — staging is something CI asks for.
 
 1. **Mac (origin + ship mac):** edit shared source → **bump `desktop/package.json` version once** (shared
    across all three) → **move `CHANGELOG.md` "Unreleased" under the new version** → commit →

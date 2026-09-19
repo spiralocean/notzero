@@ -75,15 +75,21 @@ fi
 echo "-> trimming the now-stale dmg entry from latest-mac.yml (the updater uses the zip)..."
 sed -i '' "/- url: $DMGBASE/,+2d" "$YML" 2>/dev/null || true
 
-echo "-> uploading to $BUCKET ..."
+# STAGE=1 (what CI sets): the two files that make a release LIVE — the feed and the website's stable download —
+# go under staged/<version>/ instead, and scripts/promote-release.sh moves them into place once the release's
+# Bitcoin timestamp has confirmed (or straight away, for a hotfix). The versioned zip is safe to publish now:
+# nothing points at it until the feed does.
+LIVE="$BUCKET${STAGE:+/staged/$VERSION}"
+echo "-> uploading to $BUCKET ${STAGE:+(feed + stable download STAGED under staged/$VERSION) }..."
 # dmg + yml use STABLE urls that change each release → no-cache so the CDN always serves the latest.
 # the zip url is version-specific (immutable) → fine to cache.
-rclone copyto "$DMG" "$BUCKET/notzero-mac.dmg" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
+rclone copyto "$DMG" "$LIVE/notzero-mac.dmg" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 rclone copyto "$ZIP" "$BUCKET/$ZIPBASE" --s3-no-check-bucket --s3-chunk-size 64M -q
 [ -f "$ZIP.blockmap" ] && rclone copyto "$ZIP.blockmap" "$BUCKET/$ZIPBASE.blockmap" --s3-no-check-bucket -q
-rclone copyto "$YML" "$BUCKET/latest-mac.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
+rclone copyto "$YML" "$LIVE/latest-mac.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 
 echo
+if [ -n "${STAGE:-}" ]; then echo "ok: staged $VERSION — not live until promoted (scripts/promote-release.sh $VERSION)."; exit 0; fi
 echo "ok: released."
 echo "   download : https://dl.getnotzero.com/notzero-mac.dmg"
 echo "   feed     : https://dl.getnotzero.com/latest-mac.yml  ($ZIPBASE)"

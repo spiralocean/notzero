@@ -6,14 +6,28 @@
 # the ones that reached a block — so the on-chain proof becomes self-contained (verifiable against a node with
 # no calendar round-trip). Once every proof is anchored, this is a cheap no-op.
 #
+# It is also what makes a release LIVE. The Release workflow only STAGES one (staged/<version>/ in the bucket);
+# the moment that version's proof reaches a block here, scripts/promote-release.sh publishes its feeds, download
+# files, SHA256SUMS and changelog — so an update reaches users already confirmed on-chain, and the app's
+# "waiting for Bitcoin" hold (desktop/update-hold.js) stays out of sight. Hourly, because this cadence is now the
+# gap between "Bitcoin confirmed it" and "users get it".
+#
+# HOTFIX: Run workflow → promote_now = the version. It goes live at once with its proof still pending; installs
+# hold it, say so, and offer "install now".
+#
 # Needs the same R2 secrets as the Release workflow (R2_ACCESS_KEY_ID / R2_SECRET_ACCESS_KEY / R2_ENDPOINT).
 
-name: Upgrade timestamps
+name: Upgrade timestamps · promote releases
 
 on:
   schedule:
-    - cron: "17 */6 * * *" # every 6 hours (offset off the hour so it isn't in the scheduler's rush)
-  workflow_dispatch: {}
+    - cron: "17 * * * *" # hourly (offset off the hour so it isn't in the scheduler's rush)
+  workflow_dispatch:
+    inputs:
+      promote_now:
+        description: "HOTFIX — a staged version (e.g. 0.1.95) to make live NOW, before its Bitcoin timestamp confirms. Leave empty for a normal run."
+        type: string
+        default: ""
 
 permissions:
   contents: read
@@ -34,6 +48,7 @@ jobs:
       RCLONE_CONFIG_R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
       RCLONE_CONFIG_R2_ACL: private
     steps:
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -74,3 +89,37 @@ jobs:
             rm -f "$p" "$p.bak"
           done
           echo "done — anchored this run: $upgraded · still pending: $pending · already anchored: $done_already"
+      # Staged releases, oldest first: promote each whose proof now carries a Bitcoin attestation. One still
+      # pending stops the walk — a newer release must not go out over an older one that is still waiting. A
+      # promote_now hotfix jumps that queue, and whatever it overtook is then SUPERSEDED: dropped from the stage
+      # rather than promoted later (promote-release.sh refuses to move the feeds backwards in any case).
+      - name: Promote staged releases whose timestamp has confirmed
+        shell: bash
+        env:
+          PROMOTE_NOW: ${{ inputs.promote_now }}
+        run: |
+          set -euo pipefail
+          PROMOTE_NOW="${PROMOTE_NOW#v}"
+          staged() { rclone lsf "$R2_BUCKET/staged" --dirs-only 2>/dev/null | tr -d '/' | sort -V || true; }
+          if [ -n "$PROMOTE_NOW" ]; then
+            staged | grep -qxF "$PROMOTE_NOW" || { echo "::error::promote_now=$PROMOTE_NOW is not staged (staged: $(staged | tr '\n' ' '))"; exit 1; }
+            echo "→ $PROMOTE_NOW — HOTFIX: promoting now, proof still pending"
+            bash scripts/promote-release.sh "$PROMOTE_NOW"
+          fi
+          live="$(rclone cat "$R2_BUCKET/latest-linux.yml" 2>/dev/null | sed -n 's/^version: *//p' | tr -d '\r' | head -1 || true)"
+          for v in $(staged); do
+            if [ -n "$live" ] && [ "$(printf '%s\n%s\n' "$v" "$live" | sort -V | tail -1)" = "$live" ]; then
+              echo "· $v — superseded by live $live: dropping it from the stage"; rclone purge "$R2_BUCKET/staged/$v" -q; continue
+            fi
+            if ! rclone cat "$R2_BUCKET/SHA256SUMS-$v.ots" > proof.ots 2>/dev/null || [ ! -s proof.ots ]; then
+              # never anchored: a release run that failed part-way (anchor needs all three platforms), or one
+              # still in progress. It must not block the queue — a fixed re-release carries a higher version.
+              echo "· $v — staged but never anchored (release failed or still running): skipping"; continue
+            fi
+            if ots info proof.ots | grep -q "BitcoinBlockHeaderAttestation"; then
+              echo "→ $v — confirmed in a Bitcoin block: promoting"
+              bash scripts/promote-release.sh "$v"; live="$v"
+            else
+              echo "· $v — staged, timestamp still pending"; break
+            fi
+          done

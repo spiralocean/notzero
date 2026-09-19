@@ -57,16 +57,21 @@ if ($env:DRY_RUN -eq "1") {
   Write-Host "-> DRY RUN — built notzero-$VERSION-win.exe (+ latest.yml), skipping R2 upload."
   exit 0
 }
-Write-Host "-> uploading to $BUCKET ..."
+# STAGE=1 (what CI sets): the feed + the website's stable download go under staged/<version>/ and are moved into
+# place by scripts/promote-release.sh once the release's Bitcoin timestamp confirms — see release-mac.sh.
+$LIVE = if ($env:STAGE) { "$BUCKET/staged/$VERSION" } else { $BUCKET }
+$stageNote = if ($env:STAGE) { " (feed + stable download STAGED under staged/$VERSION)" } else { "" }
+Write-Host "-> uploading to $BUCKET$stageNote ..."
 # versioned installer + blockmap → version-specific (immutable) URLs, fine to cache at the edge
 rclone copyto $exe "$BUCKET/notzero-$VERSION-win.exe" --s3-no-check-bucket --s3-chunk-size 64M -q
 if (Test-Path $blockmap) { rclone copyto $blockmap "$BUCKET/notzero-$VERSION-win.exe.blockmap" --s3-no-check-bucket -q }
 # feed (references the versioned exe) → stable URL, no-cache so the CDN always serves the latest
-rclone copyto $yml "$BUCKET/latest.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
+rclone copyto $yml "$LIVE/latest.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 # stable alias for the website download button → no-cache (cache-ruled fresh); the updater does NOT use this
-rclone copyto $exe "$BUCKET/notzero-win.exe" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
+rclone copyto $exe "$LIVE/notzero-win.exe" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 
 Write-Host ""
+if ($env:STAGE) { Write-Host "ok: staged notzero-win $VERSION — not live until promoted (scripts/promote-release.sh $VERSION)."; exit 0 }
 Write-Host "ok: released notzero-win $VERSION"
 Write-Host "   download : https://dl.getnotzero.com/notzero-win.exe          (stable, website button)"
 Write-Host "   updater  : https://dl.getnotzero.com/notzero-$VERSION-win.exe (versioned, cacheable)"

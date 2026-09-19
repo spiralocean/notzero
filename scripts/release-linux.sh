@@ -55,16 +55,20 @@ if [ "${DRY_RUN:-}" = "1" ]; then
   echo "-> DRY RUN — built $APPBASE (+ latest-linux.yml), skipping R2 upload."
   exit 0
 fi
-echo "-> uploading to $BUCKET ..."
+# STAGE=1 (what CI sets): the feed + the website's stable download go under staged/<version>/ and are moved into
+# place by scripts/promote-release.sh once the release's Bitcoin timestamp confirms — see release-mac.sh.
+LIVE="$BUCKET${STAGE:+/staged/$VERSION}"
+echo "-> uploading to $BUCKET ${STAGE:+(feed + stable download STAGED under staged/$VERSION) }..."
 # versioned AppImage + blockmap → version-specific (immutable) URLs, fine to cache at the edge
 rclone copyto "$APPIMG" "$BUCKET/$APPBASE" --s3-no-check-bucket --s3-chunk-size 64M -q
 [ -f "$APPIMG.blockmap" ] && rclone copyto "$APPIMG.blockmap" "$BUCKET/$APPBASE.blockmap" --s3-no-check-bucket -q
 # feed (references the versioned AppImage) → stable URL, no-cache so the CDN always serves the latest
-rclone copyto "$YML" "$BUCKET/latest-linux.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
+rclone copyto "$YML" "$LIVE/latest-linux.yml" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 # stable alias for the website download button → no-cache (cache-ruled fresh); the updater does NOT use this
-rclone copyto "$APPIMG" "$BUCKET/notzero-linux.AppImage" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
+rclone copyto "$APPIMG" "$LIVE/notzero-linux.AppImage" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q
 
 echo
+if [ -n "${STAGE:-}" ]; then echo "ok: staged notzero-linux $VERSION — not live until promoted (scripts/promote-release.sh $VERSION)."; exit 0; fi
 echo "ok: released notzero-linux $VERSION"
 echo "   download : https://dl.getnotzero.com/notzero-linux.AppImage   (stable, website button)"
 echo "   updater  : https://dl.getnotzero.com/$APPBASE   (versioned, cacheable)"
