@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.93
+## Unreleased — next: 0.1.94
+
+## 0.1.93
 
 **Network**
 - **notzero asks mempool.space for about 85% less.** The recent-blocks list (pool names, lottery tags) and
