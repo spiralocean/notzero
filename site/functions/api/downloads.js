@@ -1,17 +1,24 @@
-// Cloudflare Pages Function — download counter backed by KV (binding: STATS).
+// Cloudflare Pages Function — the download count (KV binding: STATS).
 //   GET  /api/downloads          → { count, mac, win, linux }            (cheap: totals only)
 //   GET  /api/downloads?daily=1  → …plus { days: { "YYYY-MM-DD": {mac,win,linux,other} } }
-//   POST /api/downloads?os=mac   → increment total + that OS + today's per-day bucket
-// Dedupe is client-side (localStorage) so a refresh doesn't recount; only the first download per browser
-// counts. No cookies/PII — just integers (opt-in social proof).
-// NOTE: KV is read-modify-write (not atomic); concurrent clicks can rarely lose a count. Fine for a
-// low-volume social-proof counter — not billing-grade. Per-day tracking begins at deploy, so the summed
-// daily buckets can trail the all-time `count` by whatever was downloaded before this shipped.
+//   POST /api/downloads?os=mac   → the button counter, until the CDN tally takes over (see below)
+//
+// The count is derived from CDN traffic by a scheduled Worker (cron/), which publishes it under `dl:public`.
+// Serving it is one KV read, whatever the traffic; nothing here writes once that key exists.
+//
+// Before that — and on any deployment where the Worker has never run — this is still the original button
+// counter: dedupe is client-side (localStorage), so only the first download per browser counts, and the
+// increment is a KV read-modify-write (not atomic; concurrent clicks can lose a count, and KV refuses more
+// than one write a second per key, which is why it was replaced). `dl:public` existing is the whole switch:
+// the Worker's first run freezes these keys as the pre-cutover total and counts from the next hour on, so the
+// two never count the same download. No cookies/PII either way — just integers (opt-in social proof).
+const PUBLIC = "dl:public";
 const TOTAL = "downloads";
 const DAILY = "downloads:daily";
 const OSES = ["mac", "win", "linux"];
 const osKey = (os) => "downloads:" + os;
-const headers = { "content-type": "application/json", "cache-control": "no-store", "access-control-allow-origin": "*" };
+const cors = { "content-type": "application/json", "access-control-allow-origin": "*" };
+const headers = { ...cors, "cache-control": "no-store" };
 const num = (v) => parseInt(v || "0", 10);
 const today = () => new Date().toISOString().slice(0, 10); // UTC day
 
@@ -23,8 +30,15 @@ async function totals(kv) {
 export async function onRequestGet(context) {
   const kv = context.env.STATS;
   if (!kv) return new Response(JSON.stringify({ count: null }), { headers });
+  const daily = new URL(context.request.url).searchParams.has("daily");
+  const pub = await kv.get(PUBLIC);
+  if (pub) {
+    const { days, ...out } = JSON.parse(pub);
+    // The tally moves every ten minutes at most, so a browser may keep this for one.
+    return new Response(JSON.stringify(daily ? { ...out, days } : out), { headers: { ...cors, "cache-control": "public, max-age=60" } });
+  }
   const out = await totals(kv);
-  if (new URL(context.request.url).searchParams.has("daily")) {
+  if (daily) {
     const raw = await kv.get(DAILY);
     out.days = raw ? JSON.parse(raw) : {};
   }
@@ -34,6 +48,8 @@ export async function onRequestGet(context) {
 export async function onRequestPost(context) {
   const kv = context.env.STATS;
   if (!kv) return new Response(JSON.stringify({ count: null }), { headers });
+  // Once the CDN tally is live the click is already counted where it lands, so the beacon has nothing to do.
+  if (await kv.get(PUBLIC)) return new Response(null, { status: 204, headers: cors });
   await kv.put(TOTAL, String(num(await kv.get(TOTAL)) + 1));
   const os = new URL(context.request.url).searchParams.get("os");
   const bucket = OSES.includes(os) ? os : "other"; // unknown/old clients → "other"

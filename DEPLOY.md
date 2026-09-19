@@ -109,6 +109,10 @@ out by URL is not possible — the analytics dataset groups by path with the que
 - **Downloads + snapshots** → Cloudflare **R2** bucket `r2:notzero-dl` (→ `dl.getnotzero.com`), uploaded
   with `rclone`. The `.dmg` + `latest-mac.yml` have a cache rule so a release serves fresh, no purge.
 - **macOS releases** → `source release.env && scripts/release-mac.sh` (bump `desktop/package.json` first).
+- **Download count** → the scheduled Worker `notzero-cron` (`cd cron && npx wrangler deploy`). It tallies
+  installer fetches from CDN analytics every ten minutes and publishes the number `getnotzero.com/api/downloads`
+  serves; the landing page no longer counts its own button. Needs a `CF_ANALYTICS_TOKEN` secret — see
+  `cron/README.md`, including why the landing page has to be deployed before it.
 
 ---
 

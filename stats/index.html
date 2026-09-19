@@ -102,7 +102,7 @@
   <header>
     <p class="eyebrow"><span id="window">loading…</span> <button class="refresh" id="refresh" type="button">Refresh</button></p>
     <h1>How many people have it, and how many are running it</h1>
-    <p class="lede">Two different things are counted here, and they move independently. <strong>New downloads</strong> is the landing page's own button counter — one per browser, all time. <strong>Everything else</strong> is derived from CDN traffic the app already generates checking for updates, which includes existing installs downloading a new version. No telemetry, nothing new collected. The same numbers come out of <code>node scripts/stats.mjs</code>.</p>
+    <p class="lede">Two different things are counted here, and they move independently. <strong>New downloads</strong> is people fetching an installer from the landing page's links, all time. <strong>Everything else</strong> is derived from CDN traffic the app already generates checking for updates, which includes existing installs downloading a new version. No telemetry, nothing new collected. The same numbers come out of <code>node scripts/stats.mjs</code>.</p>
   </header>
 
   <p class="status err hidden" id="error"></p>
@@ -428,7 +428,7 @@ function tiles(d) {
   const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
   $("tiles").innerHTML = `
     <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Every machine counted once, on the release it is actually running. From installer fetches — real computers, not an average.</span></div>
-    <div class="tile lead"><span class="k">New downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time. Someone clicking the button on getnotzero.com, once per browser. Does NOT move when existing installs auto-update — that is the fetches chart below.</span></div>
+    <div class="tile lead"><span class="k">New downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time. ${dl && dl.source === "cdn" ? "Complete fetches of the installers the landing page links to, counted at the CDN — so a direct link counts too." : "Someone clicking the button on getnotzero.com, once per browser."} Does NOT move when existing installs auto-update — that is the fetches chart below.</span></div>
     <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">${awakeNote(t)}</span></div>
     <div class="tile"><span class="k">Of CDN traffic, polling</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests re-fetching release proofs.</span></div>`;
 }

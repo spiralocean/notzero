@@ -7,10 +7,11 @@
 //
 // Two independent sources, neither of which needs the Cloudflare dashboard:
 //
-//   DOWNLOADS — getnotzero.com/api/downloads, the KV counter behind the landing page's download button
-//     (site/functions/api/downloads.js). Public, no auth. Counts BUTTON CLICKS, deduped per browser via
-//     localStorage — so it misses anyone who took a direct CDN link or a GitHub asset, and it can't tell
-//     you whether a download was ever installed.
+//   DOWNLOADS — getnotzero.com/api/downloads (site/functions/api/downloads.js). Public, no auth. Complete
+//     fetches of the three installers the landing page links to, tallied from CDN analytics by the cron/
+//     Worker — so a direct CDN link counts, a GitHub asset does not, and it can't tell you whether a
+//     download was ever installed. Until that Worker's cutover (`source: "cdn"` in the payload) it is the
+//     original button counter: CLICKS, deduped per browser via localStorage.
 //
 //   INSTALLS — Cloudflare zone analytics for dl.getnotzero.com. A running app polls the CDN on fixed
 //     cadences, so request counts divide back out into a headcount. No telemetry and nothing new to
@@ -109,7 +110,7 @@ const n1 = (x) => (Math.round(x * 10) / 10).toFixed(1);
   console.log("\nnotzero — downloads & installs\n" + "=".repeat(46));
   if (out.downloads) {
     const d = out.downloads;
-    console.log(`\nDOWNLOADS (all time, landing-page button)`);
+    console.log(`\nDOWNLOADS (all time, ${d.source === "cdn" ? "installer fetches from the landing page's links" : "landing-page button"})`);
     console.log(`  ${d.count} total   mac ${d.mac}  win ${d.win}  linux ${d.linux}`);
     const days = Object.entries(d.days || {}).sort().slice(-7);
     if (days.length) {

@@ -1,0 +1,18 @@
+# The scheduled Worker behind the public download count (see tally.js). Deploy from this directory.
+name = "notzero-cron"
+main = "worker.js"
+compatibility_date = "2026-07-01"
+workers_dev = false   # no fetch handler, so no URL to publish
+
+# Every ten minutes. The analytics window is 24 hours, so this could run far less often and lose nothing; the
+# cadence is how stale the number on the landing page is allowed to be, not what keeps the count correct.
+[triggers]
+crons = ["*/10 * * * *"]
+
+[vars]
+CF_ZONE_ID = "95627a8a0532b6c01731ed136ac3f8b1"
+
+# The namespace site/ and stats/ already bind — this writes dl:*, the landing page reads dl:public.
+[[kv_namespaces]]
+binding = "STATS"
+id = "57c1ad90f1cd4fea80fb53960de46dbc"

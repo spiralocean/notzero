@@ -60,7 +60,7 @@ Cloudflare then emails you a one-time code on each new session. That is the actu
 
 | Figure | Derived from | Caveat |
 |---|---|---|
-| Downloads | `getnotzero.com/api/downloads` | Landing-page button clicks, deduped per browser. Misses direct CDN links; a download is not an install. |
+| Downloads | `getnotzero.com/api/downloads` | Complete fetches of the three installers the landing page links to, tallied from CDN analytics by the `cron/` Worker (button clicks, deduped per browser, before its cutover). Not deduplicated; a download is not an install. |
 | Running installs | `CHANGELOG.md` fetches ÷ 48/day | One fetch per install per 30 min. Release hours over-count: updated machines restart and re-poll. Read the median. |
 | Platform split | `latest-*.yml` fetches ÷ 12/day | One feed file per platform, so the *ratio* is exact. Also fires once per launch, so the absolute count reads high. |
 | Site / demo visits | zone analytics `visits` | Crawler bursts show up as one enormous hour; the page clips and flags those rather than averaging them in. |

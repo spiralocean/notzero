@@ -6,6 +6,11 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.93
 
+**Website**
+- **The download count comes from the CDN, not the button.** The landing page counted its own download
+  clicks, which missed every direct link and would have stalled under a burst of traffic. A scheduled job
+  now tallies complete installer fetches from the CDN's own analytics. Nothing new is collected.
+
 ## 0.1.92
 
 **Hash build**
