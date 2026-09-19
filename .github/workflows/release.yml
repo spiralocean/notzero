@@ -267,11 +267,19 @@ jobs:
 
       # Publish the changelog to the CDN once (mac job) so the in-app "what's new" dialogs and the website
       # release-notes page always fetch the version that shipped.
+      #
+      # Five minutes of Cache-Control, unlike the no-cache on the feed files: this is the one file every running
+      # install re-reads every 30 minutes (~90 KB, 48 times a day each), so it is nearly all of what the CDN is
+      # asked for, and served uncached every one of those is a billed R2 read. The header alone changes nothing —
+      # .md is not a type Cloudflare caches by default — it is what the zone's Cache Rule for /CHANGELOG.md
+      # ("eligible for cache", edge TTL from the origin header) reads its TTL from. Worst case a "what's new"
+      # dialog is five minutes behind a release. The feeds and SHA256SUMS stay no-cache on purpose: a stale
+      # checksum beside a fresh feed would read as a failed verification.
       - name: Publish CHANGELOG to CDN
         if: matrix.platform == 'mac' && env.IS_DRY != 'true'
         shell: bash
         run: |
-          rclone copyto CHANGELOG.md "$R2_BUCKET/CHANGELOG.md" --s3-no-check-bucket
+          rclone copyto CHANGELOG.md "$R2_BUCKET/CHANGELOG.md" --s3-no-check-bucket --header-upload "Cache-Control: public, max-age=300"
           echo "published CHANGELOG.md:"; curl -s "https://dl.getnotzero.com/CHANGELOG.md" | head -3 || true  # head closes the pipe early → curl SIGPIPE; don't let pipefail fail the step (it cascaded to skip anchor in 0.1.30)
 
       - name: Verify the live feed
