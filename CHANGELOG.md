@@ -6,6 +6,25 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.94
 
+**Updates**
+- **Updates now reach you already confirmed in the Bitcoin blockchain.** Every release's checksums have been
+  timestamped on Bitcoin since 0.1.29, but a timestamp takes a few hours to land in a block, and releases went
+  out straight away — so a fresh update installed with its proof still "pending". Releases are now held back
+  on our side until that timestamp has confirmed, then published. The VERIFIED UPDATES panel should show a
+  new version as confirmed by your own node from the moment it arrives.
+- **A hotfix that can't wait says so, and lets you choose.** When a fix has to go out before its timestamp
+  confirms, notzero downloads it, checks its fingerprint against the published checksums as always, and then
+  *holds* it: the update pill reads "ready · waiting for Bitcoin". Leave it and it installs by itself once
+  the timestamp confirms — nothing to click, so an unattended machine still updates. Or
+  click the pill and choose **Install Now**, which skips only the timestamp; the fingerprint check has
+  already passed. An install with no reachable node updates exactly as before, and a hold never outlasts
+  24 hours.
+- **Fixes an update that failed verification being installed anyway when you quit.** notzero refuses to
+  install a download whose fingerprint doesn't match the published checksum — but the updater underneath was
+  still set to install any downloaded update on quit, so the refused file went in the next time the app
+  closed. It no longer does: an update is installed only after it passes the check. Nothing changes for an
+  update that verifies.
+
 **Network**
 - **Without a node, the block-times history is extended instead of rebuilt.** The demo, and a new install
   while its node syncs, draw the NEXT BLOCK histogram and arrival timeline from mempool.space. That history

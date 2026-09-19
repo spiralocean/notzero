@@ -941,7 +941,7 @@ let seenConfirmedWin = -1, winPreviewHit = null, netWinHit = null, winStatusHit 
 let mpPreview = false, syncPreview = false; // "preview a block" → replay the mempool harvest + the sync's mined-block commit
 // the desktop app serves a /config endpoint; the public web build doesn't — so this both detects "are we in
 // the desktop app" and gates the settings gear (which navigates to /setup, a desktop-only route).
-let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null;
+let isDesktop = false, appVersion = "", nodeMode = "", desktopPlatform = "", updatePendingVer = "", updateVerification = null, versionAnchor = null, updateHistory = null, updatePillHit = null, updateDownload = null, updateHeld = null, updatePillHeld = false;
 // The ambient view exists in BOTH contexts, reached two different ways. In the desktop app it is a real
 // always-on-top window, opened by POSTing /ambient-open to the local server. On the public demo that endpoint
 // does not exist — but web/ambient.html is deployed there too and works standalone, so the control navigates to
@@ -960,10 +960,10 @@ const updAutoSub = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DU
 let configTimer = null;
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; updateDownload = c.update_download || null; requestRender(); }
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; updateDownload = c.update_download || null; updateHeld = c.update_held || null; requestRender(); }
   }).catch(() => {}).finally(() => {
     // poll fast while an update is available or downloading (so "Downloading… X%" stays live), otherwise relaxed
-    const fast = isDesktop && (updateDownload || updatePendingVer);
+    const fast = isDesktop && (updateDownload || (updatePendingVer && !updateHeld)); // a held update can sit for hours — no reason to poll fast through it
     clearTimeout(configTimer); try { configTimer = setTimeout(pollConfig, fast ? 2500 : 90000); } catch (_) {}
   });
 }
@@ -974,6 +974,7 @@ pollConfig();
 window.__notzeroPokeConfig = () => { try { pollConfig(); } catch (_) {} };
 window.__notzeroUpdateStarting = () => { isDesktop = true; if (!updateDownload) updateDownload = { percent: 0, preparing: true }; requestRender(); try { pollConfig(); } catch (_) {} };
 try { const fu = new URLSearchParams(location.search).get("fakeupdate"); if (fu) { isDesktop = true; updatePendingVer = fu; } } catch (_) {} // local pill preview
+try { const fh = new URLSearchParams(location.search).get("fakeheld"); if (fh) { isDesktop = true; updateHeld = { version: fh }; } } catch (_) {} // local "waiting for Bitcoin" pill preview
 try { const fd = new URLSearchParams(location.search).get("fakedl"); if (fd) { isDesktop = true; updateDownload = { percent: +fd }; } } catch (_) {} // local "downloading" pill preview
 try { const fw = new URLSearchParams(location.search).get("fakewarn"); if (fw) { isDesktop = true; fakeWarn = fw === "1" ? "Unknown new rules activated (versionbit 4)" : fw; } } catch (_) {} // local consensus-banner preview
 try { const fv = new URLSearchParams(location.search).get("fakeverify"); if (fv) { const [lvl, ver, h] = fv.split(":"); isDesktop = true; updateVerification = { level: lvl, version: ver || updatePendingVer || "0.1.30", height: h ? +h : undefined }; } } catch (_) {} // VERIFIED UPDATES status preview
@@ -4429,11 +4430,15 @@ function drawPreviewTrigger() {
 function drawUpdatePill() {
   updatePillHit = null;
   const downloading = isDesktop && !!updateDownload;
-  if (!isDesktop || (!downloading && !updatePendingVer)) return;
+  // held: downloaded and fingerprint-checked, but its Bitcoin timestamp is still confirming (a hotfix sent out
+  // early). It installs by itself on confirmation; the click offers "install now" instead of starting a download.
+  const held = isDesktop && !downloading && !!(updateHeld && updateHeld.version);
+  updatePillHeld = held;
+  if (!isDesktop || (!downloading && !held && !updatePendingVer)) return;
   const pct = downloading ? Math.max(0, Math.min(100, Math.round((updateDownload && updateDownload.percent) || 0))) : 0;
   // before the first byte arrives (pct 0 / optimistic "preparing"), say "Preparing update…" so it never looks stuck at 0%
-  const label = downloading ? (pct > 0 ? `⬇ Downloading update… ${pct}%` : "⬇ Preparing update…") : `⬆ Update available · v${updatePendingVer}`;
-  const col = downloading ? "120,200,255" : "255,205,110"; // blue while working, amber when it's a call to action
+  const label = downloading ? (pct > 0 ? `⬇ Downloading update… ${pct}%` : "⬇ Preparing update…") : held ? `₿ v${updateHeld.version} ready · waiting for Bitcoin` : `⬆ Update available · v${updatePendingVer}`;
+  const col = downloading ? "120,200,255" : held ? "247,147,26" : "255,205,110"; // blue while working, Bitcoin orange while its timestamp confirms, amber when it's a call to action
   ctx.font = "700 12px -apple-system, system-ui, sans-serif";
   const tw = ctx.measureText(label).width, pw = Math.max(tw + 26, 172), ph = 24, px = W - PAD - pw, py = 40;
   const pulse = 0.7 + 0.3 * (0.5 + 0.5 * Math.sin(clock * 2.4));
@@ -4443,10 +4448,13 @@ function drawUpdatePill() {
     ctx.fillStyle = `rgba(${col},0.26)`; ctx.fillRect(px, py, pw * (pct / 100), ph); ctx.restore();
   }
   ctx.strokeStyle = `rgba(${col},${0.55 + 0.4 * pulse})`; ctx.lineWidth = 1.3; roundRect(px, py, pw, ph, 12); ctx.stroke();
-  text(label, px + pw / 2, py + ph / 2, { size: 12, weight: 700, color: downloading ? "rgba(200,230,255,1)" : "rgba(255,218,130,1)", align: "center", baseline: "middle" });
+  text(label, px + pw / 2, py + ph / 2, { size: 12, weight: 700, color: downloading ? "rgba(200,230,255,1)" : held ? "rgba(255,190,110,1)" : "rgba(255,218,130,1)", align: "center", baseline: "middle" });
   if (downloading) {
     text("installs & restarts automatically when ready", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: `rgba(${col},0.72)`, align: "center", baseline: "middle" });
     // deliberately NOT clickable while downloading (updatePillHit stays null) → a stray click can't re-trigger it
+  } else if (held) {
+    text("installs once confirmed · click to install now", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: `rgba(${col},0.75)`, align: "center", baseline: "middle" });
+    updatePillHit = { x: px, y: py, w: pw, h: ph };
   } else {
     text("click to update", px + pw / 2, py + ph + 9, { size: 8.5, weight: 600, color: "rgba(255,205,110,0.7)", align: "center", baseline: "middle" });
     updatePillHit = { x: px, y: py, w: pw, h: ph };
@@ -4967,7 +4975,7 @@ canvas.addEventListener("click", (ev) => { const e = ptr(ev);
     return;
   }
   if (inHit(gearHit, e.offsetX, e.offsetY)) { window.location = "/setup?settings=1"; return; } // settings (desktop app)
-  if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice
+  if (inHit(updatePillHit, e.offsetX, e.offsetY)) { fetch(updatePillHeld ? "/update/held" : "/update/check", { method: "POST" }).catch(() => {}); return; } // "update available" pill → check + show install choice; "waiting for Bitcoin" pill → wait / install now
   if (inHit(consensusHit, e.offsetX, e.offsetY)) { fetch("/update/check", { method: "POST" }).catch(() => {}); return; } // "network rule change" banner → check for an update that handles the new rules
   if (inHit(netWinHit, e.offsetX, e.offsetY)) { const w = netWinHit.win; fireCelebration({ mode: "network", verified: !!w.verified, height: w.height, hash: w.hash }); return; }
   if (inHit(winPreviewHit, e.offsetX, e.offsetY)) { // preview the win with a real winning block hash as illustration

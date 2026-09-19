@@ -71,6 +71,7 @@ const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning 
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
+const { decideInstall } = require("./update-hold.js"); // install / hold / refuse a downloaded update
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
 const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
@@ -437,13 +438,16 @@ function updatingOverlayJs(version) {
 }
 
 // ---- auto-update: check the dl.getnotzero.com feed on launch + every few hours.
-// DEFAULT (auto_update on): download in the background and install on quit, so a published fix reaches every
-// install fast. If the user turns auto-update OFF in Settings, we switch to NOTIFY-ONLY: we tell them a
+// DEFAULT (auto_update on): download in the background, verify, and restart into it, so a published fix reaches
+// every install fast. If the user turns auto-update OFF in Settings, we switch to NOTIFY-ONLY: we tell them a
 // version is available but never download or install on our own — they trigger it from Menu → Check for
 // Updates. This gives the security-conscious the wheel without punishing everyone else. No-op in dev. ----
 function autoUpdateOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).auto_update !== false; } catch (_) { return true; } } // default ON
-function verifyUpdatesOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).verify_updates !== false; } catch (_) { return true; } } // default ON — only ever BLOCKS on a definitive mismatch
+function verifyUpdatesOn() { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).verify_updates !== false; } catch (_) { return true; } } // default ON — BLOCKS a definitive mismatch, HOLDS a still-pending proof (see update-hold.js)
 let updateAvailableVer = null, updateManual = false, notifiedVer = null, pendingUpdateVer = null;
+// A downloaded update whose Bitcoin timestamp is still confirming: { version, file, since }. It installs by itself
+// once the proof confirms; installNowVer is the version the user chose not to wait for. See update-hold.js.
+let heldUpdate = null, installNowVer = null, updateAskedFor = null, heldNotifiedVer = null, heldDialogOpen = false, installStarted = false;
 let updateDownloading = false, updateDownloadPct = 0; // live download state → the dashboard turns the pill into a "Downloading… X%" status
 let lastUpdateVerification = null, currentVersionAnchor = null, updateHistory = null; // surfaced on the dashboard's VERIFIED UPDATES section
 
@@ -658,19 +662,97 @@ function pokeUpdateUI(fn) { try { if (mainWindow && !mainWindow.isDestroyed()) m
 function promptUpdateDialog(info) {
   const target = (info && info.version) || updateAvailableVer || "", cur = app.getVersion();
   whatsNewDialog({ fromVer: cur, toVer: target, title: `notzero ${target} is available` + (cur ? `  (you're on ${cur})` : ""), buttons: ["Update Now", "See Full Notes", "Later"], extraDetail: "Update now? notzero downloads it, restarts, and resumes mining automatically." })
-    .then((r) => { if (r === 0) { markVersionSeen(target); updateDownloading = true; updateDownloadPct = 0; pokeUpdateUI("__notzeroUpdateStarting"); autoUpdater.downloadUpdate().catch(() => { updateDownloading = false; }); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // Update Now → flip the pill to a "Preparing/Downloading…" status IMMEDIATELY, then start the download
+    .then((r) => { if (r === 0) { markVersionSeen(target); updateAskedFor = target; updateDownloading = true; updateDownloadPct = 0; pokeUpdateUI("__notzeroUpdateStarting"); autoUpdater.downloadUpdate().catch(() => { updateDownloading = false; }); } else if (r === 1) shell.openExternal(SITE_CHANGELOG_URL); }); // Update Now → flip the pill to a "Preparing/Downloading…" status IMMEDIATELY, then start the download
+}
+// When a version was first held, persisted so the hold's ceiling survives restarts (a login-item app restarts daily).
+function heldSince(ver) {
+  let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+  if (cfg.update_hold && cfg.update_hold.version === ver && cfg.update_hold.since > 0) return cfg.update_hold.since;
+  const since = Date.now();
+  try { cfg.update_hold = { version: ver, since }; fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) {}
+  return since;
+}
+// An update has finished downloading (or a held one is being looked at again): verify it against the anchored
+// SHA256SUMS + your node, then install, hold, or refuse it — the policy is update-hold.js. Never throws.
+// electron-updater's feed (and, on macOS, Squirrel's code-signature check) stays the baseline underneath this.
+async function settleDownloadedUpdate(ver, file) {
+  if (installStarted) return; // the 2-hourly check re-announces a download that is already on its way in
+  let verdict = null;
+  if (file) { try { verdict = await verifyUpdateArtifact(ver, file); } catch (_) {} }
+  if (installStarted) return;
+  lastUpdateVerification = verdict || { level: "unverified", version: ver };
+  const since = verdict && verdict.level === "pending" ? heldSince(ver) : 0;
+  const action = decideInstall({ verdict, verifyOn: verifyUpdatesOn(), installNowVer, heldSince: since });
+  if (action === "block") {
+    heldUpdate = null;
+    try { if (Notification.isSupported()) new Notification({ title: "notzero — update blocked", body: `The downloaded ${ver ? "v" + ver : "update"} failed verification and was NOT installed.` }).show(); } catch (_) {}
+    try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download's fingerprint didn't match the checksum published for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
+    return; // do not install a download we can't vouch for
+  }
+  if (action === "hold") {
+    heldUpdate = { version: ver, file, since };
+    pokeUpdateUI("__notzeroPokeConfig"); // the pill turns into "ready · waiting for Bitcoin"
+    const asked = updateAskedFor === ver; updateAskedFor = null;
+    if (asked) { promptHeldUpdateDialog(); return; } // they pressed Update Now and are sitting right there → ask; otherwise the pill is the notice
+    if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) return;
+    if (heldNotifiedVer === ver) return; // closed / in the tray → one OS notification per version
+    heldNotifiedVer = ver;
+    try { if (Notification.isSupported()) new Notification({ title: `notzero ${ver} is ready`, body: "Waiting for its Bitcoin timestamp to confirm — it installs by itself once it does. Open notzero to install it now instead." }).show(); } catch (_) {}
+    return;
+  }
+  heldUpdate = null; installStarted = true;
+  // Held while a modal dialog is on screen. The what's-new recap is parented to the window, so on macOS it is
+  // a window-modal sheet — and quitAndInstall() closes the window FIRST, so anything stopping that close
+  // wedges ShipIt exactly like the 0.1.33→0.1.34 stall below. Waiting costs nothing: the old version keeps
+  // running and the update lands the moment the dialog is dismissed. See desktop/install-gate.js.
+  deferWhileBusy({
+    isBusy: () => modalDepth > 0,
+    onIdle: () => {
+      try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
+      try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
+    },
+    // isQuitting FIRST: quitAndInstall() closes the window BEFORE firing before-quit, and win.on("close") hides
+    // (doesn't quit) the window on macOS unless isQuitting is set — so without this the app never terminates and
+    // Squirrel's ShipIt hangs forever waiting to swap the bundle (the 0.1.33→0.1.34 mac auto-update stall).
+    run: () => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) { installStarted = false; } },
+    delayMs: 6000, // a beat longer so the message is readable before the relaunch
+  });
+}
+// The held update's choice: keep waiting for Bitcoin (the default — it installs itself on confirmation) or
+// install now. Shown when the user asks: the dashboard's "waiting for Bitcoin" pill, or straight after pressing
+// Update Now. "Install Now" goes back through settleDownloadedUpdate, so the fingerprint is checked again.
+function promptHeldUpdateDialog() {
+  if (!heldUpdate || heldDialogOpen || installStarted) return;
+  const { version: ver, file } = heldUpdate;
+  const win = mainWindow && !mainWindow.isDestroyed() ? mainWindow : null;
+  const opts = {
+    type: "info", noLink: true, title: `notzero ${ver} is ready`, message: `notzero ${ver} is downloaded — its Bitcoin timestamp is still confirming`,
+    detail: "The download's fingerprint matches the checksums published for this release. What it doesn't have yet is its block: the release's timestamp is still waiting to be confirmed in the Bitcoin blockchain, which usually takes a few hours. Releases normally aren't sent out until that's done; this one went out early, which usually means it's a hotfix.\n\nWait, and notzero installs it by itself as soon as the timestamp confirms. Or install it now: that skips only the timestamp — the fingerprint check has already passed.",
+    buttons: ["Wait for Bitcoin", "Install Now"], defaultId: 0, cancelId: 0,
+  };
+  heldDialogOpen = true; modalDepth++; // counted like the what's-new dialog, so nothing quits the app out from under it
+  const done = (r) => { heldDialogOpen = false; modalDepth = Math.max(0, modalDepth - 1); if (r === 1) { installNowVer = ver; settleDownloadedUpdate(ver, file); } };
+  try { (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)).then((r) => done(r.response)).catch(() => done(-1)); }
+  catch (_) { done(-1); }
 }
 function initAutoUpdate() {
   if (!app.isPackaged) return;
   autoUpdater.autoDownload = autoUpdateOn();
-  autoUpdater.on("error", () => { updateDownloading = false; }); // a failed update check must never bother the user (but clear the "downloading" status)
+  // electron-updater's default is to ALSO install any downloaded update when the app quits. That made both
+  // verdicts below meaningless: an update refused for a bad fingerprint, or held for its timestamp, went in
+  // anyway at the next quit (on macOS Squirrel stages it the moment the download lands). Off, a download is
+  // installed by quitAndInstall() and nothing else. The cost: quit during the few seconds before the restart
+  // and the update waits for the next launch, where the cached download is found and installed without
+  // fetching it again.
+  autoUpdater.autoInstallOnAppQuit = false;
+  autoUpdater.on("error", () => { updateDownloading = false; installStarted = false; }); // a failed update check must never bother the user (but clear the "downloading" status, and let the next check retry an install that failed)
   autoUpdater.on("download-progress", (p) => { updateDownloading = true; updateDownloadPct = Math.max(0, Math.min(100, Math.floor((p && p.percent) || 0))); }); // drives the in-app "Downloading… X%" status
   autoUpdater.on("update-available", (info) => {
     updateAvailableVer = info && info.version ? info.version : "";
     pendingUpdateVer = updateAvailableVer;                      // drives the persistent in-app "update available" pill
     const wasManual = updateManual; updateManual = false;
     if (wasManual) { pokeUpdateUI("__notzeroPokeConfig"); promptUpdateDialog(info); return; } // explicit "Check for Updates" / pill click → what's new + Update/Later choice (poke so the dashboard fast-polls right away)
-    if (autoUpdateOn()) return;                                 // auto mode background: autoDownload installs on quit
+    if (autoUpdateOn()) return;                                 // auto mode background: it downloads by itself, and update-downloaded takes it from there
     if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) return; // app OPEN → the in-app "update available" pill IS the notice; never pop an unsolicited dialog
     // app closed / in the tray → one OS notification per version (persisted, so no every-2-hours nag), pointing at the pill
     let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
@@ -680,37 +762,13 @@ function initAutoUpdate() {
     try { if (Notification.isSupported()) new Notification({ title: "notzero update available", body: `Version ${updateAvailableVer} is ready. Open notzero → the “Update available” banner (or Help → Check for Updates).` }).show(); } catch (_) {}
   });
   autoUpdater.on("update-not-available", () => { pendingUpdateVer = null; if (updateManual) { updateManual = false; try { if (Notification.isSupported()) new Notification({ title: "notzero is up to date", body: "You're already on the latest version." }).show(); } catch (_) {} } });
-  autoUpdater.on("update-downloaded", async (info) => {
+  autoUpdater.on("update-downloaded", (info) => {
     updateDownloading = false; updateDownloadPct = 100; // download done — the "installing/restarting" overlay takes over from here
-    const ver = info && info.version ? info.version : "";
-    // Verify the download against the anchored SHA256SUMS + your node before installing. This does NOT wait for the
-    // on-chain proof to confirm (that can take hours) — it installs on a checksum match and shows on-chain status
-    // when available; it only BLOCKS on a definitive mismatch. electron-updater's signed feed is the baseline gate.
-    let verdict = null;
-    if (info && info.downloadedFile) { try { verdict = await verifyUpdateArtifact(ver, info.downloadedFile); } catch (_) {} }
-    lastUpdateVerification = verdict || { level: "unverified", version: ver };
-    if (verdict && verdict.level === "mismatch" && verifyUpdatesOn()) {
-      try { if (Notification.isSupported()) new Notification({ title: "notzero — update blocked", body: `The downloaded ${ver ? "v" + ver : "update"} failed verification and was NOT installed.` }).show(); } catch (_) {}
-      try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download's fingerprint didn't match the checksum published for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
-      return; // do not install a download we can't vouch for
-    }
-    // Held while a modal dialog is on screen. The what's-new recap is parented to the window, so on macOS it is
-    // a window-modal sheet — and quitAndInstall() closes the window FIRST, so anything stopping that close
-    // wedges ShipIt exactly like the 0.1.33→0.1.34 stall below. Waiting costs nothing: the old version keeps
-    // running and the update lands the moment the dialog is dismissed. See desktop/install-gate.js.
-    deferWhileBusy({
-      isBusy: () => modalDepth > 0,
-      onIdle: () => {
-        try { if (Notification.isSupported()) new Notification({ title: "Updating notzero", body: `Installing ${ver ? "v" + ver : "the latest version"} — restarting in a moment.` }).show(); } catch (_) {}
-        try { if (mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible()) mainWindow.webContents.executeJavaScript(updatingOverlayJs(ver)).catch(() => {}); } catch (_) {}
-      },
-      // isQuitting FIRST: quitAndInstall() closes the window BEFORE firing before-quit, and win.on("close") hides
-      // (doesn't quit) the window on macOS unless isQuitting is set — so without this the app never terminates and
-      // Squirrel's ShipIt hangs forever waiting to swap the bundle (the 0.1.33→0.1.34 mac auto-update stall).
-      run: () => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) {} },
-      delayMs: 6000, // a beat longer so the message is readable before the relaunch
-    });
+    settleDownloadedUpdate(info && info.version ? info.version : "", info && info.downloadedFile);
   });
+  // A held update is re-examined when the 2-hourly check re-announces it, and here in between, so it installs
+  // within half an hour of its proof confirming rather than up to two.
+  setInterval(() => { if (heldUpdate) settleDownloadedUpdate(heldUpdate.version, heldUpdate.file); }, 30 * 60 * 1000);
   const check = () => { autoUpdater.autoDownload = autoUpdateOn(); autoUpdater.checkForUpdates().catch(() => {}); }; // re-read the pref each check so a toggle takes effect
   // Jitter the FIRST check. The recurring interval needs none — each client's phase comes from its own launch
   // time — but launches themselves cluster twice over: people boot in the morning, and (the self-inflicted one)
@@ -1340,7 +1398,7 @@ function previewConfig() {
     exists: true, node_mode: "managed", platform: process.platform, app_version: app.getVersion(),
     payout_address: "bc1qpreviewpreviewpreviewpreviewpreviewpv0", rpc_url: "http://127.0.0.1:8332",
     has_rpc_pass: true, uses_cookie: false, auto_start: true, notifications_enabled: true, auto_update: true,
-    show_whats_new: true, update_available: "", update_verification: null, version_anchor: null, update_history: null,
+    show_whats_new: true, update_available: "", update_verification: null, update_held: null, version_anchor: null, update_history: null,
   };
 }
 // A node.json for the chosen state, built by mutating the bundled sample (web/node.json) so every panel still has
@@ -1379,6 +1437,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-config") { handleAmbientConfig(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-open") { openAmbient(true); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the dashboard's ambient-view button
+      if (req.method === "POST" && urlPath === "/update/held") { promptHeldUpdateDialog(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the "waiting for Bitcoin" pill → wait / install now
       if (req.method === "POST" && urlPath === "/update/check") { checkForUpdatesNow(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the in-app "update available" pill → show the what's-new / install choice
       if (req.method === "POST" && urlPath === "/notifications") { handleNotifications(req, res); return; }
       if (req.method === "POST" && urlPath === "/notifications/test") { handleNotificationTest(req, res); return; }
@@ -1394,6 +1453,7 @@ function startServer() {
         out.app_version = app.getVersion(); // surfaced on the dashboard + wizard so support can identify the build
         out.update_download = updateDownloading ? { percent: updateDownloadPct } : null; // live download progress → the pill shows "Downloading… X%" instead of a clickable "Update available"
         out.update_verification = lastUpdateVerification; // a downloaded update's verdict (or null) — VERIFIED UPDATES section
+        out.update_held = heldUpdate ? { version: heldUpdate.version, since: heldUpdate.since } : null; // downloaded + fingerprint-checked, waiting for its Bitcoin timestamp → the pill says so and offers "install now"
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
         out.update_history = updateHistory; // recent releases + their on-chain verification (newest first) — VERIFIED UPDATES list
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
