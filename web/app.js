@@ -294,8 +294,11 @@ function nodeSetupView() {
 }
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
+// The slow series — a month of daily hashrate, a week of price, the 3-day average hashrate. A new point on any
+// of them is a fraction of a pixel, so they are fetched hourly. They used to ride a 5-minute timer, which was
+// 864 requests a day per install to redraw three lines identically.
 async function loadHistory() {
-  refreshSlow(); // fire the spot price / hashrate / difficulty aggregates first so they don't wait behind the two history awaits below (matters at boot — the header shows a price immediately)
+  fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {}); // fire-and-forget, so it doesn't wait behind the two awaits below
   try {
     const hr = await (await fetch(`${API}/v1/mining/hashrate/1m`)).json();
     if (hr?.hashrates) {
@@ -312,13 +315,46 @@ async function loadHistory() {
     if (pr?.prices) model.priceHistory = pr.prices.slice().sort((a, b) => a.time - b.time).map((p) => p.USD).slice(-168);
   } catch {}
 }
-// Slow-moving aggregates — spot price, 3-day average hashrate, next-difficulty estimate. None of these changes
-// visibly over 30s, so they ride the 300s history cadence rather than the 30s tip/mempool one. Fire-and-forget
-// (each with its own catch, like every optional sub-fetch) so they never touch model.error or gate the loop.
-function refreshSlow() {
+// The spot price moves on its own clock, not the chain's, so it keeps a timer: every 5 minutes, which is as
+// often as the header can show a difference. Fire-and-forget (its own catch, like every optional sub-fetch) so
+// it never touches model.error or gates the loop.
+function refreshPrice() {
   fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
-  fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {});
-  fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { if (d && d.remainingBlocks != null) model.diffAdjust = d; }).catch(() => {}); // next-difficulty estimate + timing
+}
+
+// Data that is a function of the chain tip, fetched when the tip MOVES rather than on a timer. The recent-blocks
+// list (pool names, lottery tags) and the next-difficulty estimate cannot change between blocks, so asking
+// every 30 seconds was asking the same question ~20 times per answer: 2,880 requests a day per install for
+// /v1/blocks alone, against the ~144 blocks a day that could actually change it. That one call was two thirds
+// of everything a synced install asked of mempool.space — a service we do not run and that owes us nothing.
+//
+// Each records the height its data actually COVERS, read from the response, not the height we asked at. The
+// distinction is the retry: mempool.space can be a few seconds behind a node that has just seen a block, and
+// then its answer is for the previous tip. Recording that lower height leaves the comparison unsatisfied, so
+// the next cycle asks again — and a failed request records nothing, so it retries the same way. Called from
+// refresh(), which runs every 30s AND the moment the local node reports a new block — two callers that land
+// within milliseconds of each other when a block arrives, hence `asking`: the second finds the first's request
+// still out and leaves it to answer, instead of sending the same question twice.
+const chainDataTip = { blocks: 0, diffAdjust: 0 }, asking = { blocks: false, diffAdjust: false };
+function refreshChainData() {
+  const tip = model.tipHeight;
+  if (tip == null) return;
+  if (chainDataTip.blocks < tip && !asking.blocks) {
+    asking.blocks = true;
+    fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
+      if (!Array.isArray(arr)) return;
+      model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name, lottery: coinbaseHasLotteryTag(b.extras?.coinbaseRaw) }));
+      if (arr.length && arr[0].height != null) chainDataTip.blocks = arr[0].height;
+    }).catch(() => {}).finally(() => { asking.blocks = false; });
+  }
+  if (chainDataTip.diffAdjust < tip && !asking.diffAdjust) {
+    asking.diffAdjust = true;
+    fetch(`${API}/v1/difficulty-adjustment`).then((r) => r.json()).then((d) => { // next-difficulty estimate + timing
+      if (!d || d.remainingBlocks == null) return;
+      model.diffAdjust = d;
+      chainDataTip.diffAdjust = d.nextRetargetHeight != null ? d.nextRetargetHeight - d.remainingBlocks : tip;
+    }).catch(() => {}).finally(() => { asking.diffAdjust = false; });
+  }
 }
 
 // Recent inter-block intervals (minutes) for the NEXT BLOCK distribution. Bitcoin block times are a Poisson
@@ -499,17 +535,19 @@ async function refresh(fromRetry = false) {
     if (nt) {
       await applyTipBlock(nt); // tip from YOUR node — no mempool.space round-trip for the block header
     } else {
-      const tipHash = await (await api("/blocks/tip/hash")).text();
-      await applyTipBlock(await (await api(`/block/${tipHash}`)).json());
+      // The tip hash is 64 bytes of text and IS the question "has anything changed?" — so ask it, and fetch the
+      // block it names only when it is not the block already held. A node-less client (the public demo, and
+      // every new install for the hours its node spends syncing) used to re-download the same block ~20 times.
+      // applyTipBlock still runs either way: it re-tickets if the seed changed, and hashes nothing otherwise.
+      const tipHash = (await (await api("/blocks/tip/hash")).text()).trim();
+      const held = model.block && model.block.id === tipHash ? model.block : null;
+      await applyTipBlock(held || await (await api(`/block/${tipHash}`)).json());
     }
 
-    fetch(`${API}/v1/blocks`).then((r) => r.json()).then((arr) => {
-      if (Array.isArray(arr)) model.recentBlocks = arr.slice(0, 8).reverse().map((b) => ({ height: b.height, id: b.id, tx: b.tx_count, size: b.size, pool: b.extras?.pool?.name, lottery: coinbaseHasLotteryTag(b.extras?.coinbaseRaw) }));
-    }).catch(() => {});
-    // NOTE: price, 3-day hashrate and difficulty-adjustment used to be fetched here every 30s. They barely move
-    // — a 5-min cadence is visually identical — so they now ride loadHistory()'s 300s timer instead, cutting 3
-    // of every 10 calls this loop made. Only genuinely time-varying data (the tip + the mempool group below,
-    // which feeds the live tx-flow viz) stays on the 30s cadence. See refreshSlow().
+    refreshChainData(); // recent blocks + difficulty estimate — only when the tip above actually moved
+    // NOTE: only genuinely time-varying data stays on this 30s cadence: the tip, and the mempool group below,
+    // which feeds the live tx-flow viz. The price keeps its own 5-minute timer (refreshPrice), the slow series
+    // are hourly (loadHistory), and everything that is a function of the tip follows the tip (refreshChainData).
     // The mempool GROUP — the histogram, the projected-blocks treemap, the live tx feed, the fee weather — is
     // drawn ONLY inside the expanded MEMPOOL panel (and the tx feed also in MERKLE). So fetch it only when that
     // data is on screen. When the MEMPOOL panel is collapsed and your synced node already knows the pending
@@ -4978,10 +5016,12 @@ window.__freezeRender = (on = true) => { renderFrozen = !!on; if (on) { cancelAn
 resize();
 pollNode();
 refresh();
+refreshPrice(); // before loadHistory's awaits — the header shows a price immediately at boot
 loadHistory();
 setInterval(pollNode, 3_000);
 setInterval(refresh, REFRESH_MS);
-setInterval(loadHistory, 300_000);
+setInterval(refreshPrice, 300_000);
+setInterval(loadHistory, 3_600_000);
 pollBlockTimes();
 setInterval(pollBlockTimes, 120_000);
 render();

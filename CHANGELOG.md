@@ -6,6 +6,17 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.93
 
+**Network**
+- **notzero asks mempool.space for about 85% less.** The recent-blocks list (pool names, lottery tags) and
+  the next-difficulty estimate can only change when a block is found, but were being re-fetched every 30
+  seconds and every 5 minutes — roughly twenty identical answers per block. They are now fetched when the
+  chain tip actually moves, and asked again if mempool.space has not seen the new block yet. The month-long
+  hashrate and price charts refresh hourly instead of every 5 minutes; the spot price keeps its 5-minute
+  timer. Without a synced node (the demo, and a new install while its node syncs) the tip block is downloaded
+  once per block rather than once per cycle. A synced install goes from ~4,300 requests a day to ~650, with
+  nothing on screen any staler than before. mempool.space is a free service someone else pays for; this is
+  what being a polite client of it looks like at any size.
+
 **Website**
 - **The download count comes from the CDN, not the button.** The landing page counted its own download
   clicks, which missed every direct link and would have stalled under a burst of traffic. A scheduled job

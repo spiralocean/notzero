@@ -197,7 +197,8 @@ test("rate-limited: the app backs off instead of hammering", async ({ page }) =>
 });
 
 // Guard the polling budget: slow-moving aggregates (price / 3d-hashrate / difficulty) were moved OFF the 30s
-// tip/mempool cycle onto the 300s history timer. This proves it directly — a second refresh() re-fetches the
+// tip/mempool cycle — the price onto its own 5-minute timer, the 3-day hashrate onto the hourly history load,
+// the difficulty estimate onto tip changes. This proves it directly — a second refresh() re-fetches the
 // mempool group but NOT the aggregates — so a future edit that drops an aggregate back into refresh() is caught.
 test("polling budget: refresh() re-fetches the mempool group but not the slow aggregates", async ({ page }) => {
   test.setTimeout(60_000);
@@ -225,12 +226,77 @@ test("polling budget: refresh() re-fetches the mempool group but not the slow ag
   expect(h("/api/mempool")).toBeGreaterThanOrEqual(2);
   // fee weather is drawn only in the EXPANDED mempool panel, which this test never opens → visibility-gated off.
   expect(h("/api/v1/fees/recommended")).toBe(0);
-  // slow aggregates are on the 300s path (refreshSlow, via loadHistory) → fetched once at boot, NOT by refresh()
+  // slow aggregates have their own cadences (refreshPrice / loadHistory / refreshChainData) → fetched once at
+  // boot, NOT by a refresh() at an unchanged tip
   expect(h("/api/v1/prices")).toBe(1);
   expect(h("/api/v1/mining/hashrate/3d")).toBe(1);
   expect(h("/api/v1/difficulty-adjustment")).toBe(1);
   // and the price still actually loaded, so moving it didn't break the header
   expect(await page.evaluate(() => window.__model.price)).toBeGreaterThan(0);
+});
+
+// Chain-derived data follows the chain. The recent-blocks list and the difficulty estimate cannot change between
+// blocks, and /v1/blocks every 30s was two thirds of what a synced install asked of mempool.space — ~2,880
+// requests a day to learn about ~144 blocks. They are now fetched when the tip MOVES. This pins both halves: a
+// refresh at the same tip costs nothing, and a new tip still gets through — including the awkward case where
+// mempool.space answers for the PREVIOUS block because it has not seen the new one yet, which must leave the
+// dashboard asking again rather than settled on stale data. A node-less client is used so that the tip-hash
+// short-circuit is covered by the same run: the block body is fetched once per block, not once per cycle.
+test("polling budget: chain-derived data is refetched when the tip moves, not on a timer", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  await page.route("**/node.json*", (r) => r.fulfill({ status: 404, body: "" }));   // no node → the tip comes from mempool.space
+
+  const hash = (h) => h.toString(16).padStart(64, "0");
+  const blockAt = (h) => ({ id: hash(h), height: h, version: 671088640, previousblockhash: hash(h - 1),
+    merkle_root: "f576d43263ff8056c3cfa68d456e059d02d48d09413ead2e58ef020ffd0c3dc0", timestamp: 1718900400, bits: 386089497, nonce: 1, tx_count: 3000, difficulty: 1.25e14 });
+  let chainTip = 954469, listTip = 954469;   // what mempool.space says the tip is / what its block LIST has caught up to
+  const hits = { body: 0, list: 0, diff: 0 };
+  await page.unroute("**/api/blocks/tip/hash");
+  await page.unroute("**/api/block/*");
+  await page.unroute("**/api/v1/blocks*");
+  await page.unroute("**/api/v1/difficulty-adjustment");
+  await page.route("**/api/blocks/tip/hash", (r) => r.fulfill({ status: 200, contentType: "text/plain", body: hash(chainTip) }));
+  await page.route("**/api/block/*", (r) => { hits.body++; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify(blockAt(chainTip)) }); });
+  await page.route(/\/api\/v1\/blocks\/\d+/, (r) => r.fulfill({ status: 200, contentType: "application/json", body: "[]" }));   // pollBlockTimes' walk — not under test
+  await page.route(/\/api\/v1\/blocks(\?|$)/, (r) => { hits.list++; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify([blockAt(listTip), blockAt(listTip - 1)]) }); });
+  await page.route("**/api/v1/difficulty-adjustment", (r) => { hits.diff++; return r.fulfill({ status: 200, contentType: "application/json", body: JSON.stringify({ difficultyChange: 4.3, remainingBlocks: 1080, remainingTime: 648000, nextRetargetHeight: listTip + 1080 }) }); });
+
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.recentBlocks.length > 0 && window.__model.diffAdjust, null, { timeout: 20000 });
+  // Stop the canvas repainting: a node-less dashboard animates hard enough that each forced refresh below took
+  // ~5s to get a turn, long enough for the app's own 30s timer to slip an uncounted cycle into the middle.
+  await page.evaluate(() => window.__freezeRender(true));
+  const settle = async () => { await page.evaluate(() => window.__refresh()); await page.waitForTimeout(400); };
+  await settle();
+  const boot = { ...hits };
+  // pollBlockTimes also reads the bare /v1/blocks once at boot, so the list baseline is taken here, not assumed.
+
+  await settle(); await settle(); await settle();
+  console.log(`   same tip, 3 refreshes → block body +${hits.body - boot.body}, /v1/blocks +${hits.list - boot.list}, difficulty +${hits.diff - boot.diff}  (all should be 0)`);
+  expect(hits.body).toBe(boot.body);
+  expect(hits.list).toBe(boot.list);
+  expect(hits.diff).toBe(boot.diff);
+
+  // A block arrives, but mempool.space's list and estimate are still a block behind for one cycle.
+  chainTip = 954470;
+  await settle();
+  expect(await page.evaluate(() => window.__model.tipHeight)).toBe(954470);
+  expect(hits.body).toBe(boot.body + 1);
+  expect(hits.list).toBe(boot.list + 1);
+  await settle();
+  expect(hits.list).toBe(boot.list + 2);   // the stale answer did not settle it — it asked again
+  expect(hits.diff).toBe(boot.diff + 2);
+  listTip = 954470;
+  await settle();
+  await settle(); await settle();
+  console.log(`   new tip, list one cycle behind → /v1/blocks +${hits.list - boot.list}, difficulty +${hits.diff - boot.diff}, block body +${hits.body - boot.body}`);
+  expect(hits.list).toBe(boot.list + 3);   // caught up on the third ask, then silent again
+  expect(hits.diff).toBe(boot.diff + 3);
+  expect(hits.body).toBe(boot.body + 1);   // one body per block, however many cycles pass
+  expect(await page.evaluate(() => window.__model.recentBlocks.at(-1).height)).toBe(954470);
 });
 
 // Visibility-gating: the mempool GROUP (projection, fee weather, live tx feed) is drawn only in the expanded
