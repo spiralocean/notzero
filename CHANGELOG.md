@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.95
+## Unreleased — next: 0.1.96
+
+## 0.1.95
 
 **Updates**
 - **Updates are now signed, and notzero won't install one that isn't.** A Bitcoin timestamp proves *when* a
