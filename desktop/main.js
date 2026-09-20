@@ -73,6 +73,7 @@ const { autoUpdater } = require("electron-updater"); // background auto-update f
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { decideInstall } = require("./update-hold.js"); // install / hold / refuse a downloaded update
 const { verifySums, listedHash } = require("./sums-signature.js"); // is this SHA256SUMS signed by our release key?
+const { cookiePathFromConfig } = require("./node-rpc-config.js"); // which cookie file the saved settings point at
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
 const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
@@ -456,7 +457,7 @@ let lastUpdateVerification = null, currentVersionAnchor = null, updateHistory = 
 function nodeRpcFromConfig() {
   let cfg; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) { return null; }
   const rpcUrl = (cfg.rpc_url || "http://127.0.0.1:8332").trim();
-  const cookiePath = cfg.rpc_cookie ? resolveCookiePath(cfg.rpc_datadir || "") : "";
+  const cookiePath = cookiePathFromConfig(cfg, { exists: fs.existsSync, fromDatadir: resolveCookiePath }); // a managed node's cookie is ONLY findable from the saved path — see node-rpc-config.js
   const authHeader = rpcAuthHeader({ user: cfg.rpc_user || "", pass: cfg.rpc_pass || "", cookiePath });
   if (!authHeader) return null;
   return (m, p) => rpcCall(rpcUrl, authHeader, m, p);
@@ -556,8 +557,11 @@ async function verifyUpdateArtifact(version, filePath) {
     if (listed !== artHash) return { level: "mismatch", version, detail: "download hash does not match the published checksum" };
     const ots = await fetchDl("SHA256SUMS" + tag + ".ots", true);
     if (!ots) return { level: "checksums", version, detail: "signature + hash verified; no timestamp proof published" };
-    const rpc = nodeRpcFromConfig();
-    if (!rpc) return { level: "checksums", version, detail: "hash verified; no node to confirm on-chain" };
+    // No node is not a reason to skip the PROOF: whether it is still pending is written in the proof itself,
+    // and verifyAgainstNode answers that before it asks the node anything. (It used to be skipped — so an
+    // install without a node connection never saw "pending" and could never hold a hotfix.) A node that can't
+    // answer then reads as "inconclusive" → checksums → installs, exactly as before.
+    const rpc = nodeRpcFromConfig() || (async () => ({ ok: false }));
     const v = await verifyAgainstNode(ots, crypto.createHash("sha256").update(sums).digest("hex"), rpc);
     if (v.status === "verified") return { level: "onchain", version, height: v.height, blockTime: v.blockTime, detail: "confirmed in Bitcoin block " + v.height };
     if (v.status === "mismatch") return { level: "mismatch", version, detail: v.reason };

@@ -6,6 +6,20 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.97
 
+**Updates**
+- **Fixes update checks never reaching your node when notzero runs the node for you.** "Verified against your
+  own node" is the point of VERIFIED UPDATES — but with an app-managed node (the default setup) the update
+  checker looked for the node's login cookie in Bitcoin Core's standard folder instead of the app's own, found
+  nothing, and quietly carried on without a node. Releases showed as "anchored" (the proof's own claim) rather
+  than confirmed by your node, and an update whose timestamp was still pending was never recognised as
+  pending. Mining and the rest of the dashboard were unaffected — they find the node a different way. Nodes
+  you run yourself were unaffected too.
+- **The "waiting for Bitcoin" hold now actually holds.** Because of the bug above — and because, with no node
+  to ask, the app skipped reading the timestamp proof altogether — an update sent out before its timestamp
+  confirmed installed straight away instead of waiting. The proof is now always read, node or no node.
+  Found by testing the hold on a real release: 0.1.96 went out early on purpose, and installed without
+  pausing.
+
 ## 0.1.96
 
 **Updates**
