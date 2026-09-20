@@ -4175,9 +4175,10 @@ function drawUpdates(r) {
     const who = sv.incoming ? "v" + sv.version + " ready" : "you're on v" + sv.version, whoP = sv.incoming ? "v" + sv.version : "you're on v" + sv.version;
     const M = {
       onchain:    { c: "90,220,140", ic: "✓", t: who + " · verified on-chain" + (sv.height ? " — Bitcoin block " + sv.height.toLocaleString() + (confsFor(sv.height) ? " · " + confsFor(sv.height).toLocaleString() + " confirmations" : "") : "") },
-      pending:    { c: "247,190,60", ic: "◷", t: who + " · installed & verified — its Bitcoin timestamp is still confirming (~a few hrs)" },
+      pending:    { c: "247,190,60", ic: "◷", t: sv.incoming ? "v" + sv.version + " downloaded, fingerprint verified — waiting for its Bitcoin timestamp to confirm (~a few hrs)" : who + " · installed & verified — its Bitcoin timestamp is still confirming (~a few hrs)" },
       checksums:  { c: "120,210,255", ic: "✓", t: who + " · checksums verified" },
       mismatch:   { c: "255,95,95", ic: "⚠", t: "v" + sv.version + " failed verification — not installed" },
+      unsigned:   { c: "247,190,60", ic: "◷", t: "v" + sv.version + " not installed yet — its signed checksum list couldn't be fetched; notzero will try again" },
       unverified: { c: "255,255,255", ic: "·", t: whoP + " · verification not available yet" },
       unchecked:  { c: "255,255,255", ic: "·", t: whoP + " · on-chain check unavailable (node offline?)" },
     }[sv.level];

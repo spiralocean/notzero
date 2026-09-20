@@ -29,6 +29,12 @@ test("a mismatch is refused", () => {
   assert.equal(decide("mismatch"), "block");
 });
 
+test("no signed checksum list: deferred — not installed, not refused, and nothing talks it into installing", () => {
+  assert.equal(decide("unsigned"), "defer");
+  assert.equal(decide("unsigned", { installNowVer: V }), "defer");
+  assert.equal(decide("unsigned", { heldSince: T0 - 10 * HOLD_LIMIT_MS }), "defer", "no ceiling: waiting must never be a way around the signature");
+});
+
 test("'install now' releases a held update — for that version only", () => {
   assert.equal(decide("pending", { installNowVer: V }), "install");
   assert.equal(decide("pending", { installNowVer: "0.1.93" }), "hold", "a choice made about an older update says nothing about this one");
@@ -49,6 +55,6 @@ test("a clock that jumped backwards keeps holding rather than installing early",
 });
 
 test("verify_updates off: never blocks, never holds", () => {
-  for (const level of ["pending", "mismatch", "onchain"])
+  for (const level of ["pending", "mismatch", "unsigned", "onchain"])
     assert.equal(decideInstall({ verdict: { level, version: V }, verifyOn: false, now: T0 }), "install", level);
 });

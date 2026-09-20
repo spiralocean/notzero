@@ -8,6 +8,12 @@
 // the moment the proof confirms. Waiting is the default because most installs are unattended; a question that
 // needs a click would leave a tray app on the old version forever.
 //
+// A third case is neither held nor refused: the release's SIGNED checksum list couldn't be fetched, or doesn't
+// name this file ("unsigned"). Promotion guarantees a signed list exists before a release goes live
+// (scripts/promote-release.sh), so this is a network blip or someone withholding it — either way the answer is
+// the same: don't install, don't alarm, look again at the next check. It deliberately has NO ceiling and no
+// "install now": an update that installs unsigned after waiting long enough is an update that needs no signature.
+//
 // Only a genuinely pending PROOF holds an update. "Couldn't check" (no node, node behind, checksums not
 // published yet) installs exactly as it always has: the updater is how a broken node gets fixed, so it must
 // never depend on a working one. "pending" is read from the proof file itself, not from the node.
@@ -27,6 +33,7 @@ function decideInstall({ verdict, verifyOn, installNowVer, heldSince, now = Date
   const level = verdict && verdict.level, version = verdict && verdict.version;
   if (!verifyOn) return "install";
   if (level === "mismatch") return "block"; // never overridable — "install now" skips the timestamp, not the fingerprint
+  if (level === "unsigned") return "defer"; // no signed checksum list to check it against (yet) — see above
   if (level !== "pending") return "install";
   if (installNowVer && installNowVer === version) return "install";
   if (heldSince && now - heldSince >= HOLD_LIMIT_MS) return "install";

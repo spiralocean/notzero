@@ -6,6 +6,24 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.95
 
+**Updates**
+- **Updates are now signed, and notzero won't install one that isn't.** A Bitcoin timestamp proves *when* a
+  release's checksum list existed — not *who* made it; anyone can timestamp anything. So someone able to write
+  to our download server could, in principle, have published their own installer with its own matching
+  checksums. From this version on, every release's checksum list is signed with a key that never touches that
+  server, the public half is built into the app, and an update is installed only if its list carries that
+  signature. On macOS Apple's code-signature check already stood behind updates; on Windows and Linux, where
+  the builds aren't code-signed, nothing did. A release can't go live without a valid signature, so you should
+  never notice this. If the signed list simply can't be fetched, notzero doesn't install and quietly tries
+  again at its next check; a list with a *bad* signature is refused outright.
+- **Fixes Windows and Linux updates skipping the fingerprint check.** The app looks a downloaded update up in
+  the release's checksum list by file name. The list named the website's downloads (`notzero-win.exe`) but
+  the updater fetches the versioned file (`notzero-0.1.94-win.exe`) — same bytes, different name — so on
+  Windows and Linux the lookup found nothing, reported "verification not available", and installed without
+  comparing a hash. macOS was unaffected. The list now names every file the updater downloads, and an update
+  that isn't named in it is no longer installed. Versioned names also mean an old signed list can't be used to
+  pass off an old release as a new one.
+
 ## 0.1.94
 
 **Updates**

@@ -72,6 +72,7 @@ const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
 const { decideInstall } = require("./update-hold.js"); // install / hold / refuse a downloaded update
+const { verifySums, listedHash } = require("./sums-signature.js"); // is this SHA256SUMS signed by our release key?
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
 const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
@@ -532,18 +533,29 @@ const fetchProof = (name) => fetchDlSettled(name, true, (d) => parseProof(d).bit
 //   onchain    hash matches AND the checksum file is confirmed in a block the node validated  → { height, blockTime }
 //   pending    hash matches; the on-chain proof isn't block-confirmed yet (recent release)
 //   checksums  hash matches; couldn't confirm on-chain (no node / node behind)
-//   unverified couldn't check (checksums not published, or artifact not in the anchored set — e.g. the mac .zip)
-//   mismatch   DANGER — the download's hash isn't the published one, or the proof commits to the wrong block
+//   unsigned   NOT INSTALLABLE YET — no checksum list signed by our release key could be fetched, or it doesn't
+//              name this file. Retried at the next check; never installed on the strength of waiting.
+//   unverified the check itself broke (couldn't read the download, …)
+//   mismatch   DANGER — the list's signature is bad, the download's hash isn't the listed one, or the proof
+//              commits to the wrong block
+// The order matters: WHO (the signature) before WHAT (the hash) before WHEN (the timestamp). An unsigned list is
+// not evidence of anything, so nothing is compared against one. Every release from 0.1.95 on is signed, and
+// can't go live otherwise (scripts/promote-release.sh) — so "unsigned" means the network, or someone in it.
 async function verifyUpdateArtifact(version, filePath) {
   try {
-    const sums = (await fetchDl("SHA256SUMS-" + version)) || (await fetchDl("SHA256SUMS"));
-    const ots = (await fetchDl("SHA256SUMS-" + version + ".ots", true)) || (await fetchDl("SHA256SUMS.ots", true));
-    if (!sums || !ots) return { level: "unverified", version, detail: "checksums not published" };
+    // one release's files, never a mix: the versioned set, else the stable set (the current release's)
+    let tag = "-" + version, sums = await fetchDl("SHA256SUMS" + tag);
+    if (!sums) { tag = ""; sums = await fetchDl("SHA256SUMS"); }
+    if (!sums) return { level: "unsigned", version, detail: "the release's checksum list couldn't be fetched" };
+    const sig = (await fetchDl("SHA256SUMS" + tag + ".sig")) || (await fetchDl("SHA256SUMS" + tag + ".sig")); // asked twice: one dropped request shouldn't cost a 2-hour wait
+    if (!sig) return { level: "unsigned", version, detail: "the checksum list's signature couldn't be fetched" };
+    if (!verifySums(sums, sig)) return { level: "mismatch", version, detail: "the checksum list is not signed by notzero's release key" };
+    const base = path.basename(filePath), listed = listedHash(sums, base);
+    if (!listed) return { level: "unsigned", version, detail: base + " isn't in the signed checksum list" };
     const artHash = crypto.createHash("sha256").update(fs.readFileSync(filePath)).digest("hex");
-    const base = path.basename(filePath);
-    const line = sums.split("\n").map((l) => l.trim()).find((l) => l && l.split(/\s+/).pop() === base);
-    if (!line) return { level: "unverified", version, detail: base + " isn't in the anchored set" }; // don't block — e.g. mac .zip before it's covered
-    if (line.split(/\s+/)[0] !== artHash) return { level: "mismatch", version, detail: "download hash does not match the published checksum" };
+    if (listed !== artHash) return { level: "mismatch", version, detail: "download hash does not match the published checksum" };
+    const ots = await fetchDl("SHA256SUMS" + tag + ".ots", true);
+    if (!ots) return { level: "checksums", version, detail: "signature + hash verified; no timestamp proof published" };
     const rpc = nodeRpcFromConfig();
     if (!rpc) return { level: "checksums", version, detail: "hash verified; no node to confirm on-chain" };
     const v = await verifyAgainstNode(ots, crypto.createHash("sha256").update(sums).digest("hex"), rpc);
@@ -686,8 +698,15 @@ async function settleDownloadedUpdate(ver, file) {
   if (action === "block") {
     heldUpdate = null;
     try { if (Notification.isSupported()) new Notification({ title: "notzero — update blocked", body: `The downloaded ${ver ? "v" + ver : "update"} failed verification and was NOT installed.` }).show(); } catch (_) {}
-    try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download's fingerprint didn't match the checksum published for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
+    try { dialog.showMessageBox({ type: "warning", title: "Update not installed", message: `notzero ${ver} failed verification`, detail: "The download didn't match the checksums notzero signed for this release, so it was not installed. Please re-download from getnotzero.com.", buttons: ["OK"] }); } catch (_) {}
     return; // do not install a download we can't vouch for
+  }
+  if (action === "defer") { // no signed checksum list to hold it against — say nothing unless they asked, and look again at the next check
+    heldUpdate = null;
+    console.error("[notzero] update " + ver + " not installed yet:", verdict && verdict.detail);
+    pokeUpdateUI("__notzeroPokeConfig");
+    if (updateAskedFor === ver) { updateAskedFor = null; try { dialog.showMessageBox({ type: "info", title: "Update not installed yet", message: `notzero ${ver} couldn't be verified yet`, detail: "notzero only installs an update it can check against a checksum list signed by its release key, and that list couldn't be fetched just now. Nothing is wrong with your install. notzero will try again by itself within a couple of hours.", buttons: ["OK"] }); } catch (_) {} }
+    return;
   }
   if (action === "hold") {
     heldUpdate = { version: ver, file, since };
