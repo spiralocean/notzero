@@ -62,7 +62,9 @@ jobs:
           set -euo pipefail
           mkdir -p up && cd up
           # every proof the anchor job has published: the stable one + one per release
-          rclone lsf "$R2_BUCKET" --include "SHA256SUMS*.ots" > list.txt
+          # --files-only: lsf lists directories whatever --include says, and the bucket root now has staged/ —
+          # which this loop then tried to read as a proof, failing every run while a release was staged
+          rclone lsf "$R2_BUCKET" --files-only --include "SHA256SUMS*.ots" > list.txt
           if [ ! -s list.txt ]; then echo "no proofs published yet — nothing to do"; exit 0; fi
           mapfile -t PROOFS < list.txt
           upgraded=0; pending=0; done_already=0
