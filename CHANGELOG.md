@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.96
+## Unreleased — next: 0.1.97
+
+## 0.1.96
+
+**Updates**
+- **An update no longer starts with a download attempt that can't succeed.** Before fetching an update the app
+  first tried a partial download, which our download server answers with the whole file; the attempt failed,
+  logged an error, and the full download went ahead regardless — on every update, on every platform. It now
+  goes straight to the full download. Nothing you see changes. This release is also the first one installs
+  check against notzero's release signature before installing.
 
 ## 0.1.95
 
