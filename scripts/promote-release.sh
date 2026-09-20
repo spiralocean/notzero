@@ -5,7 +5,8 @@
 # at) and STAGES everything that makes a release visible under staged/<version>/ in the bucket:
 #     latest-mac.yml  latest.yml  latest-linux.yml        the updater feeds — what every install polls
 #     notzero-mac.dmg  notzero-win.exe  notzero-linux.AppImage   the website's download buttons
-#     SHA256SUMS                                           the stable checksum list
+#     SHA256SUMS                                           the stable checksum list (its .sig and .ots come from the
+#                                                          versioned copies at the bucket root)
 #     CHANGELOG.md                                         in-app "what's new" + the VERIFIED UPDATES list
 # This script moves them into place. upgrade-timestamps.yml runs it by itself once the release's OpenTimestamps
 # proof has confirmed in a Bitcoin block, so an update reaches users already on-chain. Run it by hand (the same
@@ -14,9 +15,10 @@
 #
 # Feeds go LAST: they are the switch. Everything a feed or the website points at is in place before it flips.
 #
-# Needs rclone with an `r2` remote (or the RCLONE_CONFIG_R2_* env the workflows set).
+# Needs rclone with an `r2` remote (or the RCLONE_CONFIG_R2_* env the workflows set), and node (sign-sums.cjs).
 set -euo pipefail
 VER="${1:?usage: promote-release.sh <version>}"
+HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"   # before any cd: the script may have been started by a relative path
 BUCKET="${R2_BUCKET:-r2:notzero-dl}"
 SRC="$BUCKET/staged/$VER"
 FEEDS="latest-mac.yml latest.yml latest-linux.yml"
@@ -43,6 +45,13 @@ rclone copy "$SRC" . --s3-no-check-bucket -q
 # by now it carries the Bitcoin attestation the staged (pending) one never will
 rclone copyto "$BUCKET/SHA256SUMS-$VER.ots" SHA256SUMS.ots --s3-no-check-bucket -q
 
+# The app installs an update only if this list is signed by the release key pinned in it, and names the file the
+# updater downloaded. Check both HERE, with the app's own module — a release that would be refused by every
+# install must never reach the feeds, because the fix for it could not be delivered either.
+rclone copyto "$BUCKET/SHA256SUMS-$VER.sig" SHA256SUMS.sig --s3-no-check-bucket -q
+node "$HERE/sign-sums.cjs" verify SHA256SUMS SHA256SUMS.sig
+node "$HERE/sign-sums.cjs" listed SHA256SUMS $(for f in $FEEDS; do sed -n 's/^ *- url: *//p' "$f" | tr -d '\r'; done | sort -u)
+
 # what we are about to put behind the download buttons must be what was timestamped
 rclone copyto "$BUCKET/SHA256SUMS-$VER" SHA256SUMS.anchored --s3-no-check-bucket -q
 cmp -s SHA256SUMS SHA256SUMS.anchored || { echo "x staged SHA256SUMS differs from the anchored SHA256SUMS-$VER" >&2; exit 1; }
@@ -52,6 +61,7 @@ $SHA --ignore-missing -c SHA256SUMS   # the mac .zip is listed but lives at its 
 echo "-> publishing $VER ..."
 for f in $INSTALLERS; do rclone copyto "$f" "$BUCKET/$f" --s3-no-check-bucket --s3-chunk-size 64M --header-upload "Cache-Control: no-cache" -q; done
 rclone copyto SHA256SUMS     "$BUCKET/SHA256SUMS"     --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
+rclone copyto SHA256SUMS.sig "$BUCKET/SHA256SUMS.sig" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 rclone copyto SHA256SUMS.ots "$BUCKET/SHA256SUMS.ots" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q
 rclone copyto CHANGELOG.md   "$BUCKET/CHANGELOG.md"   --s3-no-check-bucket --header-upload "Cache-Control: public, max-age=300" -q
 for f in $FEEDS; do rclone copyto "$f" "$BUCKET/$f" --s3-no-check-bucket --header-upload "Cache-Control: no-cache" -q; done

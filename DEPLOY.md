@@ -33,9 +33,19 @@ diverge-and-merge mess of parallel edits.
 >    proof confirms (or after 24h regardless; `desktop/update-hold.js`). Older installs take it immediately. A
 >    hotfix overtakes anything still staged behind it; those stages are dropped as superseded.
 >
+> **Releases are signed.** The `anchor` job signs `SHA256SUMS` with the `SUMS_SIGNING_KEY` repo secret (ed25519;
+> `scripts/sign-sums.cjs`), and installs on 0.1.95+ **refuse an update whose list isn't signed** by the key pinned
+> in `desktop/sums-signature.js`. Promotion re-checks the signature with that same module, so an unsigned release
+> can't go live. The private key exists in two places only: that secret, and the offline backup its owner keeps
+> (generated to `~/.config/notzero/release-signing-key.pem` — move it somewhere safe). **Lose both and no install
+> can ever be updated again** except by hand; to rotate, ship a release signed by the old key that pins the new
+> one too (`RELEASE_KEYS` is a list for exactly this), then swap the secret.
+>
 > The per-platform `scripts/release-*.sh` / `.ps1` below are what CI runs inside each matrix job; the old local
 > `source release.env && scripts/release-mac.sh` path still works but is superseded by the tag flow. Run by hand
 > (no `STAGE=1`) the scripts publish **straight to live**, as they always did — staging is something CI asks for.
+> ⚠ They also publish **no signed checksum list**, so 0.1.95+ installs will not take an update released that way.
+> Treat the local path as build-only now; a real release goes through the tag.
 
 1. **Mac (origin + ship mac):** edit shared source → **bump `desktop/package.json` version once** (shared
    across all three) → **move `CHANGELOG.md` "Unreleased" under the new version** → commit →

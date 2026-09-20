@@ -49,6 +49,9 @@ jobs:
       RCLONE_CONFIG_R2_ACL: private
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7 # promote-release.sh checks the release's signature with the app's own module
+        with:
+          node-version: "22"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"

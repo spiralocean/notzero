@@ -28,6 +28,8 @@
 #   APPLE_API_ISSUER         App Store Connect issuer uuid
 #   MAC_CERT_P12_BASE64      base64 of the "Developer ID Application" cert exported as .p12
 #   MAC_CERT_PASSWORD        the .p12 export password
+#   SUMS_SIGNING_KEY         ed25519 private key (PKCS8 PEM) that signs each release's SHA256SUMS; its public half is
+#                            pinned in desktop/sums-signature.js. Lives here and in its owner's offline backup only.
 #   MAC_SIGN_ID (optional)   overrides the default "Developer ID Application: Stephen Zinn (2386YZLWA2)"
 
 name: Release
@@ -326,6 +328,9 @@ jobs:
       RCLONE_CONFIG_R2_ACL: private
     steps:
       - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7 # scripts/sign-sums.cjs
+        with:
+          node-version: "22"
       - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
@@ -333,34 +338,43 @@ jobs:
         run: |
           python -m pip install --upgrade pip opentimestamps-client
           curl -fsSL https://rclone.org/install.sh | sudo bash
-      - name: Build SHA256SUMS from the published downloads and timestamp it on Bitcoin
+      - name: Build SHA256SUMS from the published downloads, sign it, and timestamp it on Bitcoin
         shell: bash
+        env:
+          SUMS_SIGNING_KEY: ${{ secrets.SUMS_SIGNING_KEY }}
         run: |
           set -euo pipefail
           VER="$(python -c "import json;print(json.load(open('desktop/package.json'))['version'])")"
           STAGED="$R2_BUCKET/staged/$VER"
           # the exact stable files the website's download buttons will serve once this release is promoted
           FILES="notzero-mac.dmg notzero-win.exe notzero-linux.AppImage"
-          # also cover the mac AUTO-UPDATE artifact — the updater downloads the .zip (different bytes than the .dmg),
-          # so include it too or in-app node verification can't confirm a mac update. (win/linux updaters reuse the
-          # same file as the website download, already covered.) Its name is in the mac feed's `path:`.
-          MACZIP="$(rclone cat "$STAGED/latest-mac.yml" 2>/dev/null | sed -n 's/^path: *//p' | tr -d '\r' | head -1)"
-          [ -n "$MACZIP" ] && FILES="$FILES $MACZIP"
+          # ALSO every file the UPDATER downloads, under the name it downloads it by — every `url:` in the three
+          # feeds. The app looks a download up in this list BY FILE NAME, and the updater's files carry the
+          # version in theirs (notzero-0.1.95-win.exe). Until 0.1.95 only the mac .zip was listed, so on Windows
+          # and Linux the in-app check found no entry, shrugged ("unverified") and installed without comparing a
+          # hash at all. Same bytes as the stable files there; listed twice on purpose. The versioned names are
+          # also what stops an old signed list vouching for old bytes under a new version's name (a downgrade).
+          UPDATER_FILES="$(for feed in latest-mac.yml latest.yml latest-linux.yml; do rclone cat "$STAGED/$feed" | sed -n 's/^ *- url: *//p' | tr -d '\r'; done | sort -u | tr '\n' ' ')"
+          [ -n "${UPDATER_FILES// /}" ] || { echo "::error::no updater files found in the staged feeds"; exit 1; }
           mkdir -p anchor && cd anchor
           # pull straight from R2 (source of truth — no CDN cache lag), then hash. The stable files come from the
-          # stage; the mac zip is already at its versioned url.
-          for f in $FILES; do
-            echo "-> $f"
-            if [ "$f" = "$MACZIP" ]; then rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; else rclone copyto "$STAGED/$f" "$f" --s3-no-check-bucket; fi
-          done
-          sha256sum $FILES > SHA256SUMS
+          # stage; the updater's files are already at their versioned urls.
+          for f in $FILES; do echo "-> $f (staged)"; rclone copyto "$STAGED/$f" "$f" --s3-no-check-bucket; done
+          for f in $UPDATER_FILES; do echo "-> $f"; rclone copyto "$R2_BUCKET/$f" "$f" --s3-no-check-bucket; done
+          sha256sum $FILES $UPDATER_FILES > SHA256SUMS
           echo "----- SHA256SUMS (notzero $VER) -----"; cat SHA256SUMS
+          # sign it: the timestamp below proves WHEN this list existed, the signature proves it is OURS
+          # (desktop/sums-signature.js). The key exists only as this secret; `sign` checks its own output against
+          # the key pinned in the app, so a wrong secret fails here rather than in every install.
+          node "$GITHUB_WORKSPACE/scripts/sign-sums.cjs" sign SHA256SUMS SHA256SUMS.sig
+          node "$GITHUB_WORKSPACE/scripts/sign-sums.cjs" listed SHA256SUMS $UPDATER_FILES
           # timestamp the checksum file on the Bitcoin blockchain (submits to the public OTS calendars)
           ots stamp SHA256SUMS
           ots info SHA256SUMS.ots | sed -n '1,4p'
           # publish the immutable versioned pair now (permanent per-release record); STAGE the stable list, which
           # promotion publishes beside the proof as it stands by then (scripts/promote-release.sh)
           rclone copyto SHA256SUMS     "$R2_BUCKET/SHA256SUMS-$VER"      --s3-no-check-bucket
+          rclone copyto SHA256SUMS.sig "$R2_BUCKET/SHA256SUMS-$VER.sig"  --s3-no-check-bucket
           rclone copyto SHA256SUMS.ots "$R2_BUCKET/SHA256SUMS-$VER.ots"  --s3-no-check-bucket
           rclone copyto SHA256SUMS     "$STAGED/SHA256SUMS"              --s3-no-check-bucket
           echo "anchored notzero $VER on Bitcoin (proof pending calendar → block attestation)"
