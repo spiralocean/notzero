@@ -764,6 +764,10 @@ function initAutoUpdate() {
   // and the update waits for the next launch, where the cached download is found and installed without
   // fetching it again.
   autoUpdater.autoInstallOnAppQuit = false;
+  // Every update began with a partial ("differential") download that failed — the CDN answers the updater's
+  // many-range request with the whole file — logged an ERROR, and fell back to the full download anyway. Go
+  // straight to the full download. If partial downloads are ever made to work, this is the line to remove.
+  autoUpdater.disableDifferentialDownload = true;
   autoUpdater.on("error", () => { updateDownloading = false; installStarted = false; }); // a failed update check must never bother the user (but clear the "downloading" status, and let the next check retry an install that failed)
   autoUpdater.on("download-progress", (p) => { updateDownloading = true; updateDownloadPct = Math.max(0, Math.min(100, Math.floor((p && p.percent) || 0))); }); // drives the in-app "Downloading… X%" status
   autoUpdater.on("update-available", (info) => {
