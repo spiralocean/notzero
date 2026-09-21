@@ -196,6 +196,47 @@ test("rate-limited: the app backs off instead of hammering", async ({ page }) =>
   expect(await page.evaluate(() => window.__drawn)).toBeGreaterThan(2); // and the dashboard stays up
 });
 
+// Nothing is asked of mempool.space while nobody can see the answer. Closing the window only hides it, so the
+// page lives on in the tray — and its timers used to keep fetching (blocks + difficulty per block, the price
+// every 5 minutes, charts hourly, a block's whole txid list for a panel no one was looking at). This drives
+// every outside-fetch entry point while the document reports hidden and counts what leaves the page: zero.
+// Then it shows the window again and checks the catch-up is ONE refresh, not a re-run of every timer — the
+// price was fetched seconds ago at boot, so coming back must not fetch it again.
+test("hidden window: no mempool.space requests, and one catch-up when it comes back", async ({ page }) => {
+  test.setTimeout(60_000);
+  await page.emulateMedia({ reducedMotion: "reduce" });
+  await page.addInitScript(() => { Math.random = () => 0.4; });
+  await installMocks(page);
+  let hits = {};
+  await page.route("https://mempool.space/**", (r) => {
+    const path = new URL(r.request().url()).pathname;
+    hits[path] = (hits[path] || 0) + 1;
+    r.continue();
+  });
+  await page.goto("/");
+  await page.waitForFunction(() => window.__model && window.__model.chainOkAt > 0, null, { timeout: 20000 });
+  await page.waitForTimeout(800); // let boot's fire-and-forget fetches land before counting starts
+
+  const setHidden = (hidden) => page.evaluate((h) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => h });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+
+  await setHidden(true);
+  hits = {};
+  await page.evaluate(() => { const f = window.__fetchers; f.refresh(); f.refreshPrice(); f.loadHistory(); f.pollBlockTimes(); f.refresh(); });
+  await page.waitForTimeout(1500);
+  console.log("   requests while hidden:", JSON.stringify(hits));
+  expect(Object.keys(hits)).toEqual([]);
+
+  await setHidden(false);
+  await page.waitForTimeout(1500);
+  console.log("   requests on coming back:", JSON.stringify(hits));
+  expect(hits["/api/mempool"] || 0).toBe(1);            // the missed refresh ran — once, though it was skipped twice
+  expect(hits["/api/v1/prices"] || 0).toBe(0);          // fetched at boot seconds ago: no 5-minute tick was really missed
+  expect(hits["/api/v1/mining/hashrate/1m"] || 0).toBe(0); // likewise the hourly charts
+});
+
 // Guard the polling budget: slow-moving aggregates (price / 3d-hashrate / difficulty) were moved OFF the 30s
 // tip/mempool cycle — the price onto its own 5-minute timer, the 3-day hashrate onto the hourly history load,
 // the difficulty estimate onto tip changes. This proves it directly — a second refresh() re-fetches the

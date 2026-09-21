@@ -6,6 +6,22 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.98
 
+**Network**
+- **The background miner stops asking mempool.space for things nobody sees — about 14,000 fewer requests a
+  day.** Earlier releases trimmed the dashboard's traffic to a few hundred requests a day. The miner that runs
+  behind it turned out to be the larger source by far: every 30 seconds it fetched the chain tip, that block's
+  details, and the block that "beat" your ticket — five requests a pass, around 14,400 a day, whether or not
+  the window was open. None of it reached the dashboard; it was there for a terminal view and a retired
+  screensaver. One of the five looked up the block currently being mined, which doesn't exist yet, and so
+  failed on every pass until someone found it. Under the desktop app the miner now fetches none of this, and
+  when your own node is serving the chain tip it no longer asks mempool.space for the tip either. The one
+  exception is deliberate: if you ever win a block, the miner still checks the public network to confirm it
+  landed. Run from a terminal, the miner behaves as before, minus the doomed lookup.
+- **With the window closed, the dashboard asks mempool.space for nothing.** Closing the window only hides it,
+  so the page kept running and kept fetching — recent blocks and the difficulty estimate on every block, the
+  price every five minutes, the charts hourly. It now fetches only while it can be seen, and catches up once
+  when you open it again. Your own node is still polled throughout, which is how a win reaches the app.
+
 **Privacy**
 - **Removed code that could have sent your payout address to mempool.space.** The miner contained a balance
   lookup that asked mempool.space about your payout address — which would have shown a third party that

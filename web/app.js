@@ -294,10 +294,33 @@ function nodeSetupView() {
 }
 let bwLast = null; // last getnettotals sample, to derive the rate between polls
 
+// ---- nothing is asked of mempool.space while nobody can see the answer ----
+// Closing the window only HIDES it (the app lives in the tray / dock), so this page keeps running — and its
+// timers kept fetching: recent blocks + the difficulty estimate on every block, the price every 5 minutes, the
+// charts hourly, a block's full txid list for a VERIFY panel no one was looking at. Hidden already stopped the
+// DRAWING (see the visibilitychange handler); it now stops the ASKING too. Every outside fetch starts from one
+// of the four functions below, so each declines while the document is hidden and notes that it did; the moment
+// the window is visible again, whatever was missed — and is actually due — is fetched once. Your own node
+// (node.json, same-origin) is still polled: that costs nobody anything, and it is how a win reaches this page.
+// The same applies to a browser tab in the background, which is most of what the public demo's tabs are.
+const nobodyLooking = () => document.hidden;
+const missedWhileHidden = { refresh: false, price: false, history: false, blockTimes: false };
+const lastFetchAt = { price: 0, history: 0 };
+function catchUpAfterHidden() {
+  const m = missedWhileHidden, now = Date.now();
+  if (m.refresh) { m.refresh = false; refresh(); }
+  if (m.price && now - lastFetchAt.price >= 300_000) refreshPrice();       // only if a 5-minute tick was really missed
+  if (m.history && now - lastFetchAt.history >= 3_600_000) loadHistory();  // only if an hourly tick was really missed
+  if (m.blockTimes) { m.blockTimes = false; pollBlockTimes(); }
+  m.price = m.history = false;
+}
+
 // The slow series — a month of daily hashrate, a week of price, the 3-day average hashrate. A new point on any
 // of them is a fraction of a pixel, so they are fetched hourly. They used to ride a 5-minute timer, which was
 // 864 requests a day per install to redraw three lines identically.
 async function loadHistory() {
+  if (nobodyLooking()) { missedWhileHidden.history = true; return; }
+  lastFetchAt.history = Date.now();
   fetch(`${API}/v1/mining/hashrate/3d`).then((r) => r.json()).then((h) => { if (h && h.currentHashrate) model.hashrateEh = h.currentHashrate / 1e18; }).catch(() => {}); // fire-and-forget, so it doesn't wait behind the two awaits below
   try {
     const hr = await (await fetch(`${API}/v1/mining/hashrate/1m`)).json();
@@ -319,6 +342,8 @@ async function loadHistory() {
 // often as the header can show a difference. Fire-and-forget (its own catch, like every optional sub-fetch) so
 // it never touches model.error or gates the loop.
 function refreshPrice() {
+  if (nobodyLooking()) { missedWhileHidden.price = true; return; }
+  lastFetchAt.price = Date.now();
   fetch(`${API}/v1/prices`).then((r) => r.json()).then((p) => { if (p && p.USD) model.price = p.USD; }).catch(() => {});
 }
 
@@ -415,6 +440,7 @@ function blockHistorySolid() {
 }
 let backfilling = false;
 async function pollBlockTimes() {
+  if (nobodyLooking()) { missedWhileHidden.blockTimes = true; return; }
   // Your own node first: block timestamps live in the headers, which every node keeps (a pruned node drops
   // block bodies, never headers). When it can answer, none of these mempool.space requests happen at all.
   const local = nodeBlockHistory();
@@ -559,6 +585,7 @@ function nodeTip() {
   return tb;
 }
 async function refresh(fromRetry = false) {
+  if (nobodyLooking()) { missedWhileHidden.refresh = true; return; }
   if (!fromRetry && backoffUntil && Date.now() < backoffUntil) return;
   try {
     const nt = nodeTip();
@@ -694,7 +721,7 @@ try {
 applyMotion();
 document.addEventListener("visibilitychange", () => {
   if (document.hidden) { cancelAnimationFrame(rafId); rafId = 0; }
-  else if (!rafId) { rafId = requestAnimationFrame(render); } // resume where we left off
+  else { if (!rafId) rafId = requestAnimationFrame(render); catchUpAfterHidden(); } // resume where we left off, and fetch what was skipped while hidden
 });
 try { winFocused = document.hasFocus(); } catch (_) {}
 // B) throttle hard when the window is open but not focused — Electron keeps painting at full rate in the
@@ -5040,7 +5067,7 @@ window.addEventListener("keydown", requestRender);
 window.addEventListener("resize", requestRender);
 
 // ---- boot ----
-window.__model = model; window.__refresh = refresh; // test hooks (like __frames above) — let the e2e suite read live state / force a refetch
+window.__model = model; window.__refresh = refresh; window.__fetchers = { refresh, refreshPrice, loadHistory, pollBlockTimes }; // test hooks (like __frames above) — let the e2e suite read live state / force a refetch
 // Test hook: place the quote rotation at a chosen point in its cycle and repaint. A test cannot simply WAIT for
 // a transition — headless Chromium reports the page hidden, which cancels the rAF loop (see requestRender), so
 // quoteT never advances and the 11s hold never elapses. This drives the frame directly instead.
