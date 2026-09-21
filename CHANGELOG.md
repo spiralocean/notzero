@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.98
 
+**Privacy**
+- **Removed code that could have sent your payout address to mempool.space.** The miner contained a balance
+  lookup that asked mempool.space about your payout address — which would have shown a third party that
+  address together with the IP address mining to it. It sat behind a setting the desktop app never turns on,
+  so it has never run in notzero; but "never runs" and "cannot run" are different promises, and the second is
+  the one we make. The code is gone, and a test now fails the build if anything in the miner, the dashboard,
+  or the app ever looks an address up at an outside service. Your payout address goes into the block your
+  machine builds for your own node, and nowhere else.
+
 ## 0.1.97
 
 **Updates**

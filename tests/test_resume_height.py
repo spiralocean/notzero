@@ -41,7 +41,7 @@ def run_loop_once(tip: int) -> str:
     Returns "drew" if the loop ticketed the tip and returned, "waited" if it declined and slept.
     """
     saved = {n: getattr(lm, n) for n in ("get_tip_height", "refresh_node_status", "update_price_state",
-                                          "update_wallet_balance_state", "symbolic_attempt",
+                                          "symbolic_attempt",
                                           "install_stall_reporting")}
     saved_sleep = lm.time.sleep
 
@@ -52,7 +52,6 @@ def run_loop_once(tip: int) -> str:
         lm.get_tip_height = lambda timeout=0: tip
         lm.refresh_node_status = lambda state, settings: state
         lm.update_price_state = lambda state, config: state
-        lm.update_wallet_balance_state = lambda state, config: state
         lm.symbolic_attempt = lambda height, seed: attempt(height)
         lm.install_stall_reporting = lambda log: None
         lm.time.sleep = sleep

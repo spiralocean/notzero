@@ -996,54 +996,6 @@ def halving_stats(height: int) -> dict:
     }
 
 
-def fetch_wallet_balance(address: str) -> dict:
-    data = http_get(f"{MEMPOOL_API}/address/{address}")
-    if not isinstance(data, dict):
-        raise RuntimeError("unexpected address response")
-    chain = data.get("chain_stats", {})
-    mempool = data.get("mempool_stats", {})
-    confirmed_sats = int(chain.get("funded_txo_sum", 0)) - int(chain.get("spent_txo_sum", 0))
-    unconfirmed_sats = int(mempool.get("funded_txo_sum", 0)) - int(mempool.get("spent_txo_sum", 0))
-    total_sats = confirmed_sats + unconfirmed_sats
-    tx_count = int(chain.get("tx_count", 0)) + int(mempool.get("tx_count", 0))
-    return {
-        "btc": total_sats / 1e8,
-        "confirmed_btc": confirmed_sats / 1e8,
-        "tx_count": tx_count,
-        "updated_at": utc_now(),
-    }
-
-
-def update_wallet_balance_state(state: dict, config: dict) -> dict:
-    if not config.get("show_wallet_balance"):
-        return state
-    address = (config.get("payout_address") or "").strip()
-    if not address:
-        return state
-
-    now = datetime.now(timezone.utc)
-    balance_state = state.get("wallet_balance", {})
-    last_poll = balance_state.get("updated_at")
-    interval = price_poll_interval_sec(config)
-    if last_poll:
-        try:
-            last_dt = datetime.fromisoformat(last_poll)
-            if (now - last_dt).total_seconds() < interval:
-                return state
-        except ValueError:
-            pass
-
-    try:
-        quote = fetch_wallet_balance(address)
-    except (urllib.error.URLError, RuntimeError, KeyError, ValueError) as exc:
-        balance_state["last_error"] = str(exc)
-        state["wallet_balance"] = balance_state
-        return state
-
-    state["wallet_balance"] = quote
-    return state
-
-
 def update_price_state(state: dict, config: dict) -> dict:
     now = datetime.now(timezone.utc)
     price_state = state.get("price", {})
@@ -1660,7 +1612,6 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
                 state["current_tip_height"] = height
 
             state = _timed("price", update_price_state, state, config)
-            state = _timed("wallet balance", update_wallet_balance_state, state, config)
             state = update_display_stats(state, new_block=False)
             save_state(state)
             note_poll_done(height)   # the loop got all the way round: whatever is wrong, it is not a blocked call
