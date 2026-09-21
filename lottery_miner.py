@@ -539,7 +539,11 @@ def record_attempt(state: dict, attempt: BlockAttempt, machine_seed: str, mode: 
         zh = state.setdefault("zhist", {})
         zh[str(z)] = zh.get(str(z), 0) + 1
     state = update_display_stats(state, new_block=True)
-    winner = fetch_network_winner(attempt.height, attempt.hash_hex)
+    # Same rule as update_display_stats: decoration only, and only for a height that has been mined. A LIVE
+    # attempt is for the next block, so asking here was a guaranteed 404 once per block; a symbolic one replays
+    # a block that already exists, and still gets its answer straight away.
+    mined = int((state.get("display") or {}).get("tip_height") or 0) >= int(attempt.height)
+    winner = fetch_network_winner(attempt.height, attempt.hash_hex) if decoration_wanted() and mined else None
     if winner:
         display = state.get("display", {})
         display["network_winner"] = winner
@@ -944,6 +948,36 @@ def get_tip_height(timeout: int = TIP_TIMEOUT_SEC) -> int:
     return int(http_get(f"{MEMPOOL_API}/blocks/tip/height", timeout=timeout))
 
 
+def decoration_wanted() -> bool:
+    """Should this process fetch chain DECORATION from mempool.space — the tip block's age and difficulty, the
+    week's hashrate, the price, the block that beat our ticket?
+
+    Those feed the terminal `status` view (and fed the retired screensaver). The desktop app reads none of them:
+    its dashboard draws chain data from the user's own node, and asks mempool.space itself only while its
+    window is actually visible. But this daemon runs whether or not there is a window, so under the desktop app
+    it was fetching decoration nobody could see — measured 2026-09-21 on a real install: FIVE requests every
+    30-second pass, ~14,400 a day, one of them a lookup for a block that did not exist yet, retried each pass.
+    The dashboard's own traffic, after two rounds of trimming, is ~650.
+
+    The desktop app sets NOTZERO_DESKTOP=1 on the engines it spawns. Run from a terminal, nothing changes.
+    Never consulted on the path that matters: a WON block still asks the public network whether it landed.
+    """
+    return os.environ.get("NOTZERO_DESKTOP", "") != "1"
+
+
+def public_tip_needed(mode: str, node: Optional[dict]) -> bool:
+    """Does the poll loop need mempool.space's tip height this pass?
+
+    Only when our own node is NOT serving the tip — symbolic mode, a node still syncing, a node that went away,
+    no node state at all — because then the public tip is what triggers the next attempt. When the node is
+    serving it, the loop takes the node's height and the public number was fetched and thrown away: 2,880
+    requests a day for a value nothing read. Same predicate as tip_timeout_sec, and wrong in the same safe
+    direction: any doubt means "needed".
+    """
+    node = node or {}
+    return not (mode == "live" and node.get("ready") and node.get("blocks"))
+
+
 def tip_timeout_sec(mode: str, node: Optional[dict]) -> int:
     """How long the poll loop should wait on mempool.space for the tip — see TIP_TIMEOUT_SEC.
 
@@ -997,6 +1031,8 @@ def halving_stats(height: int) -> dict:
 
 
 def update_price_state(state: dict, config: dict) -> dict:
+    if not decoration_wanted():
+        return state  # the desktop dashboard fetches its own price, and only while its window is visible
     now = datetime.now(timezone.utc)
     price_state = state.get("price", {})
     last_poll = price_state.get("updated_at")
@@ -1112,29 +1148,34 @@ def fetch_network_hashrate_data() -> Optional[dict]:
 def update_display_stats(state: dict, new_block: bool = False) -> dict:
     now = time.time()
     display = state.get("display", {})
-    try:
-        tip = get_tip_block_info()
-        elapsed = max(0, int(now - tip["timestamp"]))
-        remaining = max(0, AVG_BLOCK_SEC - elapsed)
-        display.update(
-            {
-                "tip_height": tip["height"],
-                "last_block_timestamp": tip["timestamp"],
-                "block_elapsed_sec": elapsed,
-                "block_countdown_sec": remaining,
-                "avg_block_sec": AVG_BLOCK_SEC,
-                "difficulty": tip["difficulty"],
-                **halving_stats(tip["height"]),
-            }
-        )
-    except (urllib.error.URLError, RuntimeError, KeyError, ValueError) as exc:
-        display["tip_error"] = str(exc)
+    decorate = decoration_wanted()
+    if decorate:
+        try:
+            tip = get_tip_block_info()
+            elapsed = max(0, int(now - tip["timestamp"]))
+            remaining = max(0, AVG_BLOCK_SEC - elapsed)
+            display.update(
+                {
+                    "tip_height": tip["height"],
+                    "last_block_timestamp": tip["timestamp"],
+                    "block_elapsed_sec": elapsed,
+                    "block_countdown_sec": remaining,
+                    "avg_block_sec": AVG_BLOCK_SEC,
+                    "difficulty": tip["difficulty"],
+                    **halving_stats(tip["height"]),
+                }
+            )
+        except (urllib.error.URLError, RuntimeError, KeyError, ValueError) as exc:
+            display["tip_error"] = str(exc)
 
     if attempt := state.get("last_attempt"):
         prox = hash_proximity(attempt["hash_hex"], attempt["target_hex"], attempt.get("won", False))
         display["hash_proximity"] = prox
         existing_winner = display.get("network_winner") or {}
-        if existing_winner.get("height") != attempt["height"] or not existing_winner.get("hash_hex"):
+        # Only once that height has actually been mined. The attempt is for the NEXT block, so until someone
+        # finds it this lookup is a guaranteed 404 — and it used to be retried every pass, ~20 times a block.
+        height_mined = int(display.get("tip_height") or 0) >= int(attempt["height"])
+        if decorate and height_mined and (existing_winner.get("height") != attempt["height"] or not existing_winner.get("hash_hex")):
             winner = fetch_network_winner(attempt["height"], attempt["hash_hex"])
             if winner:
                 display["network_winner"] = winner
@@ -1150,9 +1191,9 @@ def update_display_stats(state: dict, new_block: bool = False) -> dict:
         except ValueError:
             display.pop("ceremony_until", None)
 
-    if display.get("tip_height") != state.get("_last_network_height") or not display.get(
+    if decorate and (display.get("tip_height") != state.get("_last_network_height") or not display.get(
         "network_hashrate_history"
-    ):
+    )):
         hashrate_data = fetch_network_hashrate_data()
         if hashrate_data is not None:
             display["network_hashrate_eh"] = hashrate_data["current_eh"]
@@ -1592,12 +1633,15 @@ def watch_and_hash(settings: dict, once: bool, daemon: bool) -> None:
             # refresh_node_status has not run yet this time round. If our node was serving the tip a moment
             # ago it is almost certainly still there, and being wrong for one 30s pass costs nothing: the
             # worst case is a display number we skip once, and the next pass corrects it.
+            # And when the node IS serving the tip, don't ask at all (public_tip_needed): the answer was unused.
+            # If the node has just gone away, this pass finds out below and the next one asks again.
             network_height: Optional[int] = None
-            try:
-                network_height = _timed("mempool.space tip", get_tip_height,
-                                        tip_timeout_sec(mode, state.get("node")))
-            except (urllib.error.URLError, RuntimeError, ValueError, OSError):
-                pass
+            if public_tip_needed(mode, state.get("node")):
+                try:
+                    network_height = _timed("mempool.space tip", get_tip_height,
+                                            tip_timeout_sec(mode, state.get("node")))
+                except (urllib.error.URLError, RuntimeError, ValueError, OSError):
+                    pass
             state["last_poll_at"] = utc_now()
             state = _timed("node RPC", refresh_node_status, state, settings)
 

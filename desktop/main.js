@@ -1687,7 +1687,10 @@ if (!app.requestSingleInstanceLock()) {
     DATA_DIR = app.getPath("userData"); // the app's own isolated config/state/node.json
     try { fs.mkdirSync(DATA_DIR, { recursive: true }); } catch (_) {}
     NODE_JSON = path.join(DATA_DIR, "node.json");
-    ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON };
+    // NOTZERO_DESKTOP tells the miner it has a dashboard: skip the mempool.space "decoration" it fetches for the
+    // terminal view (tip age, hashrate, price, the block that beat our ticket). The dashboard never read it, and
+    // the miner runs with no window at all — it was ~14,400 requests a day nobody could see. See decoration_wanted().
+    ENGINE_ENV = { ...process.env, LOTTERY_DATA_DIR: DATA_DIR, NODE_BRIDGE_OUT: NODE_JSON, NOTZERO_DESKTOP: "1" };
     if (process.platform === "win32") ENGINE_ENV.PYTHONUTF8 = "1"; // belt-and-suspenders for DEV (real python3): engines print ₿/→ and a Windows pipe defaults to cp1252 → UnicodeEncodeError. NOTE: PyInstaller-frozen exes IGNORE this env var, so the packaged engines force UTF-8 in their own source (sys.std*.reconfigure).
     if (PREVIEW) { console.log(`[notzero] PREVIEW mode: "${PREVIEW}" — dashboard only, no engines/node`); buildMenu(); createWindow(); startupComplete = true; return; } // dev preview: skip engines, node provisioning, update checks — just render the dashboard against the fixture
     reapStaleAppInstances(); // Linux: clear orphaned Electron shells left by prior in-place auto-updates, before engines/node
