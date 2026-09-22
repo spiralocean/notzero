@@ -702,14 +702,14 @@ def http_get(url: str, timeout: int = 30) -> dict | list | str:
         return body.strip()
 
 
-def rpc_call(url: str, user: str, password: str, method: str, params: list | None = None, cookie: str = "") -> dict:
+def rpc_call(url: str, user: str, password: str, method: str, params: list | None = None, cookie: str = "", timeout: int = 60) -> dict:
     payload = json.dumps({"jsonrpc": "1.0", "id": "lottery", "method": method, "params": params or []}).encode()
     req = urllib.request.Request(
         url,
         data=payload,
         headers={"Content-Type": "application/json", "Authorization": _auth_header(user, password, cookie)},
     )
-    with urllib.request.urlopen(req, timeout=60) as resp:
+    with urllib.request.urlopen(req, timeout=timeout) as resp:
         body = json.loads(resp.read().decode())
     if body.get("error"):
         raise RuntimeError(body["error"])
