@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.99
 
+**Dashboard**
+- **Your best hash shows up in YOUR RECORDS again.** If your best was set more than about 1,000 blocks
+  before you updated to the release that added the records list, the list was built wrong: it counted your
+  first recent hashes as records and put the older, better one at the end with its original date. On screen,
+  that best dropped into "+N earlier", and a smaller record was shown as your standing one. The records list now
+  keeps only hashes that beat everything before them, and lists already saved this way are fixed the next time
+  the miner starts.
+
 ## 0.1.98
 
 **Network**

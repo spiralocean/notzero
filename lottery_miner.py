@@ -200,6 +200,21 @@ def zero_bits(hash_hex) -> Optional[int]:
         return None
 
 
+def clean_ladder(ladder: list) -> list:
+    """A record ladder read in time order climbs strictly; anything that doesn't beat what came before it was
+    never a record. The seed above broke this whenever the standing best predated the stored window: it read
+    the window's first hashes as records (1, 3, 5… bits) and appended the older best AFTER them — so a 17-bit
+    best from July sorted to the bottom of the dashboard's list under 11-bit "records" from August. Run on
+    every load, so ladders already written that way repair themselves."""
+    entries = [e for e in ladder if isinstance(e, dict) and isinstance(e.get("zero_bits"), int)]
+    entries.sort(key=lambda e: str(e.get("at") or ""))  # ISO stamps sort as strings; stable for ties
+    kept: list[dict] = []
+    for e in entries:
+        if not kept or e["zero_bits"] > kept[-1]["zero_bits"]:
+            kept.append(e)
+    return kept[-BEST_HISTORY_LIMIT:]
+
+
 def normalize_stats(state: dict) -> dict:
     stats = state.get("stats", {"total_attempts": 0, "wins": 0})
     if "live_attempts" not in stats:
@@ -237,6 +252,8 @@ def normalize_stats(state: dict) -> dict:
                 and bz > (ladder[-1]["zero_bits"] if ladder else -1):
             ladder.append(dict(best))
         state["best_history"] = ladder[-BEST_HISTORY_LIMIT:]
+    if isinstance(state.get("best_history"), list):
+        state["best_history"] = clean_ladder(state["best_history"])
     if "zhist" not in state:  # seed the leading-zero-bits histogram (heat map) from recent history
         zh: dict[str, int] = {}
         for h in state.get("history", []):

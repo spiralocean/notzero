@@ -62,6 +62,20 @@ def main() -> int:
     older = {"zero_bits": 17, "height": 42, "hash": hash_with_zero_bits(17), "nonce": 42, "at": stamp(1)}
     state = lm.normalize_stats({"history": list(reversed(history)), "best": older})
     check("standing record is on the ladder", state["best_history"][-1]["zero_bits"], 17)
+    # …and it is the ONLY step: every window hash came after a 17-bit best, so none of them was a record.
+    # Seeded the old way this was [2, 5, 9, 17] with the 17 dated first — the dashboard sorted it to the
+    # bottom of YOUR RECORDS and called the 9 "standing".
+    check("window hashes below it are not records", [e["zero_bits"] for e in state["best_history"]], [17])
+
+    # --- a ladder already written out of order repairs itself on load (the Linux box, 2026-09) ---
+    print("a mis-seeded ladder on disk is repaired")
+    bad = [{"zero_bits": z, "hash": hash_with_zero_bits(z), "at": stamp(d), "seeded": True}
+           for z, d in [(1, 11), (3, 11), (5, 12), (8, 13), (11, 16)]] + [dict(older)]
+    state = lm.normalize_stats({"history": [], "best": older, "best_history": bad})
+    check("only the real record survives", [e["zero_bits"] for e in state["best_history"]], [17])
+    later = {"zero_bits": 19, "hash": hash_with_zero_bits(19), "at": stamp(20)}
+    state = lm.normalize_stats({"history": [], "best_history": bad + [later]})
+    check("a later, higher record is kept after it", [e["zero_bits"] for e in state["best_history"]], [17, 19])
 
     # --- seeding runs ONCE: a real ladder is never rebuilt from the (rolling) window ---
     print("an existing ladder is left alone")
