@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.99
+## Unreleased — next: 0.1.100
+
+## 0.1.99
 
 **Dashboard**
 - **Your best hash shows up in YOUR RECORDS again.** If your best was set more than about 1,000 blocks
