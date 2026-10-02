@@ -4,7 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.100
+## Unreleased — next: 0.1.101
+
+## 0.1.100
+
+**App window**
+- **A window that comes up black now fixes itself.** After a restart, the window could open as a plain black
+  rectangle — mining was running fine underneath, but nothing appeared until File → Dashboard (⌘D) reloaded
+  it. The app now checks its window shortly after it loads, and again when you come back to it; if nothing has
+  been drawn, it reloads the page on its own. If a few reloads don't help, it shows the "page didn't load"
+  screen instead of a blank one.
 
 ## 0.1.99
 
