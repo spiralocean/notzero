@@ -76,6 +76,7 @@ const { verifySums, listedHash } = require("./sums-signature.js"); // is this SH
 const { cookiePathFromConfig } = require("./node-rpc-config.js"); // which cookie file the saved settings point at
 const { createNodeRecovery } = require("./node-recovery.js"); // restarts the managed node when it dies on its own
 const WindowBounds = require("./window-bounds.js"); // remembers the window's size/position across restarts
+const WindowHealth = require("./window-health.js"); // notices a window that loaded nothing and reloads it
 const AmbientWake = require("./ambient-wake.js"); // when to open the ambient view, and whether waking it may lock
 const { isMinerStalled, POLL_INTERVAL_SEC } = require("./miner-watchdog.js"); // is the miner's poll loop actually running
 const { createBootSettle, CEILING_MS: SETTLE_CEILING_MS } = require("./boot-settle.js"); // holds the node/engines back until a booting machine settles
@@ -1618,6 +1619,44 @@ async function createWindow() {
     lastReloadAt = Date.now();
     win.reload();
   });
+  // The THIRD way: nothing fails and nothing dies — the load just never finishes, or finishes and never paints.
+  // Seen after a reboot: black window, no error logged, ⌘D fixed it. Neither handler above can see that, so look
+  // at the window itself (window-health.js) a while after each load, and again whenever the user comes back to
+  // it. Only a visible, focused window is judged: macOS doesn't composite one that's hidden or covered, and a
+  // capture of it comes back empty — which isBlank reports as "unknown", never as blank.
+  const HEALTH_DELAY_MS = 15000, CAPTURE_TIMEOUT_MS = 5000, FOCUS_RECHECK_MS = 60000;
+  const health = WindowHealth.createWindowHealth();
+  let healthTimer = null, lastHealthyAt = 0, loadStartedAt = 0;
+  const scheduleHealthCheck = (ms) => { clearTimeout(healthTimer); healthTimer = setTimeout(checkWindowHealth, ms); };
+  async function checkWindowHealth() {
+    healthTimer = null;
+    if (win.isDestroyed() || !win.isVisible() || win.isMinimized() || !win.isFocused()) return; // judged on the next focus instead
+    if (win.webContents.getURL().startsWith("file:")) return; // the error page is the end of the line, not something to reload
+    let probe;
+    if (win.webContents.isLoading()) probe = { stuckLoading: true };
+    else {
+      const timedOut = Symbol("timeout");
+      const img = await Promise.race([
+        win.webContents.capturePage().catch(() => null),
+        new Promise((r) => setTimeout(() => r(timedOut), CAPTURE_TIMEOUT_MS)),
+      ]);
+      if (win.isDestroyed()) return;
+      probe = img === timedOut ? { captureTimedOut: true }
+        : { blank: img && !img.isEmpty() ? WindowHealth.isBlank(img.resize({ width: 256 }).toBitmap()) : null };
+    }
+    const verdict = health.verdict(probe);
+    if (verdict === "ok") { if (probe.blank === false) lastHealthyAt = Date.now(); return; }
+    const url = win.webContents.getURL() || homeUrl;
+    if (verdict === "give-up") { console.error(`[notzero] window still empty after repeated reloads — showing the failure page: ${JSON.stringify(probe)}`); showLoadError(url); return; }
+    console.error(`[notzero] window looks empty (${JSON.stringify(probe)}) — reloading ${url}`);
+    win.loadURL(url);
+  }
+  // Load progress goes in the log, so the next black window says which kind it was rather than leaving us to guess.
+  win.webContents.on("did-start-loading", () => { loadStartedAt = Date.now(); lastHealthyAt = 0; scheduleHealthCheck(HEALTH_DELAY_MS); });
+  win.webContents.on("did-navigate", (_e, url) => console.log(`[notzero] window: loading ${url}`));
+  win.webContents.on("did-finish-load", () => console.log(`[notzero] window: loaded in ${Date.now() - loadStartedAt}ms`));
+  win.on("focus", () => { if (!healthTimer && Date.now() - lastHealthyAt > FOCUS_RECHECK_MS) scheduleHealthCheck(1000); });
+  win.on("closed", () => clearTimeout(healthTimer));
   win.on("closed", cancelLoadRetry); // ⌘Q mid-retry → don't fire loadURL at a destroyed window
   win.loadURL(homeUrl);
 }

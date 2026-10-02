@@ -41,6 +41,7 @@
       "node-recovery.js",
       "miner-watchdog.js",
       "window-bounds.js",
+      "window-health.js",
       "ambient-wake.js",
       "boot-settle.js",
       "package.json",
