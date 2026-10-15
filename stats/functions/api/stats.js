@@ -46,6 +46,30 @@ export function awakeFromPolls(pollsInHour, perDay = CHANGELOG_PER_DAY) {
   return Math.round((pollsInHour / perHour) * 10) / 10;
 }
 
+// How many machines run the app, from per-release installer fetches.
+//
+// This used to sum "took release N but not N+1" across every release, on the theory that the difference is
+// machines still on N. It isn't: these are fetch counts, not identities, and they jitter — a retried update
+// download, a verification curl, a test box that comes and goes. Each surplus on an old release became a
+// permanent phantom straggler, and summed over a few dozen releases it reported 24 machines on a fleet the
+// newest release and the awake count both put at 3.
+//
+// So count the machines that took the NEWEST release. While it is still rolling out (machines pick an update
+// up within ~2h of it going live) that reads low, so for its first SETTLE_HOURS take whichever of it and the
+// release before is larger. A machine stuck on an old release is invisible here — that is the honest cost:
+// installer fetches cannot say who is still running, and pretending they could is what produced the 24.
+//
+// machines: [{ version, mac, win, linux, total, first? }] newest first; `first` is "YYYY-MM-DDTHH" (UTC).
+export const SETTLE_HOURS = 24;
+export function currentFleet(machines, now = Date.now()) {
+  const [newest, prev] = machines || [];
+  if (!newest) return { count: 0, version: null, mac: 0, win: 0, linux: 0, settling: false };
+  const age = newest.first ? (now - Date.parse(newest.first + ":00:00Z")) / 3600e3 : Infinity;
+  const settling = age < SETTLE_HOURS;
+  const src = settling && prev && prev.total > newest.total ? prev : newest;
+  return { count: src.total, version: src.version, mac: src.mac, win: src.win, linux: src.linux, settling };
+}
+
 const json = (obj, status = 200) =>
   new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -128,6 +152,7 @@ async function mergeMachineTally(kv, perVersion, dlRows) {
     for (const [hour, c] of Object.entries(byHour)) {
       if (Date.parse(hour + ":00:00Z") < cutoff) { delete byHour[hour]; continue; }
       v.mac += c.mac || 0; v.win += c.win || 0; v.linux += c.linux || 0;
+      if ((c.mac || c.win || c.linux) && (!v.first || hour < v.first)) v.first = hour;  // when it started rolling out
     }
     v.total = v.mac + v.win + v.linux;
     if (v.total) out.push(v);
@@ -186,8 +211,9 @@ export async function onRequestGet({ request, env }) {
 
     // Machines, counted properly. Every other figure on this page divides request volume by a polling
     // cadence, which yields an AVERAGE of how many are awake — a machine that's asleep contributes nothing.
-    // An installer is different: each machine fetches it exactly once when it takes a release, so counting
-    // versioned artifact fetches counts computers, with no cadence assumption and nothing inflated by restarts.
+    // An installer is different: a machine fetches it about once when it takes a release, so versioned artifact
+    // fetches approximate computers with no cadence assumption — approximately: retries and stray curls add a
+    // few, which is why only the newest release is read as a headcount (currentFleet), never a sum across them.
     const perVersion = {};
     for (const row of z.dl) {
       const m = /^\/notzero-(\d+\.\d+\.\d+)-(mac|win|linux)/.exec(row.dimensions.clientRequestPath);
@@ -195,23 +221,14 @@ export async function onRequestGet({ request, env }) {
       const v = (perVersion[m[1]] ||= { version: m[1], mac: 0, win: 0, linux: 0, total: 0 });
       v[m[2]] += row.count; v.total += row.count;
     }
-      // PERSIST the per-version tally. Cloudflare caps this dataset at a 24h span, so a release older than a
-      // day has no installer fetches left in the window and its bar emptied — the chart forgot how many
-      // machines had taken it, which is the one number the page exists to answer. Stored per (version, hour)
-      // so re-reading an hour we already have overwrites it with the same value instead of double counting,
-      // which keeps it correct however often the page is loaded.
-      const machines = await mergeMachineTally(env.STATS, perVersion, z.dl)
-        .catch(() => Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version)));
-      // FLEET COMPOSITION, not cumulative adoption. A machine that took 0.1.73 and then 0.1.74 is running
-      // 0.1.74; leaving it counted under 0.1.73 as well described a fleet several times larger than exists.
-      // Identity is not available — this counts fetches, not computers — but auto-updates are sequential, so
-      // the machines still ON a version are the ones that took it and did NOT take the next one. What remains
-      // on an old release is therefore the stragglers, which is the thing worth seeing.
-      for (let n = 0; n < machines.length; n++) {
-        const v = machines[n], next = machines[n - 1];   // sorted newest first, so n-1 is the next NEWER release
-        for (const k of ["mac", "win", "linux"]) v[`r_${k}`] = Math.max(0, v[k] - (next ? next[k] : 0));
-        v.running = v.r_mac + v.r_win + v.r_linux;       // per platform, so the stacked segments still sum to the bar
-      }
+    // PERSIST the per-version tally. Cloudflare caps this dataset at a 24h span, so a release older than a
+    // day has no installer fetches left in the window and its bar emptied — the chart forgot how many
+    // machines had taken it, which is the one number the page exists to answer. Stored per (version, hour)
+    // so re-reading an hour we already have overwrites it with the same value instead of double counting,
+    // which keeps it correct however often the page is loaded.
+    const machines = await mergeMachineTally(env.STATS, perVersion, z.dl)
+      .catch(() => Object.values(perVersion).sort((a, b) => cmpVer(b.version, a.version)));
+    const fleet = currentFleet(machines);
     for (const row of z.sites) {
       const b = touch(hourKey(row.dimensions.datetimeHour));
       const isDemo = row.dimensions.clientRequestHTTPHost === DEMO_HOST;
@@ -234,26 +251,18 @@ export async function onRequestGet({ request, env }) {
       // after a cut, before everyone has updated. A machine that stayed off through every release in the
       // window is invisible here — which is why this is "at least", and why it can only ever be an undercount.
       machinesSeen: machines.reduce((n, v) => Math.max(n, v.total), 0),
-        // The fleet as it stands: every machine counted once, on whichever release it is actually running.
-        // machinesSeen above is kept for the busiest-single-release floor, but this is the honest headcount.
-        fleet: machines.reduce((n, v) => n + (v.running || 0), 0),
+      // The headcount — see currentFleet: machines that took the newest release (or the one before, mid-rollout).
+      fleet: fleet.count,
+      fleetVersion: fleet.version,
+      fleetSettling: fleet.settling,
       requests: sum("changelog") + sum("proofs") + sum("artifacts") + sum("mac") + sum("win") + sum("linux"),
       polling: sum("changelog") + sum("proofs"),
       artifacts: sum("artifacts"),
       feed: { mac: sum("mac"), win: sum("win"), linux: sum("linux") },
-      // Per-platform DEVICE counts, from installer fetches — the same cadence-free source as `fleet` above, so
-      // these sum to it. The platform chart used to divide update-feed requests by FEED_PER_DAY, which reads
-      // high for three compounding reasons: the divisor is a floor (12 scheduled checks per day PLUS one per
-      // launch), a release restarts every machine that takes it and each restart adds another check, and any
-      // non-app request to a 2 KB file at a stable URL — a crawler, an uptime probe, someone verifying a
-      // release with curl — lands in the same bucket. On a fleet this size a handful of stray requests is not
-      // noise, it is the whole reading, and because a verification sweep hits all three files equally it also
-      // corrupts the one thing that chart claimed was exact: the ratio. Installer fetches have none of that:
-      // one per machine per release, and nothing incidental downloads 100 MB. `feed` is still reported above,
-      // as request volume, which is what it honestly is.
-      platform: machines.reduce((a, v) => ({
-        mac: a.mac + (v.r_mac || 0), win: a.win + (v.r_win || 0), linux: a.linux + (v.r_linux || 0),
-      }), { mac: 0, win: 0, linux: 0 }),
+      // Per-platform split of that same headcount, so the platform chart and the fleet tile agree by construction.
+      // (Update-feed requests were tried for this once and read high: per-launch checks, update restarts and
+      // stray curls all land on the same small files. `feed` above still reports them, as request volume.)
+      platform: { mac: fleet.mac, win: fleet.win, linux: fleet.linux },
       siteVisits: sum("siteVisits"),
       demoVisits: sum("demoVisits"),
       // A median across hours, not a sum and not a peak: release hours double-count restarts (every machine

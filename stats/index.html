@@ -151,7 +151,7 @@
 
   <section class="panel">
     <h2>Which platforms</h2>
-    <p class="sub">Machines, counted from installer fetches — the same source as the fleet count above, so the two agree. Not update-feed requests: those are inflated by per-launch checks, update restarts, and anything else that touches a small file at a fixed URL.</p>
+    <p class="sub">The machines that took the newest release, by platform — the same count as the fleet tile above, so the two agree. Not update-feed requests: those are inflated by per-launch checks, update restarts, and anything else that touches a small file at a fixed URL.</p>
     <div class="plot" id="p-platform"></div>
     <div class="legend">
       <span><i class="swatch" style="background:var(--mac)"></i>macOS — <code>latest-mac.yml</code></span>
@@ -286,21 +286,22 @@ function drawBars(id, rows, pick, opts) {
 function drawMachines(machines, fleet) {
   const host = clear("p-machines");
   if (!machines.length) { host.innerHTML = '<p class="sub">No installer fetches in this window — nothing updated.</p>'; return; }
-  // Only versions something is still ON, newest first. A release everyone has left drops out — which is the
-  // point: what remains below the top row is stragglers, not history.
-  const live = machines.filter((m, i) => i === 0 || m.running > 0);
-  const rows = live.slice(0, 6);
+  // The last few releases, newest first, each with how many machines TOOK it. This used to show "still on it"
+  // (took N minus took N+1), but fetch counts aren't identities: their jitter became phantom stragglers that
+  // summed to a fleet eight times its real size. What each release was taken by is a fact; who is still on it
+  // is not something installer fetches can say.
+  const rows = machines.slice(0, 6);
   const W = 980, rowH = 40, T = 64, L = 74, R = 150;
   const Hh = T + rows.length * rowH + 8;
-  const max = Math.max(...rows.map((r) => r.running), 1);
+  const max = Math.max(...rows.map((r) => r.total), 1);
   const svg = el("svg", { viewBox: `0 0 ${W} ${Hh}`, role: "img", "aria-label": "Adoption of each release across the fleet" });
   const tip = tooltip(host);
   const parts = [["mac", "var(--mac)", "macOS"], ["win", "var(--win)", "Windows"], ["linux", "var(--linux)", "Linux"]];
 
   // Headline: the newest release against the fleet. This is the number that answers "did my fix land?".
-  const latest = rows[0], pct = fleet ? Math.round((latest.running / fleet) * 100) : 0;
+  const latest = rows[0], pct = fleet ? Math.min(100, Math.round((latest.total / fleet) * 100)) : 0;
   const big = el("text", { x: 0, y: 30, class: "axis", fill: "var(--accent)", "font-size": "27", "font-weight": "600" });
-  big.textContent = `${latest.running} of ${fleet}`; svg.appendChild(big);
+  big.textContent = `${latest.total} of ${fleet}`; svg.appendChild(big);
   const cap = el("text", { x: 0, y: 52, class: "axis", fill: "var(--ink-2)", "font-size": "12.5" });
   cap.textContent = `machines on ${latest.version}${fleet ? ` · ${pct}% of the fleet` : ""}`; svg.appendChild(cap);
 
@@ -313,21 +314,21 @@ function drawMachines(machines, fleet) {
     lb.textContent = r.version; svg.appendChild(lb);
     let x = L;
     for (const [k, c, label] of parts) {
-      if (!r[`r_${k}`]) continue;                       // segment = machines still ON this release
-      const segW = ((W - L - R) * r[`r_${k}`]) / max;
+      if (!r[k]) continue;                              // segment = machines on this platform that took it
+      const segW = ((W - L - R) * r[k]) / max;
       const seg = el("rect", { x, y, width: Math.max(segW - 2, 2), height: bh, rx: 3, fill: c, opacity: fade });
       seg.style.cursor = "crosshair";
       const cxs = x + segW / 2;
       seg.addEventListener("pointerenter", () => {
         const bb = svg.getBoundingClientRect();
-        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[`r_${k}`]} running now<br><span class="th">${r[k]} took it altogether</span>`, (cxs / W) * bb.width, (y / Hh) * bb.height);
+        tip.show(`<span class="th">v${r.version} · ${label}</span><br>${r[k]} took it`, (cxs / W) * bb.width, (y / Hh) * bb.height);
       });
       seg.addEventListener("pointerleave", () => tip.hide());
       svg.appendChild(seg);
       x += segW;
     }
     const vl = el("text", { x: x + 10, y: y + bh / 2 + 4, class: "axis", fill: i === 0 ? "var(--ink-2)" : "var(--ink-3)", "font-size": "12.5", opacity: i === 0 ? 1 : 0.75 });
-    vl.textContent = i === 0 ? `${r.running} — current` : `${r.running} still on it`;
+    vl.textContent = i === 0 ? `${r.total} — current` : `${r.total} took it`;
     svg.appendChild(vl);
   });
   host.appendChild(svg);
@@ -343,16 +344,16 @@ function drawMachines(machines, fleet) {
 // thing to break, because this figure is polls divided by a cadence that cannot see app launches (each adds
 // two) while the machine count comes from installer fetches, one per machine per release. When the estimate
 // lands ABOVE the fleet, say so and name both candidates rather than printing two numbers that quietly
-// contradict each other. Deliberately NOT clamped to the fleet: that tally only holds hours the page has
-// actually observed, so it under-reports releases predating it, and clamping would hide a real disagreement
-// behind a denominator that is itself incomplete.
+// contradict each other. Deliberately NOT clamped to the fleet: the fleet counts only the latest release, so
+// machines stuck on an older one are missing from it, and clamping would hide a real disagreement behind a
+// denominator that is itself incomplete.
 function awakeNote(t) {
   const awake = Number(t.installsSteady) || 0;
   const fleet = Number(t.fleet || t.machinesSeen) || 0;
   if (!fleet) return "Median hour, estimated from polling volume.";
   if (awake === fleet) return `Median hour — about ${awake} of ${fleet} machines, so essentially all of them are up.`;
   if (awake < fleet) return `Median hour — about ${awake} of ${fleet} machines. The rest are asleep or shut down.`;
-  return `Median hour, but this is ABOVE the ${fleet} machines counted from installers, so one of the two is off: either extra polls inflating it (every app launch adds two), or an installer tally missing releases from before it started recording.`;
+  return `Median hour, but this is ABOVE the ${fleet} machines on the latest release. Either extra polls are inflating it (every app launch adds two), or some machines are awake on an older release that the fleet count can't see.`;
 }
 
 function drawPlatform(platform) {
@@ -427,7 +428,7 @@ function tiles(d) {
   const t = d.totals, dl = d.downloads;
   const pct = t.requests ? Math.round((t.polling / t.requests) * 100) : 0;
   $("tiles").innerHTML = `
-    <div class="tile lead"><span class="k">Machines running it</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Every machine counted once, on the release it is actually running. From installer fetches — real computers, not an average.</span></div>
+    <div class="tile lead"><span class="k">Machines on the latest</span><span class="v">${t.fleet || t.machinesSeen || "—"}</span><span class="n">Machines that took the newest release${t.fleetVersion ? ` (v${t.fleetVersion})` : ""}, from installer fetches. A machine stuck on an older release isn't counted — fetches can't tell who is still running one.</span></div>
     <div class="tile lead"><span class="k">New downloads</span><span class="v">${dl ? dl.count : "—"}</span><span class="n">All time. ${dl && dl.source === "cdn" ? "Complete fetches of the installers the landing page links to, counted at the CDN — so a direct link counts too." : "Someone clicking the button on getnotzero.com, once per browser."} Does NOT move when existing installs auto-update — that is the fetches chart below.</span></div>
     <div class="tile"><span class="k">Awake at once</span><span class="v">~${t.installsSteady}</span><span class="n">${awakeNote(t)}</span></div>
     <div class="tile"><span class="k">Of CDN traffic, check-ins</span><span class="v">${pct}<span class="unit">%</span></span><span class="n">${t.polling.toLocaleString()} of ${t.requests.toLocaleString()} requests are background check-ins from running apps — the changelog every 30 min, plus release proofs when verifying an update. Counts requests, not bytes: these files are a few KB, so installers still dominate bandwidth.</span></div>`;
@@ -461,10 +462,10 @@ function render(d) {
 
   tiles(d);
   const machines = d.machines || [];
-  drawMachines(machines, t.machinesSeen);
+  drawMachines(machines, t.fleet);
   const newest = machines[0];
   $("mach-note").innerHTML = machines.length
-    ? `Counts are machines that <b>took</b> each release — one installer fetch per machine, no polling cadence assumed. Fleet size is the busiest single release (~${t.machinesSeen}); summing across releases would count one computer several times.${newest ? ` A rollout keeps climbing for a couple of hours after a cut, so v${newest.version} reads low until machines check in.` : ""} A machine switched off through every release in this window is invisible here, so every number is a floor.`
+    ? `Counts are machines that <b>took</b> each release — one installer fetch per machine, no polling cadence assumed. The fleet is the newest release's count${t.fleetSettling ? ` — v${machines[0].version} is still rolling out, so it uses v${t.fleetVersion} until it catches up` : ""}. Older rows are history, not stragglers: a fetch count can't say who is still on an old release.${newest ? ` A rollout keeps climbing for a couple of hours after a cut, so v${newest.version} reads low until machines check in.` : ""} A machine switched off through every release in this window is invisible here, so every number is a floor.`
     : "No installer fetches in this window — nothing updated in the last 24 hours.";
   drawInstalls(rows);
   drawBars("p-artifacts", rows, (r) => r.artifacts, { fill: "var(--accent-mark)", unit: "installer", label: true, marks: true, alt: "Installer downloads by hour" });
