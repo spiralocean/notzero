@@ -182,11 +182,14 @@ function openDashboard() { if (mainWindow && serverPort) mainWindow.loadURL(`htt
 // Quitting is the one action that stops mining, and closing the window (the thing people usually mean) doesn't —
 // so a ⌘Q meant as "close" silently ends a user's lottery entries until they next log in, and nothing tells
 // them. The quit items say so in their label, and the first quit a user chooses gets one dialog explaining it.
-// It hangs off the quit COMMANDS (menu, ⌘Q, tray), not before-quit: by then macOS can't tell a ⌘Q from a log-out
-// or shutdown, and a dialog there would cancel the log-out. Updates, log-out and shutdown never pass through
-// here. The Dock's Quit goes straight to before-quit and isn't covered — it's labelled "Quit" by the OS anyway.
+// The menu, ⌘Q, tray and Dock-menu items call requestQuit() directly. The Dock's own Quit (and Activity Monitor's)
+// only reaches before-quit, where a log-out or shutdown looks the same — and a dialog there would cancel the
+// log-out. So before-quit asks only when nothing has decided the quit already: requestQuit, an update install
+// (quitDecided) and the OS's will-power-off notice (powerMonitor "shutdown", posted before apps are told to quit)
+// all set it first. It only ever asks once, so a wrong guess costs one interrupted log-out at most.
 const QUIT_LABEL = "Quit and Stop Mining";
-let quitDialogOpen = false;
+let quitDialogOpen = false, quitDecided = false;
+function quitExplained() { try { return !!JSON.parse(fs.readFileSync(configPath(), "utf8")).quit_explained; } catch (_) { return false; } }
 async function requestQuit() {
   let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
   if (!cfg.quit_explained && !quitDialogOpen) {
@@ -200,6 +203,7 @@ async function requestQuit() {
       buttons: ["Keep Mining", "Quit"], defaultId: 0, cancelId: 0,
     };
     const win = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null;
+    if (isMac) try { app.focus({ steal: true }); } catch (_) {} // a Dock quit leaves the app in the background — the dialog would open behind other windows
     modalDepth++; // an update must not quitAndInstall() out from under the dialog (install-gate.js)
     let r = { response: 0 };
     try { r = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)); } catch (_) {}
@@ -207,7 +211,7 @@ async function requestQuit() {
     try { const c = JSON.parse(fs.readFileSync(configPath(), "utf8")); c.quit_explained = true; fs.writeFileSync(configPath(), JSON.stringify(c, null, 2), { mode: 0o600 }); } catch (_) {} // once, whichever they chose
     if (r.response !== 1) return;
   } else if (quitDialogOpen) return; // a second ⌘Q while it's up shouldn't skip the question
-  isQuitting = true; app.quit();
+  quitDecided = isQuitting = true; app.quit();
 }
 function buildMenu() {
   const isMac = process.platform === "darwin";
@@ -239,6 +243,9 @@ function buildMenu() {
     ] },
   ];
   Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+  // The Dock's right-click menu: the OS appends its own plain "Quit", which can't be renamed or removed — this
+  // item sits above it so the one that says what quitting does is there too.
+  if (isMac && app.dock) try { app.dock.setMenu(Menu.buildFromTemplate([{ label: QUIT_LABEL, click: requestQuit }])); } catch (_) {}
 }
 
 // ---- Ambient view ("The Deep" / Rain) + optional lock-on-wake -------------------
@@ -768,7 +775,7 @@ async function settleDownloadedUpdate(ver, file) {
     // isQuitting FIRST: quitAndInstall() closes the window BEFORE firing before-quit, and win.on("close") hides
     // (doesn't quit) the window on macOS unless isQuitting is set — so without this the app never terminates and
     // Squirrel's ShipIt hangs forever waiting to swap the bundle (the 0.1.33→0.1.34 mac auto-update stall).
-    run: () => { try { isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) { installStarted = false; } },
+    run: () => { try { quitDecided = isQuitting = true; autoUpdater.quitAndInstall(); } catch (_) { installStarted = false; } },
     delayMs: 6000, // a beat longer so the message is readable before the relaunch
   });
 }
@@ -1792,7 +1799,12 @@ if (!app.requestSingleInstanceLock()) {
   });
 }
 app.on("activate", () => { if (mainWindow && !mainWindow.isDestroyed()) { mainWindow.show(); mainWindow.focus(); } else createWindow(); }); // dock click → show the existing (hidden) window, preserving its size/position; only build a new one if none exists
-app.on("before-quit", () => { isQuitting = true; bootSettle.cancel(); nodeRecovery.cancel(); stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node). cancel() first: stopping the node emits an error state, and a pending retry must not restart it into the shutdown
+app.on("before-quit", (e) => {
+  if (process.platform === "darwin" && !quitDecided && !quitExplained()) { console.log("[notzero] quit: undecided (Dock?) — asking"); e.preventDefault(); requestQuit(); return; } // the Dock's Quit (see requestQuit)
+  isQuitting = true; bootSettle.cancel(); nodeRecovery.cancel(); stopEngines(); if (managed) managed.stop().catch(() => {}); }); // ⌘Q / tray Quit / real quit → stop mining (+ our node). cancel() first: stopping the node emits an error state, and a pending retry must not restart it into the shutdown
+// Log-out / restart / shutdown: decided by the user already, never ask (before-quit above). macOS posts this before
+// it sends apps the quit event; Linux has no before-quit dialog to skip, but the flag is harmless there.
+app.whenReady().then(() => { try { powerMonitor.on("shutdown", () => { quitDecided = true; console.log("[notzero] os: log-out/shutdown notice"); }); } catch (_) {} });
 // macOS keeps the app in the dock; Windows + Linux hide to the tray — in all three the miner keeps running and
 // only the tray Quit / menu Exit / ⌘Q stops it. We only quit here as a fallback: no tray could be created
 // (headless / unsupported desktop), so there'd be nothing to reopen from.

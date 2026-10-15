@@ -6,6 +6,12 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.102
 
+**App**
+- **Quitting from the Dock now asks too.** 0.1.101's one-time "Quit and stop mining?" question only came from
+  ⌘Q and the menus, so quitting from the Dock stopped mining without a word. Now the Dock's Quit asks the
+  same once, and the Dock's right-click menu also has a "Quit and Stop Mining" item. Logging out, restarting
+  and shutting down still never ask.
+
 ## 0.1.101
 
 **App**
