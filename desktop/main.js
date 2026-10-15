@@ -179,6 +179,36 @@ async function ensureServer() { if (serverPort == null) serverPort = await start
 // and nothing opened. The gear was given the flag for exactly this on 2026-06-25; this menu item never was.
 function openSettings() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/setup?settings=1`); }
 function openDashboard() { if (mainWindow && serverPort) mainWindow.loadURL(`http://127.0.0.1:${serverPort}/`); }
+// Quitting is the one action that stops mining, and closing the window (the thing people usually mean) doesn't —
+// so a ⌘Q meant as "close" silently ends a user's lottery entries until they next log in, and nothing tells
+// them. The quit items say so in their label, and the first quit a user chooses gets one dialog explaining it.
+// It hangs off the quit COMMANDS (menu, ⌘Q, tray), not before-quit: by then macOS can't tell a ⌘Q from a log-out
+// or shutdown, and a dialog there would cancel the log-out. Updates, log-out and shutdown never pass through
+// here. The Dock's Quit goes straight to before-quit and isn't covered — it's labelled "Quit" by the OS anyway.
+const QUIT_LABEL = "Quit and Stop Mining";
+let quitDialogOpen = false;
+async function requestQuit() {
+  let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+  if (!cfg.quit_explained && !quitDialogOpen) {
+    quitDialogOpen = true;
+    const isMac = process.platform === "darwin";
+    const opts = {
+      type: "question", noLink: true, title: "Quit and stop mining?", message: "Quit and stop mining?",
+      detail: "Your computer stops entering the lottery until Bitcoin Lottery runs again." +
+        (cfg.auto_start !== false ? " It starts by itself the next time you log in." : "") +
+        `\n\nTo keep mining with no window, close the window instead${isMac ? " (⌘W)" : tray ? " — it keeps running in the tray" : ""}.`,
+      buttons: ["Keep Mining", "Quit"], defaultId: 0, cancelId: 0,
+    };
+    const win = mainWindow && !mainWindow.isDestroyed() && mainWindow.isVisible() ? mainWindow : null;
+    modalDepth++; // an update must not quitAndInstall() out from under the dialog (install-gate.js)
+    let r = { response: 0 };
+    try { r = await (win ? dialog.showMessageBox(win, opts) : dialog.showMessageBox(opts)); } catch (_) {}
+    modalDepth = Math.max(0, modalDepth - 1); quitDialogOpen = false;
+    try { const c = JSON.parse(fs.readFileSync(configPath(), "utf8")); c.quit_explained = true; fs.writeFileSync(configPath(), JSON.stringify(c, null, 2), { mode: 0o600 }); } catch (_) {} // once, whichever they chose
+    if (r.response !== 1) return;
+  } else if (quitDialogOpen) return; // a second ⌘Q while it's up shouldn't skip the question
+  isQuitting = true; app.quit();
+}
 function buildMenu() {
   const isMac = process.platform === "darwin";
   const settingsItem = { label: "Settings…", accelerator: isMac ? "Cmd+," : "Ctrl+,", click: openSettings };
@@ -186,7 +216,7 @@ function buildMenu() {
     ...(isMac ? [{ label: app.name, submenu: [
       { role: "about" }, { type: "separator" }, settingsItem, { type: "separator" },
       { role: "services" }, { type: "separator" }, { role: "hide" }, { role: "hideOthers" }, { role: "unhide" },
-      { type: "separator" }, { role: "quit" },
+      { type: "separator" }, { label: QUIT_LABEL, accelerator: "Cmd+Q", click: requestQuit },
     ] }] : []),
     { label: "File", submenu: [
       ...(!isMac ? [settingsItem, { type: "separator" }] : []),
@@ -194,7 +224,7 @@ function buildMenu() {
       { label: "Ambient View", accelerator: isMac ? "Cmd+Shift+A" : "Ctrl+Shift+A", click: () => openAmbient(true) },
       { label: "Ambient View (Debug Numbers)", click: () => openAmbient(true, true) }, // opens with the on-screen size readout + canvas markers — no config edit needed
 
-      { type: "separator" }, isMac ? { role: "close" } : { role: "quit" },
+      { type: "separator" }, isMac ? { role: "close" } : { label: QUIT_LABEL, accelerator: "Ctrl+Q", click: requestQuit },
     ] },
     { role: "editMenu" }, { role: "viewMenu" }, { role: "windowMenu" },
     { role: "help", submenu: [
@@ -1524,7 +1554,7 @@ function createTray() {
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: "Open Dashboard", click: showMainWindow },
     { type: "separator" },
-    { label: "Quit Bitcoin Lottery", click: () => { isQuitting = true; app.quit(); } }, // the only way to really stop mining
+    { label: QUIT_LABEL, click: requestQuit }, // the only way to really stop mining
   ]));
   tray.on("double-click", showMainWindow);
   tray.on("click", showMainWindow); // single click reopens too (some Linux DEs don't fire double-click)
@@ -1535,7 +1565,7 @@ let bgNotified = false;
 function notifyBackgroundOnce() {
   if (bgNotified || process.platform !== "linux") return;
   bgNotified = true;
-  try { new Notification({ title: "Bitcoin Lottery is still mining", body: "It's running in the background. Reopen it from the tray, or just launch the app again. To stop mining, choose Quit from the tray." }).show(); } catch (_) {}
+  try { new Notification({ title: "Bitcoin Lottery is still mining", body: "It's running in the background. Reopen it from the tray, or just launch the app again. To stop mining, choose “Quit and Stop Mining” from the tray." }).show(); } catch (_) {}
 }
 
 async function createWindow() {
