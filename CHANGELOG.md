@@ -4,7 +4,15 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.101
+## Unreleased — next: 0.1.102
+
+## 0.1.101
+
+**App**
+- **Quitting now says what it does.** The Quit command (⌘Q, the app menu, File → Quit, and the tray) is now
+  called "Quit and Stop Mining". The first time you use it, the app asks once whether you'd rather keep
+  mining, and suggests closing the window instead, which keeps mining in the background. After that one time,
+  quitting goes straight through. Updates, log-out and shutdown are never interrupted.
 
 ## 0.1.100
 
