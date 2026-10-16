@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.102
+## Unreleased — next: 0.1.103
+
+## 0.1.102
 
 **App**
 - **Quitting from the Dock now asks too.** 0.1.101's one-time "Quit and stop mining?" question only came from
