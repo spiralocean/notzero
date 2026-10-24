@@ -469,6 +469,7 @@ async function pollNode() {
   try {
     const r = await fetch("./node.json", { cache: "no-store" });
     model.node = r.ok ? await r.json() : null;
+    noteTipAge(model.node);
     // The public demo's payload is flagged (scripts/stage-demo.mjs). It is the ONLY thing that shows the DOM
     // "get the app" link: the desktop app never sets it, and a payload-less page is not proof of a demo (a
     // bridge blip inside the app also yields null for a poll or two).
@@ -1182,6 +1183,16 @@ const SYNC_DEBUG = false; // flip to true to print live fill/phase state at the 
 // months) also reads as stale. Being briefly over-cautious beats confidently reporting a nap as network data.
 const STALE_TIP_S = 90 * 60;
 function tipIsStale(n = model.node) { return !!(n && n.tip_time && (Date.now() / 1000 - n.tip_time) > STALE_TIP_S); }
+// Stale has two causes that want opposite messages: this machine just woke (the node catches up in minutes,
+// nothing to do) or the node isn't hearing from the network at all (an Intel Mac's Wi-Fi once stayed
+// "connected" for 12 hours passing no traffic, and every screen said "catching up after sleep" while the
+// green pill said "submitting tickets"). No need to ask the OS about sleep: a page that has itself watched
+// the tip stay old for 10 minutes is looking at the second case. Mirrored in web/ambient-status.js.
+const STUCK_AFTER_MS = 10 * 60 * 1000;
+let staleSeenAt = 0; // when this page first saw the current stale stretch; 0 = tip is fresh
+function noteTipAge(n) { if (tipIsStale(n)) { if (!staleSeenAt) staleSeenAt = Date.now(); } else staleSeenAt = 0; }
+function tipStuck(n = model.node) { return tipIsStale(n) && staleSeenAt > 0 && Date.now() - staleSeenAt > STUCK_AFTER_MS; }
+function tipAgeSpan(n = model.node) { return agoStr(n && n.tip_time ? Date.now() / 1000 - n.tip_time : Infinity).replace(/ ago$/, ""); }
 // Both throughput estimates below (chain sync, background verify) sample a rolling window and divide. The
 // window must never span a sleep: pairing a pre-sleep sample with a post-wake one measures blocks per hour-
 // of-nap, which is how a 30-block catch-up once reported ~7 hours remaining.
@@ -2257,8 +2268,9 @@ function drawNextBlock(r) {
   window.__nextBlock = { catchingUp, elapsedMin: Math.round(elapsed / 60) }; // test hook: the reading, and whether it was trusted
   if (catchingUp) {
     const cx0 = r.x + r.w / 2, cy0 = r.y + r.h / 2;
-    text("catching up after sleep", cx0, cy0 - 12, { size: 15, weight: 700, color: "rgba(255,210,110,0.9)", align: "center", baseline: "middle" });
-    text("your node is fetching the blocks mined while this computer slept — the timer starts again at the real tip", cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
+    const stuck = tipStuck();
+    text(stuck ? `no new blocks for ${tipAgeSpan()}` : "catching up", cx0, cy0 - 12, { size: 15, weight: 700, color: "rgba(255,210,110,0.9)", align: "center", baseline: "middle" });
+    text(stuck ? "your node isn't hearing from the Bitcoin network — check this computer's internet connection" : "your node is fetching the blocks it missed — the timer starts again at the real tip", cx0, cy0 + 12, { size: 12, color: "rgba(255,255,255,0.42)", align: "center", baseline: "middle" });
     return;
   }
   const over = elapsed > 600; // past the ~10-min estimate — count UP the overrun (long blocks are normal: Poisson)
@@ -3792,7 +3804,7 @@ function drawSync(r) {
     if (bps > 0.02) { const s = behind / bps; etaStr = s > 172800 ? ` · ~${(s / 86400).toFixed(1)} days left` : s > 3600 ? ` · ~${Math.floor(s / 3600)}h ${Math.round((s % 3600) / 60)}m left` : s > 90 ? ` · ~${Math.round(s / 60)} min left` : " · almost caught up"; }
     else etaStr = " · estimating time…";
   } else if (behind > 0 && eh.length >= 2) etaStr = " · estimating time…"; // window still filling after a wake
-  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? "catching up after sleep — fetching new blocks from peers…" : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 63, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
+  text(behind > 0 ? `${(prog * 100).toFixed(1)}% · ${behind.toLocaleString()} blocks behind the tip${etaStr}` : stale ? (tipStuck(node) ? `no new blocks for ${tipAgeSpan(node)} — check this computer's internet connection` : "catching up — fetching new blocks from peers…") : "at the tip — waiting for the next block to be mined", r.x + r.w / 2, r.y + 63, { size: 10, color: "rgba(255,255,255,0.5)", align: "center", baseline: "middle" });
   if (behind > 0) text("Syncing uses more CPU and network as your node verifies the chain — your computer may warm up or a fan spin up. A one-time catch-up that quiets down once synced.", r.x + r.w / 2, r.y + 78, { size: 9.5, color: "rgba(255,180,80,0.6)", align: "center", baseline: "middle" });
   else drawBackgroundVerify(r); // same row, mutually exclusive: that note needs blocks-behind; this only runs at the tip
 
@@ -4605,6 +4617,9 @@ function drawMinerStatus() {
   let dot, label, sub;
   if (!reachable) { if (nodeReconnecting()) { dot = AMBER; label = "reconnecting"; sub = "miner restarting"; } else if (nodeMode === "managed") { const sv = nodeSetupView(); dot = sv && sv.isError ? RED : AMBER; label = sv && sv.isError ? "setup error" : "getting ready"; sub = sv ? sv.head.toLowerCase() : "node starting"; } else { dot = RED; label = "not submitting"; sub = "node offline"; } }
   else if (syncing) { const p = n.verificationprogress != null ? n.verificationprogress : 0; dot = AMBER; label = "getting ready"; sub = `syncing ${Math.floor(p * 100)}%`; }
+  // An old tip means tickets are being drawn on a block the network has moved past — they can't win, so
+  // this is never green, however healthy the miner's own loop is (see tipStuck).
+  else if (tipIsStale(n)) { dot = AMBER; if (tipStuck(n)) { label = `no new blocks for ${tipAgeSpan(n)}`; sub = "check this computer's internet connection"; } else { label = "catching up"; sub = "fetching new blocks"; } }
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
   else if (!minerStalled(n)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
   else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — the tip moved on but the miner didn't log a ticket
@@ -4858,7 +4873,7 @@ function render(ts) {
   const headH = node ? Math.floor(node.blocks || 0) : 0, tipH = node ? (node.headers || 0) : 0;
   const behindH = Math.max(0, tipH - headH);
   const prog = node && node.verificationprogress != null ? node.verificationprogress : 0;
-  const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999;
+  const synced = reachable && headH > 0 && behindH === 0 && !node.initialblockdownload && prog >= 0.9999 && !tipIsStale(node); // an hours-old tip is not LIVE, whatever the progress estimate says
   const minerLive = !!(node && node.miner && node.miner.mode === "live");
   // "symbolic" is the miner's DEFAULT mode (no live node yet). For a MANAGED node it's just the transient state
   // during setup/sync — the app IS setting a node up — so "practice mode · set up a node" would be both wrong and
@@ -4874,6 +4889,7 @@ function render(ts) {
   else if (!node || isDemoPayload()) { fmsg = `◷ demo — nothing here is mining for you · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (symbolic) { fmsg = `◷ practice mode — set up a node to mine for real · ${ver}`; fcol = "rgba(255,255,255,0.5)"; }
   else if (!reachable) { const sv = nodeMode === "managed" ? nodeSetupView() : null; fmsg = nodeReconnecting() ? `◌ reconnecting to your node… · ${ver}` : sv ? `${sv.isError ? "○" : "◌"} ${sv.head}${sv.isError ? "" : "…"} · ${ver}` : nodeMode === "managed" ? `◌ starting your node… · ${ver}` : `○ node unreachable — check your node · ${ver}`; fcol = sv && sv.isError ? "rgba(255,120,110,0.95)" : "rgba(255,150,80,0.95)"; }
+  else if (!synced && !behindH && !node.initialblockdownload && tipIsStale(node)) { fmsg = tipStuck(node) ? `◐ no new blocks for ${tipAgeSpan(node)} — check this computer's internet connection · ${ver}` : `◐ catching up — fetching new blocks · ${ver}`; fcol = "rgba(255,180,80,0.95)"; } // an old tip isn't "syncing 99.86%" (see tipStuck)
   else if (!synced) { fmsg = `◐ syncing blockchain — ${(prog * 100).toFixed(2)}%${behindH ? ` · ${behindH.toLocaleString()} blocks to the tip` : ""} · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (!minerLive) { fmsg = `● synced — solo miner not running live · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }
   else if (stalled) { fmsg = `● synced — miner not submitting (last ticket ${agoStr((Date.now() - lastTs) / 1000)}) · ${ver}`; fcol = "rgba(255,180,80,0.95)"; }

@@ -28,7 +28,7 @@ lipo -create "build/$NAME.arm64" "build/$NAME.x86_64" -output "$CONTENTS/MacOS/$
 rm -f "build/$NAME.arm64" "build/$NAME.x86_64"
 
 echo "→ bundling the web views (loaded via file:// → self-contained)"
-cp ../web/ambient.html ../web/ambient-rain.html "$CONTENTS/Resources/"
+cp ../web/ambient.html ../web/ambient-rain.html ../web/ambient-status.js "$CONTENTS/Resources/"
 
 echo "→ ad-hoc signing (so it loads locally; use a Developer ID + notarization to distribute)"
 codesign --force --deep --sign - "$OUT"

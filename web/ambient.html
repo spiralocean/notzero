@@ -102,11 +102,13 @@
   </div>
 
   <div id="status" style="position:absolute;left:0;right:0;top:26px;text-align:center;font-size:12px;letter-spacing:.28em;text-indent:.28em;color:#5c6a7e;opacity:0;transition:opacity .7s ease;pointer-events:none"></div>
+  <div id="best" style="position:absolute;left:0;right:0;top:48px;text-align:center;font-size:12px;letter-spacing:.28em;text-indent:.28em;color:#c9a54e;opacity:0;transition:opacity .7s ease;pointer-events:none"></div>
 
   <div id="hint" class="live">PRESS ESC TO EXIT</div>
   <div id="dbg" style="position:absolute;left:12px;bottom:12px;font:12px ui-monospace,monospace;color:#4fd08a;opacity:0;z-index:99;pointer-events:none;text-shadow:0 0 6px #000"></div>
 </div>
 
+<script src="ambient-status.js"></script>
 <script>
 (() => {
   "use strict";
@@ -357,6 +359,9 @@
   // ---- node feed: poll /node.json, drive real block events + real warmth ----
   const statusEl=document.getElementById('status');
   function setStatus(txt){ statusEl.textContent = txt || ''; statusEl.style.opacity = txt ? '1' : '0'; }
+  const bestEl=document.getElementById('best');
+  function setBest(txt){ bestEl.textContent = txt || ''; bestEl.style.opacity = txt ? '1' : '0'; }
+  const nodeStatus = window.AmbientStatus ? AmbientStatus.createNodeStatus() : null; // the status line's wording lives in ambient-status.js
 
   function onNewBlock(height, hashHex){
     if(height === state.height) return;   // never solidify the same block twice (real & preview heights are always distinct)
@@ -375,10 +380,7 @@
       node.tipTime = j.tip_time || 0;
       node.mempoolCount = (j.mempool && j.mempool.count) || 0;
       node.syncPct = j.verificationprogress != null ? j.verificationprogress : 1;
-      node.synced = node.reachable && !j.initialblockdownload && node.syncPct > 0.9999;
-      if(!node.reachable) setStatus('CONNECTING TO YOUR NODE…');
-      else if(!node.synced) setStatus('SYNCING · ' + Math.floor(node.syncPct*100) + '%');
-      else setStatus('');
+      if(nodeStatus){ const ns = nodeStatus(j, Date.now()); node.synced = ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, Date.now())); }
       // your best-ever near-miss (most leading-zero-bits, persisted across sessions) drives the weak second sphere
       const mb = j.miner && j.miner.best;
       if(mb && typeof mb.zero_bits === 'number' && mb.zero_bits > state.best.zeros){

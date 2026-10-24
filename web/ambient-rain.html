@@ -10,6 +10,8 @@
   #c{position:absolute;inset:0;display:block}
   #status{position:absolute;left:0;right:0;top:26px;text-align:center;font-size:12px;
           letter-spacing:.28em;text-indent:.28em;color:#5c6a7e;opacity:0;transition:opacity .7s ease;pointer-events:none}
+  #best{position:absolute;left:0;right:0;top:48px;text-align:center;font-size:12px;
+        letter-spacing:.28em;text-indent:.28em;color:#c9a54e;opacity:0;transition:opacity .7s ease;pointer-events:none}
   #hint{position:absolute;left:50%;bottom:74px;transform:translateX(-50%);
         font-size:10.5px;letter-spacing:.16em;color:#3f4a5c;text-align:center;
         opacity:0;transition:opacity .6s ease;pointer-events:none;white-space:nowrap}
@@ -20,9 +22,11 @@
 <div id="app" class="show-ui">
   <canvas id="c"></canvas>
   <div id="status"></div>
+  <div id="best"></div>
   <div id="hint">PRESS ESC TO EXIT</div>
 </div>
 
+<script src="ambient-status.js"></script>
 <script>
 (() => {
   "use strict";
@@ -49,17 +53,17 @@
   let nodeMode=false, feedFails=0;
   const statusEl=document.getElementById('status');
   function setStatus(t){ statusEl.textContent=t||''; statusEl.style.opacity=t?'1':'0'; }
+  const bestEl=document.getElementById('best');
+  function setBest(t){ bestEl.textContent=t||''; bestEl.style.opacity=t?'1':'0'; }
+  const nodeStatus = window.AmbientStatus ? AmbientStatus.createNodeStatus() : null; // wording lives in ambient-status.js
   async function pollNode(){
     try{
       const j = await (await fetch('/node.json',{cache:'no-store'})).json();
       nodeMode=true; feedFails=0;
       node.reachable=!!j.reachable;
       node.syncPct = j.verificationprogress!=null ? j.verificationprogress : 1;
-      node.synced = node.reachable && !j.initialblockdownload && node.syncPct>0.9999;
       if(j.bestblockhash) node.hash = j.bestblockhash;
-      if(!node.reachable) setStatus('CONNECTING TO YOUR NODE…');
-      else if(!node.synced) setStatus('SYNCING · '+Math.floor(node.syncPct*100)+'%');
-      else setStatus('');
+      if(nodeStatus){ const ns=nodeStatus(j, Date.now()); node.synced=ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, Date.now())); }
     }catch(_){ if(++feedFails>2){ nodeMode=false; setStatus(''); } } // no server (opened as a file) → default glyphs
   }
   if(location.protocol !== 'file:'){ pollNode(); setInterval(pollNode, 4000); } // served → live tip hash; file:// → default glyphs
