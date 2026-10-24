@@ -538,23 +538,48 @@ def _is_lan_addr(addr: str) -> bool:
     return ip.is_private and not ip.is_loopback
 
 
-def _listed_ips() -> set:
-    """The IP addresses typed into Settings → your other computers (names are left out: resolving them here
-    could stall a poll on a slow lookup). Lets a computer on another subnet or a company network — anything
-    _is_lan_addr doesn't recognise — still count as yours."""
+# Names on the list (mac-m4.local, office-pc) resolved off the poll thread: a .local lookup for a computer
+# that's switched off can take seconds, and the poll must not wait on it. The poll reads whatever the last
+# lookup found; a lookup runs again when the list changes or NAME_TTL_SEC has passed.
+NAME_TTL_SEC = 300
+_names = {"key": None, "at": 0.0, "ips": set(), "busy": False}
+
+
+def _resolve_names(names, key, resolve=socket.getaddrinfo):
+    ips = set()
+    for name in names:
+        try:
+            ips.update(str(ai[4][0]) for ai in resolve(name, None, proto=socket.IPPROTO_TCP))
+        except (OSError, UnicodeError):
+            pass  # not found / switched off: it just doesn't count until a later lookup finds it
+    _names.update(key=key, at=time.time(), ips=ips, busy=False)
+
+
+def _listed_ips(resolve=socket.getaddrinfo, background=True) -> set:
+    """The addresses of the computers in Settings → your other computers: IPs as typed, plus what their names
+    last resolved to. Lets a computer on another subnet or a company network — anything _is_lan_addr doesn't
+    recognise — still count as yours."""
     import ipaddress
+    import threading
     try:
         listed = json.load(CONFIG.open()).get("lan_peers") or [] if CONFIG.exists() else []
     except (OSError, ValueError):
         return set()
-    ips = set()
+    ips, names = set(), []
     for entry in listed if isinstance(listed, list) else []:
         host = str(entry).rsplit(":", 1)[0]
         try:
             ips.add(str(ipaddress.ip_address(host)))
         except ValueError:
-            pass
-    return ips
+            names.append(host)
+    key = tuple(sorted(names))
+    if names and not _names["busy"] and (_names["key"] != key or time.time() - _names["at"] > NAME_TTL_SEC):
+        _names["busy"] = True
+        if background:
+            threading.Thread(target=_resolve_names, args=(names, key, resolve), daemon=True).start()
+        else:
+            _resolve_names(names, key, resolve)
+    return ips | (_names["ips"] if _names["key"] == key else set())
 
 
 def _is_yours(p: dict, listed: set) -> bool:
