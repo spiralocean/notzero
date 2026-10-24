@@ -43,6 +43,7 @@
       "window-bounds.js",
       "window-health.js",
       "lan-peers.js",
+      "lan-pair.js",
       "ambient-wake.js",
       "boot-settle.js",
       "package.json",
@@ -83,6 +84,9 @@
       "artifactName": "notzero-${version}-mac-${arch}.${ext}",
       "category": "public.app-category.finance",
       "icon": "assets/icon.icns",
+      "extendInfo": {
+        "NSLocalNetworkUsageDescription": "Bitcoin Lottery connects to your other computers running it, so new blocks reach them over your home network. It only looks for them when you click Find my other computers."
+      },
       "notarize": false
     },
     "win": {

@@ -69,6 +69,7 @@ process.on("unhandledRejection", showStartupError);
 
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
 const LanPeers = require("./lan-peers"); // Settings → your other computers as node peers
+const LanPair = require("./lan-pair"); // Settings → "Find my other computers": a 5-minute pairing window
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
@@ -1411,6 +1412,23 @@ function handleLanPeers(req, res) {
   });
 }
 
+// Settings → "Find my other computers". POST {start:true|false} opens or closes the pairing window; GET is
+// what the page polls while it's open. Created on first use, so a user who never clicks Find never has the
+// app listening for (or announcing) anything on the home network. See lan-pair.js.
+let lanPairing = null;
+function handleLanFind(req, res) {
+  const json = (obj) => { res.writeHead(200, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+  if (req.method === "GET") return json(lanPairing ? lanPairing.status() : { active: false, endsAt: 0, found: [], error: "" });
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 1000) req.destroy(); });
+  req.on("end", () => {
+    let p = {}; try { p = JSON.parse(body); } catch (_) {}
+    if (!lanPairing) lanPairing = LanPair.createPairing({ name: LanPeers.thisComputerName(), log: (m) => console.log(`[notzero] find computers: ${m}`) });
+    if (p.start === false) lanPairing.stop(); else lanPairing.start();
+    json(lanPairing.status());
+  });
+}
+
 // The user dismissed the "new best" toast: remember WHICH best (its `at` timestamp from the miner's state), so
 // the toast stops coming back on every dashboard open and the ambient screen drops its gold line. Keyed by
 // the best's own timestamp rather than "dismissed at", so a newer best is unseen by construction.
@@ -1540,6 +1558,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
       if (req.method === "POST" && urlPath === "/best-seen") { handleBestSeen(req, res); return; }
       if (req.method === "POST" && urlPath === "/lan-peers") { handleLanPeers(req, res); return; }
+      if (urlPath === "/lan-find") { handleLanFind(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-config") { handleAmbientConfig(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-open") { openAmbient(true); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the dashboard's ambient-view button
       if (req.method === "POST" && urlPath === "/update/held") { promptHeldUpdateDialog(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the "waiting for Bitcoin" pill → wait / install now

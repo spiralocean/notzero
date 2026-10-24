@@ -115,9 +115,11 @@
         <div class="reassure">✓ You're running your <b>own private node</b>, set up by this app. No keys are held here.</div>
         <label style="margin-top:16px">Your other computers running Bitcoin Lottery <span style="opacity:.6">(optional)</span></label>
         <input id="lan_peers" type="text" placeholder="e.g. mac-m1.local, macbookpro.local" spellcheck="false" />
-        <div class="hint" style="margin-top:6px">Your node keeps these computers as peers, so a new block one of them hears about reaches the others over your home network. It keeps its usual internet peers too, so nothing depends on another computer being on. Add the list on each computer — this one is <b id="this-computer">…</b>. Saving restarts your node, about a minute. Your computer may ask whether <b>bitcoind</b> can accept incoming connections: choose <b>Allow</b>.</div>
+        <div class="hint" style="margin-top:6px">Your node keeps these computers as peers, so a new block one of them hears about reaches the others over your home network. It keeps its usual internet peers too, so nothing depends on another computer being on. Click <b>Find my other computers</b> here and on each other computer, or type them in — this one is <b id="this-computer">…</b>. Saving restarts your node, about a minute. Your computer may ask whether <b>bitcoind</b> can accept incoming connections: choose <b>Allow</b>.</div>
+        <button class="ghost btn-sm" id="lan-find" type="button" style="margin-top:8px">Find my other computers</button>
         <button class="ghost btn-sm" id="lan-save" type="button" style="margin-top:8px">Save computers</button>
         <span class="hint" id="lan-msg" style="margin-left:8px"></span>
+        <div class="hint" id="lan-find-msg" style="margin-top:6px"></div>
         <button class="ghost btn-sm" id="node-remove" type="button" style="margin-top:12px;color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove node &amp; all data</button>
         <div class="hint" style="margin-top:6px">Stops the node and deletes Bitcoin Core + its ~20 GB of data. You'd re-sync if you set it up again.</div>
         <details style="margin-top:14px">
@@ -354,6 +356,38 @@
               m.textContent = (r.rejected.length ? `Skipped ${r.rejected.join(", ")} — use a computer name like mac-m1.local, or an address like 192.168.1.30. ` : "Saved. ") + (r.restarting ? "Your node is restarting." : "");
             } catch (_) { m.style.color = "#e0a030"; m.textContent = "Couldn't save — try again."; }
           };
+          // "Find my other computers": a 5-minute window in which this computer announces itself on the home
+          // network and listens for others doing the same (lan-pair.js). What it finds goes into the list above;
+          // the user still clicks Save, so the list only ever holds computers they recognise.
+          let findPoll = null;
+          const findMsg = (t, color) => { const m = $("lan-find-msg"); m.style.color = color || ""; m.textContent = t; };
+          function addFound(found) {
+            const have = $("lan_peers").value.split(/[\s,]+/).filter(Boolean).map((x) => x.toLowerCase());
+            const fresh = found.map((f) => f.entry).filter((e) => !have.includes(e.toLowerCase()));
+            if (fresh.length) $("lan_peers").value = have.concat(fresh).join(", ");
+            return fresh;
+          }
+          async function pollFind() {
+            let st; try { st = await (await fetch("/lan-find")).json(); } catch (_) { return; }
+            const fresh = addFound(st.found || []);
+            const names = (st.found || []).map((f) => f.name).join(", ");
+            if (st.error) { clearInterval(findPoll); findPoll = null; $("lan-find").textContent = "Find my other computers"; return findMsg(`Couldn't look on this network (${st.error}).`, "#e0a030"); }
+            if (st.active) {
+              const left = Math.max(0, Math.round((st.endsAt - Date.now()) / 1000));
+              findMsg((names ? `Found ${names}. ` : "") + `Looking for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} more. On your other computer, open Settings and click Find there too.`);
+            } else {
+              clearInterval(findPoll); findPoll = null; $("lan-find").textContent = "Find my other computers";
+              findMsg(names ? `Found ${names}. Click Save computers to keep them.` : "Didn't find any. Both computers need to be on the same network, with Find clicked on each within 5 minutes.", names ? "#7bd88f" : "#e0a030");
+            }
+            if (fresh.length) $("lan-msg").textContent = "";
+          }
+          $("lan-find").onclick = async () => {
+            const stopping = !!findPoll;
+            try { await fetch("/lan-find", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ start: !stopping }) }); } catch (_) { return findMsg("Couldn't start looking — try again.", "#e0a030"); }
+            if (!stopping) { $("lan-find").textContent = "Stop looking"; findPoll = setInterval(pollFind, 1000); }
+            pollFind();
+          };
+          fetch("/lan-find").then((r) => r.json()).then((st) => { if (st.active && !findPoll) { $("lan-find").textContent = "Stop looking"; findPoll = setInterval(pollFind, 1000); pollFind(); } }).catch(() => {}); // reopened Settings mid-window
           $("autoupdate-row").style.display = "block";
           $("auto_update").checked = c.auto_update !== false;
           $("auto_update").onchange = () => { fetch("/auto-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_update").checked }) }).catch(() => {}); };

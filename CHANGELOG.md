@@ -6,6 +6,14 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.106
 
+**Node**
+- **Find your other computers with one click.** Settings → Your Bitcoin node now has a **Find my other
+  computers** button. Click it on each computer within 5 minutes and they find each other on your home
+  network and fill in the list; click Save computers to keep them. Only while you're looking does the app
+  announce itself, and only on your home network (routers don't pass it on). The rest of the time it sends
+  nothing, as before. On a Mac, the first time you may be asked to let Bitcoin Lottery find devices on your
+  local network: choose Allow.
+
 ## 0.1.105
 
 **Setup**
