@@ -4,7 +4,9 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.105
+## Unreleased — next: 0.1.106
+
+## 0.1.105
 
 **Setup**
 - **Windows and Linux: the setup screen no longer gives Mac instructions.** It used to say to reopen the app
