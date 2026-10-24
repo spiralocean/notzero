@@ -406,7 +406,7 @@
   // OS's link from the row above (someone on a Mac fetching it for their Windows PC needs the Windows line).
   const FIRST_OPEN = {
     win: '<b>Opening it on Windows:</b> Windows warns about apps without a paid signing certificate — click <b>More info</b>, then <b>Run anyway</b>. Once only.',
-    linux: '<b>Opening it on Linux:</b> mark the file as a program first — right-click → Properties → <b>Allow executing as program</b>, or <code>chmod +x notzero-linux.AppImage</code>. On Ubuntu 22.04 or newer, if it still won’t open: <code>sudo apt install libfuse2</code>.',
+    linux: '<b>Opening it on Linux:</b> mark the file as a program first — right-click → Properties → <b>Allow executing as program</b>, or <code>chmod +x notzero-linux.AppImage</code>. If nothing happens when you open it, your system is missing a library AppImages need: on Ubuntu 24.04 or newer, <code>sudo apt install libfuse2t64</code>; on 22.04, <code>sudo apt install libfuse2</code>.',
   };
   function showFirstOpen(o) {
     const el = document.getElementById("first-open");
