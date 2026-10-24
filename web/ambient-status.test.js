@@ -41,17 +41,26 @@ test("a fresh block clears the stuck clock", () => {
   assert.match(update(old, NOW + STUCK_AFTER_MS + 120000).text, /^CATCHING UP/); // stale again, but newly
 });
 
-test("a new best shows for a week, worded in leading zeros", () => {
-  const best = (daysAgo, bits = 13) => ({ zero_bits: bits, at: new Date(NOW - daysAgo * 86400e3).toISOString() });
-  assert.equal(bestLine(best(4.2), NOW), "★ NEW BEST · 3 LEADING ZEROS · 4 DAYS AGO");
-  assert.equal(bestLine(best(1), NOW), "★ NEW BEST · 3 LEADING ZEROS · 1 DAY AGO");
-  assert.equal(bestLine(best(0.25), NOW), "★ NEW BEST · 3 LEADING ZEROS · 6 H AGO");
-  assert.equal(bestLine(best(0.01), NOW), "★ NEW BEST · 3 LEADING ZEROS · JUST NOW");
-  assert.equal(bestLine(best(0.01, 5), NOW), "★ NEW BEST · 1 LEADING ZERO · JUST NOW");
-  assert.equal(bestLine(best(8), NOW), "");
+const best = (daysAgo, bits = 13) => ({ zero_bits: bits, at: new Date(NOW - daysAgo * 86400e3).toISOString() });
+
+test("an unseen best shows, however old, worded in leading zeros", () => {
+  assert.equal(bestLine(best(4.2), "", NOW), "★ NEW BEST · 3 LEADING ZEROS · 4 DAYS AGO");
+  assert.equal(bestLine(best(1), "", NOW), "★ NEW BEST · 3 LEADING ZEROS · 1 DAY AGO");
+  assert.equal(bestLine(best(0.25), "", NOW), "★ NEW BEST · 3 LEADING ZEROS · 6 H AGO");
+  assert.equal(bestLine(best(0.01), "", NOW), "★ NEW BEST · 3 LEADING ZEROS · JUST NOW");
+  assert.equal(bestLine(best(0.01, 5), "", NOW), "★ NEW BEST · 1 LEADING ZERO · JUST NOW");
+  assert.equal(bestLine(best(40), "", NOW), "★ NEW BEST · 3 LEADING ZEROS · 40 DAYS AGO");
 });
 
-test("no best, or a malformed one, shows nothing", () => {
+test("dismissing it on the dashboard clears it; a newer best is unseen again", () => {
+  const b = best(4.2);
+  assert.equal(bestLine(b, b.at, NOW), "");
+  assert.equal(bestLine(b, new Date(NOW).toISOString(), NOW), ""); // dismissed something at least as new
+  assert.match(bestLine(best(0.5, 14), b.at, NOW), /^★ NEW BEST · 3 LEADING ZEROS · 12 H AGO$/);
+});
+
+test("no app server (seenAt unknown), no best, or a malformed one, shows nothing", () => {
+  assert.equal(bestLine(best(1), null, NOW), "");
   for (const b of [null, undefined, {}, { zero_bits: 13 }, { zero_bits: 0, at: new Date(NOW).toISOString() }, { zero_bits: 13, at: "garbage" }])
-    assert.equal(bestLine(b, NOW), "");
+    assert.equal(bestLine(b, "", NOW), "");
 });

@@ -1390,6 +1390,23 @@ function handleWhatsNewPref(req, res) {
   });
 }
 
+// The user dismissed the "new best" toast: remember WHICH best (its `at` timestamp from the miner's state), so
+// the toast stops coming back on every dashboard open and the ambient screen drops its gold line. Keyed by
+// the best's own timestamp rather than "dismissed at", so a newer best is unseen by construction.
+function handleBestSeen(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 1000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    if (typeof p.at !== "string" || p.at.length > 64 || !isFinite(Date.parse(p.at))) return json(400, { ok: false, error: "bad at" });
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    cfg.best_seen_at = p.at;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
+    json(200, { ok: true });
+  });
+}
+
 // Persist the ambient-view preferences. The idle poller reads config each tick, so changes take effect
 // within a second — enabling/disabling, retiming, or toggling lock-on-wake needs no restart.
 function handleAmbientConfig(req, res) {
@@ -1500,6 +1517,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/auto-start") { handleAutoStart(req, res); return; }
       if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
+      if (req.method === "POST" && urlPath === "/best-seen") { handleBestSeen(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-config") { handleAmbientConfig(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-open") { openAmbient(true); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the dashboard's ambient-view button
       if (req.method === "POST" && urlPath === "/update/held") { promptHeldUpdateDialog(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the "waiting for Bitcoin" pill → wait / install now
@@ -1522,6 +1540,7 @@ function startServer() {
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
         out.update_history = updateHistory; // recent releases + their on-chain verification (newest first) — VERIFIED UPDATES list
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
+        out.best_seen_at = cfg.best_seen_at || ""; // the newest best the user has dismissed — dashboard toast + ambient line show until then
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }
       if (urlPath === "/node.json") { // live data from the bridge's writable output, not the read-only bundle

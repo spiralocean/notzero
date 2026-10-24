@@ -55,6 +55,8 @@
   function setStatus(t){ statusEl.textContent=t||''; statusEl.style.opacity=t?'1':'0'; }
   const bestEl=document.getElementById('best');
   function setBest(t){ bestEl.textContent=t||''; bestEl.style.opacity=t?'1':'0'; }
+  // which best the user has already dismissed on the dashboard (the app's /config); null if there's no app server
+  async function bestSeenAt(){ try { const c = await (await fetch('/config', { cache:'no-store' })).json(); return typeof c.best_seen_at === 'string' ? c.best_seen_at : null; } catch(_){ return null; } }
   const nodeStatus = window.AmbientStatus ? AmbientStatus.createNodeStatus() : null; // wording lives in ambient-status.js
   async function pollNode(){
     try{
@@ -63,7 +65,7 @@
       node.reachable=!!j.reachable;
       node.syncPct = j.verificationprogress!=null ? j.verificationprogress : 1;
       if(j.bestblockhash) node.hash = j.bestblockhash;
-      if(nodeStatus){ const ns=nodeStatus(j, Date.now()); node.synced=ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, Date.now())); }
+      if(nodeStatus){ const ns=nodeStatus(j, Date.now()); node.synced=ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, await bestSeenAt(), Date.now())); }
     }catch(_){ if(++feedFails>2){ nodeMode=false; setStatus(''); } } // no server (opened as a file) → default glyphs
   }
   if(location.protocol !== 'file:'){ pollNode(); setInterval(pollNode, 4000); } // served → live tip hash; file:// → default glyphs

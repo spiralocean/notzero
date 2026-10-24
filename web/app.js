@@ -988,7 +988,7 @@ const updAutoSub = (now) => { let tt = now % UPD_CYC; for (let i = 0; i < UPD_DU
 let configTimer = null;
 function pollConfig() {
   fetch("./config").then((r) => (r.ok ? r.json() : null)).then((c) => {
-    if (c && typeof c.exists === "boolean") { isDesktop = true; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; updateDownload = c.update_download || null; updateHeld = c.update_held || null; requestRender(); }
+    if (c && typeof c.exists === "boolean") { isDesktop = true; if (typeof c.best_seen_at === "string") bestSeenAt = c.best_seen_at; if (localStorage.getItem("uiScale") === null) setUserScale(1.1); /* the desktop app ships a touch larger by default (users can dial it back with A−) */ if (c.app_version) appVersion = c.app_version; if (c.node_mode) nodeMode = c.node_mode; if (c.platform) desktopPlatform = c.platform; updatePendingVer = c.update_available || ""; updateVerification = c.update_verification || null; versionAnchor = c.version_anchor || null; updateHistory = c.update_history || null; updateDownload = c.update_download || null; updateHeld = c.update_held || null; requestRender(); }
   }).catch(() => {}).finally(() => {
     // poll fast while an update is available or downloading (so "Downloading… X%" stays live), otherwise relaxed
     const fast = isDesktop && (updateDownload || (updatePendingVer && !updateHeld)); // a held update can sit for hours — no reason to poll fast through it
@@ -1016,8 +1016,17 @@ function fireCelebration({ preview = false, mode = "you", verified = true, heigh
 // new-best toast: a small, non-intrusive reward when the miner beats its own leading-zero record
 // (the mid-tier rung: everyday attempts → new best → a lottery miner wins → you win)
 let seenBest = -1, bestToastHit = null;
+// Desktop only: the `at` of the newest best the user has dismissed, from /config (persisted by the app, so it
+// survives restarts and is shared with the ambient screen). null = not known yet / not the desktop app.
+let bestSeenAt = null;
 const bestToast = { t: 0, active: false, bits: 0 };
-function fireBestToast(bits, hash) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; bestToast.odds = hash ? oddsExact(rarityBits(hash)) : ""; } // persists until clicked
+function fireBestToast(bits, hash, at) { bestToast.active = true; bestToast.t = 0; bestToast.bits = bits; bestToast.odds = hash ? oddsExact(rarityBits(hash)) : ""; bestToast.at = at || ""; } // persists until clicked
+function dismissBestToast() {
+  bestToast.active = false;
+  if (!isDesktop || !bestToast.at) return;
+  bestSeenAt = bestToast.at; // locally at once, so the next frame doesn't re-raise it while the POST is in flight
+  fetch("/best-seen", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ at: bestToast.at }) }).catch(() => {});
+}
 // --- network-win detection: the win announces itself ON-CHAIN via the coinbase tag the miner already
 // writes (/BitcoinLottery/…). No server, no phone-home — we just read the public coinbase. ---
 const LOTTERY_TAG = "/BitcoinLottery/";
@@ -4699,7 +4708,8 @@ function drawBestToast() {
   // "needs ~19" target are BOTH hex chars; the zero-bits figure is shown separately and clearly labelled.
   const hz = Math.floor(bestToast.bits / 4);
   const label = `🎯 new best · ${hz} leading “0”${hz === 1 ? "" : "s"} (${bestToast.bits} zero bits)`;
-  const sub = `${bestToast.odds ? `${bestToast.odds} tickets get this far · ` : ""}a winning block needs about 19 leading “0”s`;
+  const ageS = bestToast.at ? (Date.now() - Date.parse(bestToast.at)) / 1000 : 0; // shown late (landed while you were away) → say when
+  const sub = `${ageS > 3600 ? `${agoStr(ageS)} · ` : ""}${bestToast.odds ? `${bestToast.odds} tickets get this far · ` : ""}a winning block needs about 19 leading “0”s`;
   ctx.font = "700 13px -apple-system, system-ui, sans-serif"; const tw = ctx.measureText(label).width;
   ctx.font = "600 11px -apple-system, system-ui, sans-serif"; const sw = ctx.measureText(sub).width;
   const pw = Math.max(tw, sw) + 50, ph = 46, slide = reduceMotion ? 0 : (1 - inP) * 18;
@@ -4940,7 +4950,16 @@ function render(ts) {
   else if (ws && ws.status === "confirmed" && ws.height > seenConfirmedWin) { seenConfirmedWin = ws.height; fireCelebration({ preview: false, mode: "you", verified: true, height: ws.height, hash: ws.hash }); }
   // NEW BEST → a small toast (mid-tier reward; fires once when the leading-zero record improves this session)
   const bestNow = mnW && mnW.best ? (mnW.best.zero_bits || 0) : 0;
-  if (seenBest < 0) { if (mnW && mnW.best) seenBest = bestNow; } // wait for data, then remember the standing record
+  // In the app, a best is "new" until the user has dismissed it — not merely until this page saw it land.
+  // A best that arrived while nobody was looking (the usual case: one ticket per block, overnight) used to
+  // be remembered as the standing record on the next open and never mentioned at all.
+  const bestAt = mnW && mnW.best && mnW.best.at;
+  if (isDesktop && bestSeenAt !== null && bestAt) {
+    seenBest = bestNow;
+    const unseen = bestAt !== bestSeenAt && !(Date.parse(bestSeenAt) >= Date.parse(bestAt));
+    if (unseen && bestToast.at !== bestAt && !celebration.active) fireBestToast(bestNow, mnW.best.hash, bestAt);
+  }
+  else if (seenBest < 0) { if (mnW && mnW.best) seenBest = bestNow; } // wait for data, then remember the standing record
   else if (bestNow > seenBest) { seenBest = bestNow; if (!celebration.active) fireBestToast(bestNow, mnW.best.hash); }
   // NETWORK wins → everyone running this learns of it from the on-chain coinbase tag (no server)
   const netWins = lotteryWins();
@@ -5009,7 +5028,7 @@ function ptr(e) {
 canvas.addEventListener("click", (ev) => { const e = ptr(ev);
   if (celebration.active) { celebration.active = false; return; } // dismiss
   if (inHit(winStatusHit, e.offsetX, e.offsetY)) { dismissedLost.add(winStatusHit.height); return; } // dismiss the 'lost the race' notice
-  if (inHit(bestToastHit, e.offsetX, e.offsetY)) { bestToast.active = false; return; } // dismiss the new-best toast
+  if (inHit(bestToastHit, e.offsetX, e.offsetY)) { dismissBestToast(); return; } // dismiss the new-best toast (and, in the app, remember it — see bestSeenAt)
   if (inHit(motionHit, e.offsetX, e.offsetY)) { cycleMotion(); return; } // cycle motion: full → calm → off
   if (inHit(zoomOutHit, e.offsetX, e.offsetY)) { setUserScale(userScale - 0.1); return; } // text size −
   if (inHit(zoomInHit, e.offsetX, e.offsetY)) { setUserScale(userScale + 0.1); return; } // text size +

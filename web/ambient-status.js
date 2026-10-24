@@ -15,7 +15,6 @@
 (function (root) {
   var STALE_TIP_S = 90 * 60;            // web/app.js STALE_TIP_S
   var STUCK_AFTER_MS = 10 * 60 * 1000;  // web/app.js STUCK_AFTER_MS
-  var BEST_SHOWN_MS = 7 * 86400 * 1000; // a new best stays on the ambient screen for a week
 
   function span(sec) {
     if (sec < 5400) return Math.max(1, Math.round(sec / 60)) + ' MIN';
@@ -46,13 +45,15 @@
     };
   }
 
-  // A best landed while nobody was at the dashboard — the dashboard's toast only exists in the session that
-  // saw it — so the ambient view, which is what an idle machine actually shows, carries it for a week.
+  // A best usually lands while nobody is at the dashboard (one ticket per block, overnight), so the ambient
+  // view — what an idle machine actually shows — carries it until the user has seen it: `seenAt` is the `at`
+  // of the newest best they dismissed on the dashboard (config best_seen_at, via /config). null means we
+  // couldn't learn it (no app server, e.g. the public demo) → show nothing rather than nag forever.
   // Worded like the dashboard toast: leading hex "0"s, the unit people can see in the hash.
-  function bestLine(best, now) {
-    if (!best || !(best.zero_bits > 0) || !best.at) return '';
+  function bestLine(best, seenAt, now) {
+    if (seenAt == null || !best || !(best.zero_bits > 0) || !best.at) return '';
     var at = Date.parse(best.at);
-    if (!isFinite(at) || now - at > BEST_SHOWN_MS || now < at - 60000) return '';
+    if (!isFinite(at) || best.at === seenAt || Date.parse(seenAt) >= at) return '';
     var zeros = Math.floor(best.zero_bits / 4), ageS = (now - at) / 1000;
     var when = ageS < 3600 ? 'JUST NOW' : ageS < 86400 ? Math.round(ageS / 3600) + ' H AGO'
       : Math.round(ageS / 86400) === 1 ? '1 DAY AGO' : Math.round(ageS / 86400) + ' DAYS AGO';

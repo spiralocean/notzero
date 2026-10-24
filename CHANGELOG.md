@@ -17,9 +17,11 @@ version number and bump `desktop/package.json`.
   the sync panel, the footer and the ambient screen all say "no new blocks for 12h — check this computer's
   internet connection", and the status turns amber. Right after a computer wakes from sleep it says
   "catching up" instead, which clears by itself within a few minutes.
-- **A new best now shows on the ambient screen.** The "new best" message on the dashboard only appeared if
-  the dashboard happened to be open when it happened. The ambient screen now shows "★ new best · 3 leading
-  zeros · 4 days ago" in gold for a week after each new best.
+- **A new best stays on screen until you've seen it.** The "new best" message on the dashboard only appeared
+  if the dashboard happened to be open at that moment, so a best that landed overnight was never mentioned.
+  Now the message comes back each time you open the dashboard, saying how long ago the best was, until you
+  click it away. Until then, the ambient screen also shows "★ new best · 3 leading zeros · 4 days ago" in
+  gold.
 
 ## 0.1.102
 

@@ -361,6 +361,8 @@
   function setStatus(txt){ statusEl.textContent = txt || ''; statusEl.style.opacity = txt ? '1' : '0'; }
   const bestEl=document.getElementById('best');
   function setBest(txt){ bestEl.textContent = txt || ''; bestEl.style.opacity = txt ? '1' : '0'; }
+  // which best the user has already dismissed on the dashboard (the app's /config); null if there's no app server
+  async function bestSeenAt(){ try { const c = await (await fetch('/config', { cache:'no-store' })).json(); return typeof c.best_seen_at === 'string' ? c.best_seen_at : null; } catch(_){ return null; } }
   const nodeStatus = window.AmbientStatus ? AmbientStatus.createNodeStatus() : null; // the status line's wording lives in ambient-status.js
 
   function onNewBlock(height, hashHex){
@@ -380,7 +382,7 @@
       node.tipTime = j.tip_time || 0;
       node.mempoolCount = (j.mempool && j.mempool.count) || 0;
       node.syncPct = j.verificationprogress != null ? j.verificationprogress : 1;
-      if(nodeStatus){ const ns = nodeStatus(j, Date.now()); node.synced = ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, Date.now())); }
+      if(nodeStatus){ const ns = nodeStatus(j, Date.now()); node.synced = ns.synced; setStatus(ns.text); setBest(AmbientStatus.bestLine(j.miner && j.miner.best, await bestSeenAt(), Date.now())); }
       // your best-ever near-miss (most leading-zero-bits, persisted across sessions) drives the weak second sphere
       const mb = j.miner && j.miner.best;
       if(mb && typeof mb.zero_bits === 'number' && mb.zero_bits > state.best.zeros){
