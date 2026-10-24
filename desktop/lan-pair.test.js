@@ -25,6 +25,17 @@ test("the name is kept only when it leads back to the sender; otherwise the addr
   assert.equal(await chooseEntry("pc", "192.168.10.60", async () => { throw new Error("ENOTFOUND"); }), "192.168.10.60");
 });
 
+test("a window that can't get a packet onto the network says it's stuck, instead of quietly counting down", async () => {
+  const p = createPairing({ name: "lonely.local", interfaces: () => [], stuckAfterMs: 50 });
+  p.start();
+  try {
+    assert.equal(p.status().stuck, false, "not before it's had a chance");
+    await new Promise((r) => setTimeout(r, 120));
+    assert.deepEqual([p.status().active, p.status().stuck, p.status().sent], [true, true, 0]);
+  } finally { p.stop(); }
+  assert.equal(p.status().stuck, false);
+});
+
 test("two copies in a pairing window find each other", { skip: process.env.LAN_PAIR_LIVE !== "1" }, async () => {
   const a = createPairing({ name: "copy-a.local" }), b = createPairing({ name: "copy-b.local" });
   a.start(); b.start();
@@ -34,6 +45,8 @@ test("two copies in a pairing window find each other", { skip: process.env.LAN_P
     assert.deepEqual(a.status().found.map((f) => f.name), ["copy-b.local"]);
     assert.deepEqual(b.status().found.map((f) => f.name), ["copy-a.local"]);
     assert.equal(a.status().active, true);
+    assert.ok(a.status().sent > 0 && a.status().heardSelf > 0, "each copy hears its own announcement");
+    assert.equal(a.status().stuck, false);
   } finally { a.stop(); b.stop(); }
   assert.equal(a.status().active, false);
 });

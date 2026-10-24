@@ -4,6 +4,22 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.107
+
+**Node**
+- **Your own computers show in the peer view.** In Blockchain Sync, a peer that's one of your computers gets
+  the same ring as your node, sits at the top of the arch, and is labelled "your computer". It's always shown,
+  however many other peers there are.
+- **Find says when it's stuck.** Each computer hears its own announcement come back. If that hasn't happened
+  within a few seconds, the page now says the computer isn't getting onto the network and to reopen the app,
+  instead of quietly counting down to "didn't find any". Each window also logs how many announcements it sent
+  and heard.
+
+**Security**
+- **The app can't be run as a plain script runner or have a debugger attached.** Electron's run-as-node,
+  inspector and NODE_OPTIONS switches are now turned off in the shipped app, so another program on the
+  computer can't use them to run code inside Bitcoin Lottery.
+
 ## 0.1.106
 
 **Node**

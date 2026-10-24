@@ -21,6 +21,11 @@
     "appId": "com.spiralocean.bitcoinlottery",
     "productName": "Bitcoin Lottery",
     "afterSign": "notarize.js",
+    "electronFuses": {
+      "runAsNode": false,
+      "enableNodeCliInspectArguments": false,
+      "enableNodeOptionsEnvironmentVariable": false
+    },
     "publish": {
       "provider": "generic",
       "url": "https://dl.getnotzero.com"

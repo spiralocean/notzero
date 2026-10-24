@@ -372,7 +372,9 @@
             const fresh = addFound(st.found || []);
             const names = (st.found || []).map((f) => f.name).join(", ");
             if (st.error) { clearInterval(findPoll); findPoll = null; $("lan-find").textContent = "Find my other computers"; return findMsg(`Couldn't look on this network (${st.error}).`, "#e0a030"); }
-            if (st.active) {
+            if (st.active && st.stuck) {
+              findMsg((names ? `Found ${names}, but your` : "Your") + " other computers can't see this one: it isn't getting onto your network. Quit Bitcoin Lottery, open it again, and click Find again.", "#e0a030");
+            } else if (st.active) {
               const left = Math.max(0, Math.round((st.endsAt - Date.now()) / 1000));
               findMsg((names ? `Found ${names}. ` : "") + `Looking for ${Math.floor(left / 60)}:${String(left % 60).padStart(2, "0")} more. On your other computer, open Settings and click Find there too.`);
             } else {

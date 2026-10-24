@@ -3826,24 +3826,33 @@ function drawSync(r) {
   if (peers.length === 0) {
     text(nodeMode === "managed" ? "connecting to the Bitcoin network…" : "connecting to peers — waiting for your node to find some", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   } else {
-    { const mine = peers.filter((p) => p.local).length; text(`${peers.length} peers${mine ? ` · ${mine} of your computers` : ""}`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); }
-    const shown = Math.min(peers.length, 12);
+    { const mine = peers.filter((p) => p.local).length; text(`${peers.length} peers${mine ? ` · ${mine} of your computers` : ""}`, cx, archBaseY - Ry - (mine ? 19 : 10), { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); }
+    // your own computers always make the cut and sit at the top of the arch, nearest your node; the rest
+    // keep their stable order around them
+    const others = peers.filter((p) => !p.local), mineP = peers.filter((p) => p.local).slice(0, 4);
+    const pick = others.slice(0, Math.max(0, 12 - mineP.length)), mid = Math.floor(pick.length / 2);
+    const arch = [...pick.slice(0, mid), ...mineP, ...pick.slice(mid)];
+    const shown = arch.length;
     const maxRate = Math.max(1, ...peers.map((p) => p.rate || 0)); // busiest peer sets the scale
     syncState.peerSmooth = syncState.peerSmooth || {};
     const sm = syncState.peerSmooth;
     for (let i = 0; i < shown; i++) {
       const f = shown > 1 ? i / (shown - 1) : 0.5, th = Math.PI * (1 - f);
       const px = cx + Rx * Math.cos(th), py = archBaseY - Ry * Math.sin(th);
-      const addr = peers[i].addr || ("p" + i), tgt = Math.min(1, (peers[i].rate || 0) / maxRate);
+      const addr = arch[i].addr || ("p" + i), tgt = Math.min(1, (arch[i].rate || 0) / maxRate);
       sm[addr] = sm[addr] == null ? tgt : sm[addr] + (tgt - sm[addr]) * 0.06; // taper between 4s polls → fluid
       const intensity = Math.max(0, Math.min(1, sm[addr]));
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
       ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
+      if (arch[i].local) { // one of your computers: ringed like your node, and named as yours
+        ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, 11, 0, 7); ctx.stroke();
+        text("your computer", px, py + 20, { size: 9, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+      }
       // data stream peer → node: tap opens only while this peer is actually sending bytes (not just the
       // 'downloading' flag — bitcoind marks many peers in-flight). Flow speed/brightness scale with its rate,
       // so you see which peers are really feeding you and how hard.
-      const active = (peers[i].rate || 0) > 15_000;
+      const active = (arch[i].rate || 0) > 15_000;
       const st = tickStream(syncState.streams, "peer:" + addr, active, 0.8 + intensity * 2.2);
       drawStream(px, py, cx, nodeY, st, 0.5 + 0.45 * intensity);
       // synced/mining: peers keep exchanging block announcements, headers and pings — a faint heartbeat

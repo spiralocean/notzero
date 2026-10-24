@@ -24,6 +24,11 @@ const PAIR_GROUP = "239.255.84.33";
 const PAIR_PORT = 8435;          // 8433 is the node; 8434 is where Core would put a Tor listener by default
 const PAIR_WINDOW_MS = 5 * 60_000;
 const ANNOUNCE_EVERY_MS = 2000;
+// Every copy hears its own announcement come back (multicast loops to the sender's own socket). Nothing back
+// this long after opening means the packets aren't getting onto the network at all — seen once on a Mac whose
+// long-running app sent nothing, with no error, until it was reopened — so the page says so instead of
+// counting down to "didn't find any".
+const STUCK_AFTER_MS = 6000;
 const MAGIC = "notzero-pair/1";
 
 function encodeAnnounce({ nonce, name }) {
@@ -58,13 +63,15 @@ function ipv4Interfaces() {
 }
 
 // One pairing window at a time. status() is what the Settings page polls.
-function createPairing({ name, log = () => {} }) {
+function createPairing({ name, log = () => {}, interfaces = ipv4Interfaces, stuckAfterMs = STUCK_AFTER_MS }) {
   const nonce = crypto.randomBytes(8).toString("hex");
   let sock = null, timer = null, endsAt = 0, error = "";
+  let openedAt = 0, sent = 0, heardSelf = 0, sendErrors = 0, lastSendError = ""; // this window's health, for status() and the log
   let found = []; // [{ entry, name }] — kept after the window closes so the page can still show it
   let seen = new Set(); // nonces already handled: one entry per copy, though it announces on each of its networks
 
   function stop() {
+    if (sock) log(`pairing window closed: sent ${sent}, heard itself ${heardSelf}, found ${found.length}` + (sendErrors ? `, ${sendErrors} send errors (last ${lastSendError})` : ""));
     clearInterval(timer); timer = null; endsAt = 0;
     if (sock) { try { sock.close(); } catch (_) {} sock = null; }
   }
@@ -72,14 +79,15 @@ function createPairing({ name, log = () => {} }) {
   async function announce() {
     if (!sock) return;
     const msg = encodeAnnounce({ nonce, name });
-    for (const addr of ipv4Interfaces()) { // every network this computer is on — Wi-Fi and Ethernet can both be up
-      try { sock.setMulticastInterface(addr); await new Promise((r) => sock.send(msg, PAIR_PORT, PAIR_GROUP, () => r())); } catch (_) {}
+    for (const addr of interfaces()) { // every network this computer is on — Wi-Fi and Ethernet can both be up
+      try { sock.setMulticastInterface(addr); await new Promise((r) => sock.send(msg, PAIR_PORT, PAIR_GROUP, (e) => { if (e) { sendErrors++; lastSendError = e.code || e.message; } else sent++; r(); })); } catch (_) {}
     }
   }
 
   async function onMessage(buf, rinfo) {
     const a = parseAnnounce(buf);
-    if (!a || a.nonce === nonce || seen.has(a.nonce)) return; // our own packet looped back, or a copy we have
+    if (a && a.nonce === nonce) { heardSelf++; return; } // our own packet looped back: proof it reached the network
+    if (!a || seen.has(a.nonce)) return; // not ours, or a copy we already have
     seen.add(a.nonce);
     const entry = await chooseEntry(a.name, rinfo.address);
     if (found.some((f) => f.entry === entry)) return;
@@ -91,25 +99,27 @@ function createPairing({ name, log = () => {} }) {
     error = "";
     if (sock) { endsAt = Date.now() + PAIR_WINDOW_MS; return; } // clicked again: just extend the window
     found = []; seen = new Set();
+    openedAt = Date.now(); sent = 0; heardSelf = 0; sendErrors = 0; lastSendError = "";
     sock = dgram.createSocket({ type: "udp4", reuseAddr: true });
     sock.on("message", (b, r) => { onMessage(b, r).catch(() => {}); });
     sock.on("error", (e) => { error = e.code || e.message; log(`pairing error: ${error}`); stop(); });
     sock.bind(PAIR_PORT, () => {
       if (!sock) return;
       try { sock.setMulticastTTL(1); } catch (_) {}
-      for (const addr of ipv4Interfaces()) { try { sock.addMembership(PAIR_GROUP, addr); } catch (_) {} }
+      for (const addr of interfaces()) { try { sock.addMembership(PAIR_GROUP, addr); } catch (_) {} }
       announce();
     });
     endsAt = Date.now() + PAIR_WINDOW_MS;
-    timer = setInterval(() => { if (Date.now() >= endsAt) { log("pairing window closed"); stop(); } else announce(); }, ANNOUNCE_EVERY_MS);
+    timer = setInterval(() => { if (Date.now() >= endsAt) stop(); else announce(); }, ANNOUNCE_EVERY_MS);
     log("pairing window open");
   }
 
   function status() {
-    return { active: !!sock, endsAt, found: found.map((f) => ({ ...f })), error };
+    const stuck = !!sock && heardSelf === 0 && Date.now() - openedAt >= stuckAfterMs;
+    return { active: !!sock, endsAt, found: found.map((f) => ({ ...f })), error, stuck, sent, heardSelf, sendErrors, lastSendError };
   }
 
   return { start, stop, status };
 }
 
-module.exports = { PAIR_GROUP, PAIR_PORT, PAIR_WINDOW_MS, encodeAnnounce, parseAnnounce, chooseEntry, createPairing };
+module.exports = { PAIR_GROUP, PAIR_PORT, PAIR_WINDOW_MS, STUCK_AFTER_MS, encodeAnnounce, parseAnnounce, chooseEntry, createPairing };
