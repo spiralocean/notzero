@@ -4,7 +4,7 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.107
+## 0.1.107
 
 **Node**
 - **Your own computers show in the peer view.** In Blockchain Sync, a peer that's one of your computers gets
