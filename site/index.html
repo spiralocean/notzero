@@ -96,6 +96,9 @@
   .others a { color: var(--muted); text-decoration: none; border-bottom: 1px dotted rgba(255,255,255,0.2); }
   .others a:hover { color: var(--orange); border-color: var(--orange); }
   .others .sep { opacity: 0.4; margin: 0 9px; }
+  .first-open { margin-top: 10px; max-width: 552px; font-family: var(--mono); font-size: 12.5px; line-height: 1.6; color: var(--muted); }
+  .first-open b { color: var(--ink); font-weight: 500; }
+  .first-open code { color: var(--orange); font-size: 12px; }
   .verify { margin-top: 24px; max-width: 552px; display: flex; align-items: flex-start; gap: 13px;
     border: 1px solid rgba(90,220,140,0.22); background: rgba(90,220,140,0.045); border-radius: 12px; padding: 14px 17px; }
   .verify .vmark { color: var(--green); font-family: var(--mono); font-size: 15px; flex: 0 0 auto; margin-top: 1px; text-shadow: 0 0 10px rgba(90,220,140,0.5); }
@@ -238,6 +241,10 @@
     <a class="demo-link" href="https://demo.getnotzero.com" target="_blank" rel="noopener">Watch the live demo ↗</a>
   </div>
   <div class="others rise" id="others" style="animation-delay:.46s"></div>
+  <!-- Filled per OS by the script below. Windows and Linux builds are unsigned, so their first open hits a wall
+       the Mac never does; saying how past it, right under the button, is the difference between one more click
+       and giving up. Empty for Mac. -->
+  <p class="first-open rise" id="first-open" style="animation-delay:.48s" hidden></p>
   <div class="rise" id="dlcount" style="animation-delay:.5s; font-size:12px; color:rgba(255,255,255,0.6); margin-top:10px; text-align:center; min-height:14px; font-family:ui-monospace,monospace;"></div>
   <div class="verify rise" style="animation-delay:.56s">
     <span class="vmark">✓</span>
@@ -395,6 +402,18 @@
   }
   configBtn(document.getElementById("dl"));
   configBtn(document.getElementById("dl2"));
+  // first-open help for the unsigned builds — shown for the visitor's OS, and switched when they pick another
+  // OS's link from the row above (someone on a Mac fetching it for their Windows PC needs the Windows line).
+  const FIRST_OPEN = {
+    win: '<b>Opening it on Windows:</b> Windows warns about apps without a paid signing certificate — click <b>More info</b>, then <b>Run anyway</b>. Once only.',
+    linux: '<b>Opening it on Linux:</b> mark the file as a program first — right-click → Properties → <b>Allow executing as program</b>, or <code>chmod +x notzero-linux.AppImage</code>. On Ubuntu 22.04 or newer, if it still won’t open: <code>sudo apt install libfuse2</code>.',
+  };
+  function showFirstOpen(o) {
+    const el = document.getElementById("first-open");
+    if (!el) return;
+    el.innerHTML = FIRST_OPEN[o] || ""; el.hidden = !FIRST_OPEN[o];
+  }
+  showFirstOpen(os);
   // trust line: show the Apple-notarization line to EVERYONE (it's a credibility signal), but keep it scoped
   // to "the Mac app" and say "macOS confirms" — so a Windows/Linux reader isn't misled that THEIR download is
   // signed (Windows/Linux ship unsigned, no paid cert).
@@ -417,7 +436,7 @@
     const osFromHref = (h) => (h === WIN_URL ? "win" : h === LINUX_URL ? "linux" : h === MAC_URL ? "mac" : os); // alternate links carry their own OS; buttons use the detected one
     const bump = (osName) => { try { if (localStorage.getItem("nz.dl")) return; localStorage.setItem("nz.dl", "1"); } catch (_) {} try { navigator.sendBeacon("/api/downloads?os=" + encodeURIComponent(osName || os)); } catch (_) {} };
     ["dl", "dl2"].forEach((id) => { const b = document.getElementById(id); if (b) b.addEventListener("click", () => { const h = b.getAttribute("href"); if (h && h !== "#") bump(os); }); });
-    document.querySelectorAll("#others a").forEach((a) => a.addEventListener("click", () => bump(osFromHref(a.getAttribute("href"))))); // count alternate-link clicks too, attributed to their OS (deduped per browser, same as the buttons)
+    document.querySelectorAll("#others a").forEach((a) => a.addEventListener("click", () => { const o = osFromHref(a.getAttribute("href")); bump(o); showFirstOpen(o); })); // count alternate-link clicks too, attributed to their OS (deduped per browser, same as the buttons)
   })();
   // show the current downloadable version next to the button (auto-pulled from the update feed)
   fetch("/api/version").then((r) => r.json()).then((d) => {
