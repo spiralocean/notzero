@@ -6,6 +6,11 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.105
 
+**Setup**
+- **Windows and Linux: the setup screen no longer gives Mac instructions.** It used to say to reopen the app
+  from the Dock and quit with ⌘Q. It now points to the Bitcoin Lottery icon in the system tray (Windows) or
+  top bar (Linux), and to "Quit and Stop Mining" in that icon's menu.
+
 ## 0.1.104
 
 **Node**

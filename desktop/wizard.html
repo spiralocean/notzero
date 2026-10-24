@@ -234,7 +234,7 @@
         <div class="hint" id="p-pct" style="text-align:right;margin:0"></div>
         <div class="plog" id="p-log"></div>
       </div>
-      <div class="foot">Safe to close this window — setup keeps running in the background, and mining starts automatically when your node is ready. Reopen anytime by clicking the app in your Dock.<br/>Closing the window does <b>not</b> stop your node — only quitting the app (⌘Q) pauses setup, and it continues where it left off next time, without re-downloading.</div>
+      <div class="foot">Safe to close this window — setup keeps running in the background, and mining starts automatically when your node is ready. <span id="p-reopen">Reopen anytime by clicking the app in your Dock.</span><br/>Closing the window does <b>not</b> stop your node — only <span id="p-quit">quitting the app (⌘Q)</span> pauses setup, and it continues where it left off next time, without re-downloading.</div>
       <div id="p-actions" style="display:none; gap:10px; justify-content:center; margin-top:14px">
         <button class="primary btn-sm" id="p-retry" type="button">Try again</button>
         <button class="ghost btn-sm" id="p-remove" type="button" style="color:rgba(255,255,255,0.45);font-size:12px" title="Deletes the node and re-syncs from scratch (hours)">Remove &amp; start over</button>
@@ -290,6 +290,13 @@
       else if (platform === "linux") el.textContent = "delete the notzero AppImage, and remove ~/.config/autostart/notzero.desktop if it's there.";
       else el.textContent = "drag notzero from your Applications folder to the Trash."; // macOS + fallback
     }
+    // The setup footer's reopen + quit wording, per OS: Windows and Linux have no Dock and no ⌘Q — the app lives in
+    // the tray there, and opening it again just brings the window back (single-instance). The HTML holds the Mac text.
+    function setupFootFor(platform) {
+      if (platform !== "win32" && platform !== "linux") return;
+      $("p-reopen").textContent = "Reopen anytime from the Bitcoin Lottery icon in the " + (platform === "win32" ? "system tray (by the clock — it may be under the ^ arrow)" : "top bar") + ", or by opening the app again.";
+      $("p-quit").textContent = "choosing “Quit and Stop Mining” from that icon";
+    }
 
     $("opt-existing").onclick = selectExisting;
     $("opt-new").onclick = selectManaged;
@@ -312,6 +319,7 @@
         const c = await (await fetch("/config")).json();
         if (c && c.app_version) $("appver").textContent = "v" + c.app_version; // visible build number for support
         uninstallStep2(c && c.platform); // tailor the "remove the app" step to this OS
+        setupFootFor(c && c.platform);
         if (c && c.exists) {
           settingsMode = true;
           document.title = "Settings — ₿itcoin Lottery";
