@@ -4,7 +4,22 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.103
+## Unreleased — next: 0.1.104
+
+## 0.1.103
+
+**Dashboard and ambient screen**
+- **When no new blocks are arriving, the app now says so.** If a computer's internet connection silently
+  stops working, its node stops hearing about new blocks while everything on screen looks fine. One of our
+  test machines spent 12 hours like that: the top of the dashboard said "submitting tickets" in green, the
+  sync panel said "catching up after sleep" (it hadn't slept), and the ambient screen said "syncing 99%".
+  Now, if the newest block stays more than 90 minutes old for 10 minutes while you're watching, the status,
+  the sync panel, the footer and the ambient screen all say "no new blocks for 12h — check this computer's
+  internet connection", and the status turns amber. Right after a computer wakes from sleep it says
+  "catching up" instead, which clears by itself within a few minutes.
+- **A new best now shows on the ambient screen.** The "new best" message on the dashboard only appeared if
+  the dashboard happened to be open when it happened. The ambient screen now shows "★ new best · 3 leading
+  zeros · 4 days ago" in gold for a week after each new best.
 
 ## 0.1.102
 
