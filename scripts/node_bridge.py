@@ -538,6 +538,33 @@ def _is_lan_addr(addr: str) -> bool:
     return ip.is_private and not ip.is_loopback
 
 
+def _listed_ips() -> set:
+    """The IP addresses typed into Settings → your other computers (names are left out: resolving them here
+    could stall a poll on a slow lookup). Lets a computer on another subnet or a company network — anything
+    _is_lan_addr doesn't recognise — still count as yours."""
+    import ipaddress
+    try:
+        listed = json.load(CONFIG.open()).get("lan_peers") or [] if CONFIG.exists() else []
+    except (OSError, ValueError):
+        return set()
+    ips = set()
+    for entry in listed if isinstance(listed, list) else []:
+        host = str(entry).rsplit(":", 1)[0]
+        try:
+            ips.add(str(ipaddress.ip_address(host)))
+        except ValueError:
+            pass
+    return ips
+
+
+def _is_yours(p: dict, listed: set) -> bool:
+    """One of the user's own computers: a connection the node made because it's on their list (Core calls
+    -addnode peers "manual"), an address they typed in, or a peer on the local network."""
+    addr = p.get("addr", "")
+    host = addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+    return p.get("connection_type") == "manual" or host in listed or _is_lan_addr(addr)
+
+
 def build(url, user, pw, cookie=""):
     # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
     # poll, since the cookie rotates on each bitcoind restart).
@@ -612,6 +639,7 @@ def build(url, user, pw, cookie=""):
         except Exception:  # noqa: BLE001
             nettotals = None
     peers = []
+    listed = _listed_ips() if peers_raw else set()
     for p in peers_raw:
         addr = p.get("addr", "?")
         recv = p.get("bytesrecv", 0)
@@ -627,9 +655,9 @@ def build(url, user, pw, cookie=""):
             "downloading": downloading,
             "rate": round(rate),
             "subver": p.get("subver", ""),
-            # one of the user's own computers (Settings → your other computers, desktop/lan-peers.js): a peer
-            # on the local network. Only the yes/no leaves this file, never the address.
-            "local": _is_lan_addr(addr),
+            # one of the user's own computers (Settings → your other computers, desktop/lan-peers.js). Only
+            # the yes/no leaves this file, never the address.
+            "local": _is_yours(p, listed),
         })
     peers.sort(key=lambda x: x["addr"])  # stable order so the web doesn't shuffle peer positions
     # miner status from the lottery daemon's state.json, so the dashboard can show whether it's really live

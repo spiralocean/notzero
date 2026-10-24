@@ -9,7 +9,8 @@ version number and bump `desktop/package.json`.
 **Node**
 - **Your own computers show in the peer view.** In Blockchain Sync, a peer that's one of your computers gets
   the same ring as your node, sits at the top of the arch, and is labelled "your computer". It's always shown,
-  however many other peers there are.
+  however many other peers there are. "Yours" means a computer on your list (by name or IP address, even on
+  another subnet or a company network) or one on your home network.
 - **Find says when it's stuck.** Each computer hears its own announcement come back. If that hasn't happened
   within a few seconds, the page now says the computer isn't getting onto the network and to reopen the app,
   instead of quietly counting down to "didn't find any". Each window also logs how many announcements it sent
