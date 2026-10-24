@@ -6,6 +6,15 @@ version number and bump `desktop/package.json`.
 
 ## Unreleased — next: 0.1.104
 
+**Node**
+- **Your computers can share blocks with each other.** If you run Bitcoin Lottery on more than one computer at
+  home, list the others under Settings → Your Bitcoin node → "Your other computers" (for example
+  `mac-m1.local`). Each node then keeps your other computers as peers, so a block one of them hears about
+  reaches the rest over your home network. Every node keeps its usual internet peers too, so none of them
+  depends on another being switched on. Your node only accepts incoming connections once you've listed a
+  computer, and never tells the internet its address. Nothing is discovered or announced automatically. The
+  dashboard's peer count shows how many of your own computers are connected.
+
 ## 0.1.103
 
 **Dashboard and ambient screen**

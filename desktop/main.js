@@ -68,6 +68,7 @@ process.on("uncaughtException", showStartupError);
 process.on("unhandledRejection", showStartupError);
 
 const NodeLifecycle = require("./node-lifecycle"); // managed-node provisioning (Phases 1–2)
+const LanPeers = require("./lan-peers"); // Settings → your other computers as node peers
 const NodeProvision = require("./node-provision");
 const { autoUpdater } = require("electron-updater"); // background auto-update from dl.getnotzero.com
 const { deferWhileBusy } = require("./install-gate.js"); // holds quitAndInstall() back while a dialog is open
@@ -1288,7 +1289,7 @@ const onManagedState = (s) => nodeRecovery.onState(s.state, s.detail, { quitting
 async function startManagedNode() {
   if (managed) return;
   managedLog = []; lastLogKey = "";
-  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, onState: (s) => { managedState = s; logManaged(s); onManagedState(s); } });
+  managed = NodeLifecycle.createManagedNode({ dataRoot: DATA_DIR, lanPeers: () => { try { return JSON.parse(fs.readFileSync(configPath(), "utf8")).lan_peers || []; } catch (_) { return []; } }, onState: (s) => { managedState = s; logManaged(s); onManagedState(s); } });
   try {
     await managed.start(); // download → verify → launch → snapshot → first sync sample
     // The node is reachable now (still syncing). Wire its RPC into config and start the BRIDGE so
@@ -1387,6 +1388,26 @@ function handleWhatsNewPref(req, res) {
     cfg.show_whats_new = !!p.enabled;
     try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false }); }
     json(200, { ok: true });
+  });
+}
+
+// Settings → "Your other computers": save the cleaned-up list, then restart the managed node so bitcoind
+// picks up the new flags (they're launch arguments — see lan-peers.js). Entries that can't be used come back
+// in `rejected` for the page to show. Only restarts when the list actually changed and the app runs the node.
+function handleLanPeers(req, res) {
+  let body = "";
+  req.on("data", (c) => { body += c; if (body.length > 10000) req.destroy(); });
+  req.on("end", () => {
+    const json = (code, obj) => { res.writeHead(code, { "Content-Type": "application/json" }); res.end(JSON.stringify(obj)); };
+    let p; try { p = JSON.parse(body); } catch (_) { return json(400, { ok: false, error: "bad request" }); }
+    const { peers, rejected } = LanPeers.normalizeLanPeers(p.peers);
+    let cfg = {}; try { cfg = JSON.parse(fs.readFileSync(configPath(), "utf8")); } catch (_) {}
+    const changed = JSON.stringify(cfg.lan_peers || []) !== JSON.stringify(peers);
+    cfg.lan_peers = peers;
+    try { fs.writeFileSync(configPath(), JSON.stringify(cfg, null, 2), { mode: 0o600 }); } catch (_) { return json(200, { ok: false, error: "couldn't save" }); }
+    const restarting = changed && cfg.node_mode === "managed" && !!managed;
+    if (restarting) { console.log(`[notzero] node: other computers now ${peers.length ? peers.join(", ") : "none"} — restarting the node to apply`); retryManagedNode(); }
+    json(200, { ok: true, peers, rejected, restarting });
   });
 }
 
@@ -1518,6 +1539,7 @@ function startServer() {
       if (req.method === "POST" && urlPath === "/auto-update") { handleAutoUpdatePref(req, res); return; }
       if (req.method === "POST" && urlPath === "/whats-new") { handleWhatsNewPref(req, res); return; }
       if (req.method === "POST" && urlPath === "/best-seen") { handleBestSeen(req, res); return; }
+      if (req.method === "POST" && urlPath === "/lan-peers") { handleLanPeers(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-config") { handleAmbientConfig(req, res); return; }
       if (req.method === "POST" && urlPath === "/ambient-open") { openAmbient(true); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the dashboard's ambient-view button
       if (req.method === "POST" && urlPath === "/update/held") { promptHeldUpdateDialog(); res.writeHead(200, { "Content-Type": "application/json" }); res.end('{"ok":true}'); return; } // the "waiting for Bitcoin" pill → wait / install now
@@ -1540,6 +1562,8 @@ function startServer() {
         out.version_anchor = currentVersionAnchor; // the running version's on-chain status (or null)
         out.update_history = updateHistory; // recent releases + their on-chain verification (newest first) — VERIFIED UPDATES list
         out.platform = process.platform; // lets the dashboard word the close/quit note per-OS (tray on Windows, ⌘Q on macOS)
+        out.lan_peers = Array.isArray(cfg.lan_peers) ? cfg.lan_peers : []; // your other computers as node peers (lan-peers.js)
+        out.this_computer = LanPeers.thisComputerName(); // what to type on the OTHER computers to reach this one
         out.best_seen_at = cfg.best_seen_at || ""; // the newest best the user has dismissed — dashboard toast + ambient line show until then
         res.writeHead(200, { "Content-Type": "application/json; charset=utf-8", "Cache-Control": "no-store" }); res.end(JSON.stringify(out)); return;
       }

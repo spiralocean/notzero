@@ -113,6 +113,11 @@
       </div>
       <div class="rpc" id="managed-status">
         <div class="reassure">✓ You're running your <b>own private node</b>, set up by this app. No keys are held here.</div>
+        <label style="margin-top:16px">Your other computers running Bitcoin Lottery <span style="opacity:.6">(optional)</span></label>
+        <input id="lan_peers" type="text" placeholder="e.g. mac-m1.local, macbookpro.local" spellcheck="false" />
+        <div class="hint" style="margin-top:6px">Your node keeps these computers as peers, so a new block one of them hears about reaches the others over your home network. It keeps its usual internet peers too, so nothing depends on another computer being on. Add the list on each computer — this one is <b id="this-computer">…</b>. Saving restarts your node, about a minute. Your computer may ask whether <b>bitcoind</b> can accept incoming connections: choose <b>Allow</b>.</div>
+        <button class="ghost btn-sm" id="lan-save" type="button" style="margin-top:8px">Save computers</button>
+        <span class="hint" id="lan-msg" style="margin-left:8px"></span>
         <button class="ghost btn-sm" id="node-remove" type="button" style="margin-top:12px;color:rgb(255,140,90);border-color:rgba(255,140,90,0.4)">Remove node &amp; all data</button>
         <div class="hint" style="margin-top:6px">Stops the node and deletes Bitcoin Core + its ~20 GB of data. You'd re-sync if you set it up again.</div>
         <details style="margin-top:14px">
@@ -328,6 +333,19 @@
           $("notifications_enabled").checked = c.notifications_enabled !== false;
           $("notifications_enabled").onchange = () => { fetch("/notifications", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("notifications_enabled").checked }) }).catch(() => {}); };
           $("notif-test").onclick = () => { const m = $("notif-test-msg"); m.style.color = ""; m.textContent = "Sending…"; fetch("/notifications/test", { method: "POST" }).then((r) => r.json()).then((r) => { if (r.supported) { m.style.color = "#7bd88f"; m.textContent = "Sent — see it? If not, allow notifications for this app in your OS settings."; } else { m.style.color = "#e0a030"; m.textContent = "Your OS reports notifications aren’t available."; } }).catch(() => { m.style.color = "#e0a030"; m.textContent = "Couldn’t send — try again."; }); };
+          // your other computers as node peers (managed node only — the section lives in #managed-status)
+          $("lan_peers").value = (c.lan_peers || []).map((p) => p.replace(/:8433$/, "")).join(", ");
+          $("this-computer").textContent = c.this_computer || "this computer";
+          $("lan-save").onclick = async () => {
+            const m = $("lan-msg"); m.style.color = ""; m.textContent = "Saving…";
+            try {
+              const r = await (await fetch("/lan-peers", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ peers: $("lan_peers").value }) })).json();
+              if (!r.ok) throw new Error(r.error || "failed");
+              $("lan_peers").value = r.peers.map((p) => p.replace(/:8433$/, "")).join(", ");
+              m.style.color = r.rejected.length ? "#e0a030" : "#7bd88f";
+              m.textContent = (r.rejected.length ? `Skipped ${r.rejected.join(", ")} — use a computer name like mac-m1.local, or an address like 192.168.1.30. ` : "Saved. ") + (r.restarting ? "Your node is restarting." : "");
+            } catch (_) { m.style.color = "#e0a030"; m.textContent = "Couldn't save — try again."; }
+          };
           $("autoupdate-row").style.display = "block";
           $("auto_update").checked = c.auto_update !== false;
           $("auto_update").onchange = () => { fetch("/auto-update", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ enabled: $("auto_update").checked }) }).catch(() => {}); };

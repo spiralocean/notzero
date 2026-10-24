@@ -42,6 +42,7 @@
       "miner-watchdog.js",
       "window-bounds.js",
       "window-health.js",
+      "lan-peers.js",
       "ambient-wake.js",
       "boot-settle.js",
       "package.json",

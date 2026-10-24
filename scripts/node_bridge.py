@@ -526,6 +526,18 @@ def tip_block_from_core(cb):
         return None
 
 
+def _is_lan_addr(addr: str) -> bool:
+    """True for a peer on the local network (RFC 1918 IPv4, or IPv6 link-local / unique-local) — in
+    practice one of the user's own computers, since the managed node only listens when they've listed some."""
+    import ipaddress
+    host = addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+    try:
+        ip = ipaddress.ip_address(host)
+    except ValueError:
+        return False
+    return ip.is_private and not ip.is_loopback
+
+
 def build(url, user, pw, cookie=""):
     # cookie auth: resolve to user:pass once here so every inner rpc() call uses it (read fresh each
     # poll, since the cookie rotates on each bitcoind restart).
@@ -615,6 +627,9 @@ def build(url, user, pw, cookie=""):
             "downloading": downloading,
             "rate": round(rate),
             "subver": p.get("subver", ""),
+            # one of the user's own computers (Settings → your other computers, desktop/lan-peers.js): a peer
+            # on the local network. Only the yes/no leaves this file, never the address.
+            "local": _is_lan_addr(addr),
         })
     peers.sort(key=lambda x: x["addr"])  # stable order so the web doesn't shuffle peer positions
     # miner status from the lottery daemon's state.json, so the dashboard can show whether it's really live

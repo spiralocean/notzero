@@ -3826,7 +3826,7 @@ function drawSync(r) {
   if (peers.length === 0) {
     text(nodeMode === "managed" ? "connecting to the Bitcoin network…" : "connecting to peers — waiting for your node to find some", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   } else {
-    text(`${peers.length} peers`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" });
+    { const mine = peers.filter((p) => p.local).length; text(`${peers.length} peers${mine ? ` · ${mine} of your computers` : ""}`, cx, archBaseY - Ry - 10, { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); }
     const shown = Math.min(peers.length, 12);
     const maxRate = Math.max(1, ...peers.map((p) => p.rate || 0)); // busiest peer sets the scale
     syncState.peerSmooth = syncState.peerSmooth || {};

@@ -18,6 +18,7 @@ const path = require("path");
 const http = require("http");
 const { spawn } = require("child_process");
 const P = require("./node-provision");
+const LanPeers = require("./lan-peers"); // your other computers as peers (Settings)
 
 const STATES = {
   IDLE: "idle", DOWNLOADING: "downloading-core", EXTRACTING: "extracting",
@@ -92,7 +93,7 @@ function syncStateFrom(info) {
   };
 }
 
-function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = () => {} } = {}) {
+function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = () => {}, lanPeers = () => [] } = {}) {
   const paths = P.managedPaths(dataRoot);
   const rpcUrl = `http://127.0.0.1:${rpcport}`;
   let child = null, stopping = false, lastState = STATES.IDLE;
@@ -126,6 +127,9 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     // fallen back into IBD (months offline, a reindex), it catches up this once on the small sizes and sync()
     // clears the marker so the next launch gets the full ones — cheaper than restarting bitcoind to resize.
     if (fs.existsSync(paths.syncedFlag)) args.push(`-dbcache=${P.SYNCED_DBCACHE_MIB}`, `-maxmempool=${P.SYNCED_MAXMEMPOOL_MIB}`);
+    // Your other computers (Settings): listen on the LAN port and keep each one as a peer. Read at every launch
+    // so a changed list takes effect on the node's next start — see lan-peers.js.
+    try { args.push(...LanPeers.lanPeerArgs(lanPeers())); } catch (_) {}
     child = spawn(paths.bitcoind, args, { stdio: ["ignore", "ignore", "pipe"] });
     let errTail = "";
     if (child.stderr) child.stderr.on("data", (d) => { errTail = (errTail + d.toString()).slice(-800); }); // keep bitcoind's own error output
