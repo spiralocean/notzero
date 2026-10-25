@@ -542,17 +542,18 @@ def _is_lan_addr(addr: str) -> bool:
 # that's switched off can take seconds, and the poll must not wait on it. The poll reads whatever the last
 # lookup found; a lookup runs again when the list changes or NAME_TTL_SEC has passed.
 NAME_TTL_SEC = 300
-_names = {"key": None, "at": 0.0, "ips": set(), "busy": False}
+_names = {"key": None, "at": 0.0, "ips": set(), "by_name": {}, "busy": False}
 
 
 def _resolve_names(names, key, resolve=socket.getaddrinfo):
-    ips = set()
+    by_name = {}
     for name in names:
         try:
-            ips.update(str(ai[4][0]) for ai in resolve(name, None, proto=socket.IPPROTO_TCP))
+            by_name[name] = {_host(str(ai[4][0])) for ai in resolve(name, None, proto=socket.IPPROTO_TCP)}
         except (OSError, UnicodeError):
             pass  # not found / switched off: it just doesn't count until a later lookup finds it
-    _names.update(key=key, at=time.time(), ips=ips, busy=False)
+    ips = set().union(*by_name.values())
+    _names.update(key=key, at=time.time(), ips=ips, by_name=by_name, busy=False)
 
 
 def _listed_ips(resolve=socket.getaddrinfo, background=True) -> set:
@@ -583,26 +584,38 @@ def _listed_ips(resolve=socket.getaddrinfo, background=True) -> set:
 
 
 def _host(addr: str) -> str:
-    """'1.2.3.4:8333' → '1.2.3.4', '[::1]:8333' → '::1', 'name.local:8433' → 'name.local'."""
-    return addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+    """'1.2.3.4:8333' → '1.2.3.4', '[fe80::1%7]:8333' → 'fe80::1', 'name.local:8433' → 'name.local'. The
+    %7 is which network interface a link-local address was seen on; it isn't part of the computer's address."""
+    host = addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+    return host.split("%", 1)[0]
 
 
-def _merge_yours(peers_raw: list, added: list, listed: set) -> list:
+def _merge_yours(peers_raw: list, added: list, listed: set, by_name: dict = None) -> list:
     """getpeerinfo with each of the user's computers collapsed to one entry. Two computers that list each
     other both dial when they start, and Core keeps both connections — one "manual" (addr is the name we
     dialled) and one inbound (addr is its IP) — which would show as two computers. getaddednodeinfo says which
-    IP each listed name connected to, so both entries key on the same IP; their byte counts are added up."""
+    IP each listed name connected to, so both entries key on the same IP; their byte counts are added up.
+    The inbound one can arrive on a different address than we dialled — a Mac usually reaches mac-m4.local
+    over IPv6 (fe80::…) while we dialled it on IPv4 — so every address a listed name looked up to (by_name)
+    keys on that same IP too."""
+    import ipaddress
     name_ip = {}
     for a in added or []:
         for c in a.get("addresses") or []:
             if c.get("connected"):
                 name_ip[a.get("addednode", "")] = _host(c.get("address", ""))
+    alias = {}  # any address of one of your computers → the one IP its entry keys on
+    for name, ips in (by_name or {}).items():
+        dialled = next((ip for n, ip in name_ip.items() if _host(n) == name), None)
+        key = dialled or min(ips, key=lambda ip: (ipaddress.ip_address(ip).version, ip))  # IPv4 first: the one people recognise
+        alias.update({ip: key for ip in ips})
     out, by_ip = [], {}
     for p in peers_raw:
         if not _is_yours(p, listed):
             out.append(p)
             continue
         ip = name_ip.get(p.get("addr", ""), _host(p.get("addr", "")))
+        ip = alias.get(ip, ip)
         if ip in by_ip:
             first = by_ip[ip]
             first["_both"] = True
@@ -706,7 +719,7 @@ def build(url, user, pw, cookie=""):
             added = []
     else:
         added = []
-    peers_raw = _merge_yours(peers_raw, added, listed)
+    peers_raw = _merge_yours(peers_raw, added, listed, _names["by_name"])
     for p in peers_raw:
         addr = p.get("addr", "?")
         recv = p.get("bytesrecv", 0)

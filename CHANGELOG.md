@@ -4,6 +4,14 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.109
+
+**Node**
+- **A computer connected both ways counts once, even over IPv6.** 0.1.108 merged the two connections only
+  when both came from the same address. A Mac usually dials another Mac's name over IPv6, so its connection
+  arrives from an fe80:: address while ours went out on IPv4, and the peer view still showed it twice. Every
+  address a listed computer's name looks up to now counts as that one computer.
+
 ## 0.1.108
 
 **Node**
