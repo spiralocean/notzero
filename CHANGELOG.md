@@ -10,6 +10,10 @@ version number and bump `desktop/package.json`.
 - **A computer connected both ways counts once.** Two computers that list each other both dial when they
   start, and Bitcoin keeps both connections, so the peer view showed one other computer as two. They're now
   shown as one.
+- **See what kind each peer is.** Peers that keep the whole chain are drawn solid; pruned peers, which keep
+  only recent blocks like your node, are drawn hollow, with a key under the arch and a count above it.
+- **Hover a peer to see what it is:** one of your computers or a full or pruned peer, who connected to whom,
+  which Bitcoin software it runs, and what it's sending you right now.
 
 ## 0.1.107
 

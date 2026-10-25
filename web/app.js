@@ -960,7 +960,7 @@ const HASH_CHILDREN = new Set(["fold", "oneRound", "shift", "churn", "sigma1", "
 const BUILD_CHILDREN = new Set(["merkle", "avalanche", "verify", "hashInside"]); // everything hashing nests under HASH BUILD; INSIDE THE HASH is itself a sub-parent (its dives = HASH_CHILDREN, one level deeper)
 let headerHits = [];
 let hashInputHit = null; // click region for the INSIDE THE HASH typeable input (in scrolled content coords)
-let ticketHits = [], youHit = null, bestHit = null, recordHits = [], mempoolHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
+let ticketHits = [], youHit = null, bestHit = null, recordHits = [], mempoolHits = [], peerHits = []; // hover hit-regions (content coords): YOUR TICKETS bars + the odds-map "you" / "best ◆" markers + MEMPOOL blocks
 // --- WIN celebration: the payoff of "not zero". Auto-fires when a real win lands; previewable on
 // demand via the top-right control (you would otherwise never get to see it). ---
 const celebration = { active: false, t: 0, preview: false, mode: "you", verified: true, height: 0, hash: "", reward: 3.125 };
@@ -3491,6 +3491,22 @@ function drawMerkleTree(dr, buildP, showRoot) {
   if (showRoot && lvlP(rows - 1) > 0.9) { const root = pos(rows - 1, 0); text("← merkle root", root.x + 42, root.y, { size: 11, weight: 600, color: "rgb(90,225,140)", baseline: "middle" }); }
 }
 
+// What the hover tooltip says about a peer on the arch: what kind it is, who dialled whom, what it runs, and
+// what it's sending right now.
+function peerLines(p) {
+  const title = p.local ? "One of your computers" : p.full === false ? "Peer · keeps recent blocks only" : p.full === true ? "Peer · keeps the whole chain" : "Peer";
+  const sw = /^\/Satoshi:([\d.]+)\/(?:Knots:\d+\/)?$/.exec(p.subver || "");
+  const lines = [title];
+  if (p.local) lines.push("on your list in Settings, so new blocks reach it over your own network");
+  else if (p.full === false) lines.push("pruned, like your node: it serves new blocks but not old ones");
+  else if (p.full === true) lines.push("an archive: it can hand any block back to a new node catching up");
+  lines.push(p.both ? "connected both ways" : p.inbound ? "it connected to you" : "your node connected to it");
+  if (p.subver) lines.push(/Knots/.test(p.subver) ? `runs Bitcoin Knots (Core ${sw ? sw[1] : "?"} base)` : sw ? `runs Bitcoin Core ${sw[1]}` : `runs ${p.subver.replace(/^\/|\/$/g, "")}`);
+  const r = p.rate || 0;
+  lines.push(r > 1e6 ? `sending you ${(r / 1e6).toFixed(1)} MB/s` : r > 15_000 ? `sending you ${Math.round(r / 1000)} kB/s` : "quiet: trading announcements and pings");
+  return lines;
+}
+
 // ---- BLOCKCHAIN SYNC: peer arch → centered node → fills the block below → steps left ----
 const syncState = { t: 0, shown: null, phase: "fill", fp: 0, sp: 0, disk: 12 };
 let syncFlash = 0, syncFlashH = 0; // a "new block mined" pulse for the sync panel (node + newest block + toast)
@@ -3818,6 +3834,7 @@ function drawSync(r) {
   else drawBackgroundVerify(r); // same row, mutually exclusive: that note needs blocks-behind; this only runs at the tip
 
   // ---- peer arch (dome) ----
+  peerHits = []; // rebuilt each frame — hover regions saying what each peer is
   const peers = (node && Array.isArray(node.peers)) ? node.peers : [];
   const archBaseY = r.y + (behind > 0 ? 168 : backgroundVerify() ? 190 : 152), Rx = Math.min(r.w / 2 - 48, 340), Ry = 58; // the row under the status is taken while syncing (the "warm up / fan" note) and during the assumeutxo catch-up (line + bar + the CPU/memory note) — drop the arch so the "N peers" label clears whichever is showing; the catch-up needs the most room, hence 190
   ctx.strokeStyle = `rgba(${ACCENT},0.12)`; ctx.lineWidth = 1; ctx.beginPath();
@@ -3826,7 +3843,10 @@ function drawSync(r) {
   if (peers.length === 0) {
     text(nodeMode === "managed" ? "connecting to the Bitcoin network…" : "connecting to peers — waiting for your node to find some", cx, archBaseY - Ry - 8, { size: 11, color: "rgba(255,255,255,0.38)", align: "center", baseline: "middle" });
   } else {
-    { const mine = peers.filter((p) => p.local).length; text(`${peers.length} peers${mine ? ` · ${mine} of your computers` : ""}`, cx, archBaseY - Ry - (mine ? 19 : 10), { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); }
+    // "full" comes from the bridge (does this peer keep the whole chain, or only recent blocks like your pruned
+    // node?). Older bridges don't send it: then no peer is drawn as pruned and there's no key.
+    const told = peers.some((p) => p.full === false), whole = peers.filter((p) => p.full !== false).length;
+    { const mine = peers.filter((p) => p.local).length; text(`${peers.length} peers${told ? ` · ${whole} keep the whole chain` : ""}${mine ? ` · ${mine} of your computers` : ""}`, cx, archBaseY - Ry - (mine ? 19 : 10), { size: 10, color: "rgba(255,255,255,0.45)", align: "center", baseline: "middle" }); }
     // your own computers always make the cut and sit at the top of the arch, nearest your node; the rest
     // keep their stable order around them
     const others = peers.filter((p) => !p.local), mineP = peers.filter((p) => p.local).slice(0, 4);
@@ -3844,7 +3864,10 @@ function drawSync(r) {
       const intensity = Math.max(0, Math.min(1, sm[addr]));
       ctx.strokeStyle = `rgba(${ACCENT},${0.16 + 0.18 * intensity})`; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(px, py); ctx.lineTo(cx, nodeY); ctx.stroke();
       const gsz = 13 + Math.round(4 * intensity); // busier peers a bit bigger; idle peers stay clearly visible
-      ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py);
+      ctx.font = `700 ${gsz}px ui-monospace, monospace`; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      if (arch[i].full === false) { ctx.strokeStyle = `rgba(${ACCENT},${0.45 + 0.3 * intensity})`; ctx.lineWidth = 0.8; ctx.strokeText(CYBER[(frame + i * 9) % CYBER.length], px, py); } // pruned: hollow and dimmer
+      else { ctx.fillStyle = `rgba(${ACCENT},${0.7 + 0.3 * intensity})`; ctx.fillText(CYBER[(frame + i * 9) % CYBER.length], px, py); }
+      peerHits.push({ x: px - 14, y: py - 14, w: 28, h: 28, lines: peerLines(arch[i]) });
       if (arch[i].local) { // one of your computers: ringed like your node, and named as yours
         ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, 11, 0, 7); ctx.stroke();
         text("your computer", px, py + 20, { size: 9, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
@@ -3863,6 +3886,10 @@ function drawSync(r) {
         ctx.fillStyle = `rgba(${ACCENT},${0.12 + 0.4 * (1 - hp)})`; ctx.fill();
       }
     }
+  }
+
+  if (peers.some((p) => p.full === false)) { // key for the solid / hollow peers, under the arch's left end
+    text("● keeps the whole chain   ○ recent blocks only", cx - Rx, archBaseY + 16, { size: 9, color: "rgba(255,255,255,0.4)", align: "left", baseline: "middle" });
   }
 
   // ---- your node (centered, above the new block) ----
@@ -5006,6 +5033,7 @@ function drawHoverTooltip() {
   const my = mouseY + scrollY;
   let lines = null;
   for (const h of ticketHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
+  if (!lines) for (const h of peerHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; } // a peer in BLOCKCHAIN SYNC
   if (!lines) for (const h of mempoolHits) if (mouseX >= h.x && mouseX <= h.x + h.w && my >= h.y && my <= h.y + h.h) { lines = h.lines; break; }
   if (!lines && youHit && mouseX >= youHit.x && mouseX <= youHit.x + youHit.w && my >= youHit.y && my <= youHit.y + youHit.h) lines = youHit.lines;
   if (!lines && bestHit && mouseX >= bestHit.x && mouseX <= bestHit.x + bestHit.w && my >= bestHit.y && my <= bestHit.y + bestHit.h) lines = bestHit.lines;

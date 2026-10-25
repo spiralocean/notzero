@@ -605,6 +605,7 @@ def _merge_yours(peers_raw: list, added: list, listed: set) -> list:
         ip = name_ip.get(p.get("addr", ""), _host(p.get("addr", "")))
         if ip in by_ip:
             first = by_ip[ip]
+            first["_both"] = True
             first["bytesrecv"] = first.get("bytesrecv", 0) + p.get("bytesrecv", 0)
             first["inflight"] = (first.get("inflight") or []) + (p.get("inflight") or [])
             continue
@@ -718,12 +719,16 @@ def build(url, user, pw, cookie=""):
             # raw peer IPs in a web-served file is a privacy/topology leak (deanonymization / eclipse aid).
             "addr": "peer-" + hashlib.sha256(addr.encode()).hexdigest()[:10],
             "inbound": bool(p.get("inbound", False)),
+            "both": bool(p.get("_both")),  # one of your computers, connected in both directions (see _merge_yours)
             "downloading": downloading,
             "rate": round(rate),
             "subver": p.get("subver", ""),
             # one of the user's own computers (Settings → your other computers, desktop/lan-peers.js). Only
             # the yes/no leaves this file, never the address.
             "local": _is_yours(p, listed),
+            # keeps the whole chain (NODE_NETWORK) vs only recent blocks (NODE_NETWORK_LIMITED: pruned, like
+            # the managed node) — the sync view draws the two differently
+            "full": "NETWORK" in (p.get("servicesnames") or []),
         })
     peers.sort(key=lambda x: x["addr"])  # stable order so the web doesn't shuffle peer positions
     # miner status from the lottery daemon's state.json, so the dashboard can show whether it's really live
