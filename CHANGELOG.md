@@ -4,6 +4,13 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.108
+
+**Node**
+- **A computer connected both ways counts once.** Two computers that list each other both dial when they
+  start, and Bitcoin keeps both connections, so the peer view showed one other computer as two. They're now
+  shown as one.
+
 ## 0.1.107
 
 **Node**

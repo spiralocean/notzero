@@ -582,11 +582,44 @@ def _listed_ips(resolve=socket.getaddrinfo, background=True) -> set:
     return ips | (_names["ips"] if _names["key"] == key else set())
 
 
+def _host(addr: str) -> str:
+    """'1.2.3.4:8333' → '1.2.3.4', '[::1]:8333' → '::1', 'name.local:8433' → 'name.local'."""
+    return addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+
+
+def _merge_yours(peers_raw: list, added: list, listed: set) -> list:
+    """getpeerinfo with each of the user's computers collapsed to one entry. Two computers that list each
+    other both dial when they start, and Core keeps both connections — one "manual" (addr is the name we
+    dialled) and one inbound (addr is its IP) — which would show as two computers. getaddednodeinfo says which
+    IP each listed name connected to, so both entries key on the same IP; their byte counts are added up."""
+    name_ip = {}
+    for a in added or []:
+        for c in a.get("addresses") or []:
+            if c.get("connected"):
+                name_ip[a.get("addednode", "")] = _host(c.get("address", ""))
+    out, by_ip = [], {}
+    for p in peers_raw:
+        if not _is_yours(p, listed):
+            out.append(p)
+            continue
+        ip = name_ip.get(p.get("addr", ""), _host(p.get("addr", "")))
+        if ip in by_ip:
+            first = by_ip[ip]
+            first["bytesrecv"] = first.get("bytesrecv", 0) + p.get("bytesrecv", 0)
+            first["inflight"] = (first.get("inflight") or []) + (p.get("inflight") or [])
+            continue
+        by_ip[ip] = dict(p, addr=ip + ":yours", _yours=True)  # keyed on the IP, so the id stays put whichever connection comes first
+        out.append(by_ip[ip])
+    return out
+
+
 def _is_yours(p: dict, listed: set) -> bool:
     """One of the user's own computers: a connection the node made because it's on their list (Core calls
     -addnode peers "manual"), an address they typed in, or a peer on the local network."""
+    if p.get("_yours"):
+        return True
     addr = p.get("addr", "")
-    host = addr.rsplit(":", 1)[0].strip("[]") if addr.count(":") == 1 or addr.startswith("[") else addr
+    host = _host(addr)
     return p.get("connection_type") == "manual" or host in listed or _is_lan_addr(addr)
 
 
@@ -665,6 +698,14 @@ def build(url, user, pw, cookie=""):
             nettotals = None
     peers = []
     listed = _listed_ips() if peers_raw else set()
+    if any(p.get("connection_type") == "manual" for p in peers_raw):
+        try:
+            added = rpc(url, user, pw, "getaddednodeinfo")
+        except Exception:  # noqa: BLE001 — without it, a computer connected both ways just shows twice
+            added = []
+    else:
+        added = []
+    peers_raw = _merge_yours(peers_raw, added, listed)
     for p in peers_raw:
         addr = p.get("addr", "?")
         recv = p.get("bytesrecv", 0)
