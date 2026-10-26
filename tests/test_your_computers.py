@@ -50,6 +50,11 @@ def main():
         print(("ok  " if ok else "FAIL"), name, [p["addr"] for p in mine])
         if not ok:
             fails.append(name)
+    first = yours(nb._merge_yours([dict(p) for p in CASES[0][1]], ADDED, set(), BY_NAME))[0]
+    if nb._short_name(first.get("_name")) != "stephens-macbook-pro":
+        fails.append(f"merged entry named {first.get('_name')!r}, not the name on the list")
+    if nb._short_name("192.168.10.50") != "192.168.10.50":
+        fails.append("an IP typed into the list should stay as typed")
     if nb._host("[fe80::1%7]:8333") != "fe80::1":
         fails.append("_host keeps the %interface suffix")
     print()

@@ -3494,7 +3494,7 @@ function drawMerkleTree(dr, buildP, showRoot) {
 // What the hover tooltip says about a peer on the arch: what kind it is, who dialled whom, what it runs, and
 // what it's sending right now.
 function peerLines(p) {
-  const title = p.local ? "One of your computers" : p.full === false ? "Peer · keeps recent blocks only" : p.full === true ? "Peer · keeps the whole chain" : "Peer";
+  const title = p.local ? (p.name ? `Your computer ${p.name}` : "Another of your computers") : p.full === false ? "Peer · keeps recent blocks only" : p.full === true ? "Peer · keeps the whole chain" : "Peer";
   const sw = /^\/Satoshi:([\d.]+)\/(?:Knots:\d+\/)?$/.exec(p.subver || "");
   const lines = [title];
   if (p.local) lines.push("on your list in Settings, so new blocks reach it over your own network");
@@ -3870,7 +3870,8 @@ function drawSync(r) {
       peerHits.push({ x: px - 14, y: py - 14, w: 28, h: 28, lines: peerLines(arch[i]) });
       if (arch[i].local) { // one of your computers: ringed like your node, and named as yours
         ctx.strokeStyle = `rgba(${ACCENT},0.9)`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(px, py, 11, 0, 7); ctx.stroke();
-        text("your computer", px, py + 20, { size: 9, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
+        const nm = arch[i].name ? (arch[i].name.length > 18 ? arch[i].name.slice(0, 17) + "…" : arch[i].name) : "your other computer";
+        text(nm, px, py + 20, { size: 9, color: "rgba(255,255,255,0.6)", align: "center", baseline: "middle" });
       }
       // data stream peer → node: tap opens only while this peer is actually sending bytes (not just the
       // 'downloading' flag — bitcoind marks many peers in-flight). Flow speed/brightness scale with its rate,

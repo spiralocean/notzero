@@ -604,11 +604,14 @@ def _merge_yours(peers_raw: list, added: list, listed: set, by_name: dict = None
         for c in a.get("addresses") or []:
             if c.get("connected"):
                 name_ip[a.get("addednode", "")] = _host(c.get("address", ""))
-    alias = {}  # any address of one of your computers → the one IP its entry keys on
+    alias, label = {}, {}  # any address of one of your computers → the one IP its entry keys on; that IP → its name
     for name, ips in (by_name or {}).items():
         dialled = next((ip for n, ip in name_ip.items() if _host(n) == name), None)
         key = dialled or min(ips, key=lambda ip: (ipaddress.ip_address(ip).version, ip))  # IPv4 first: the one people recognise
         alias.update({ip: key for ip in ips})
+        label[key] = name
+    for n, ip in name_ip.items():
+        label.setdefault(ip, _host(n))
     out, by_ip = [], {}
     for p in peers_raw:
         if not _is_yours(p, listed):
@@ -622,9 +625,20 @@ def _merge_yours(peers_raw: list, added: list, listed: set, by_name: dict = None
             first["bytesrecv"] = first.get("bytesrecv", 0) + p.get("bytesrecv", 0)
             first["inflight"] = (first.get("inflight") or []) + (p.get("inflight") or [])
             continue
-        by_ip[ip] = dict(p, addr=ip + ":yours", _yours=True)  # keyed on the IP, so the id stays put whichever connection comes first
+        by_ip[ip] = dict(p, addr=ip + ":yours", _yours=True, _name=label.get(ip))  # keyed on the IP, so the id stays put whichever connection comes first
         out.append(by_ip[ip])
     return out
+
+
+def _short_name(name):
+    """'stephens-macbook-pro.local' → 'stephens-macbook-pro'. An IP someone typed in stays as typed."""
+    import ipaddress
+    if not name:
+        return None
+    try:
+        return str(ipaddress.ip_address(name))
+    except ValueError:
+        return name[:-6] if name.lower().endswith(".local") else name
 
 
 def _is_yours(p: dict, listed: set) -> bool:
@@ -739,6 +753,9 @@ def build(url, user, pw, cookie=""):
             # one of the user's own computers (Settings → your other computers, desktop/lan-peers.js). Only
             # the yes/no leaves this file, never the address.
             "local": _is_yours(p, listed),
+            # what you called it in that list (mac-m4.local → "mac-m4"), so the sync view can say which of your
+            # computers it is. Only a name you typed in; a computer that dialled in unlisted has none.
+            "name": _short_name(p.get("_name")) if p.get("_yours") else None,
             # keeps the whole chain (NODE_NETWORK) vs only recent blocks (NODE_NETWORK_LIMITED: pruned, like
             # the managed node) — the sync view draws the two differently
             "full": "NETWORK" in (p.get("servicesnames") or []),

@@ -4,6 +4,13 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.110
+
+**Dashboard**
+- **Your other computers are labeled by name.** The ring under one of your own computers said "your
+  computer", which read as *this* computer. It now shows the name you gave it in Settings (stephens-macbook-pro),
+  or "your other computer" if it connected in without being on your list.
+
 ## 0.1.109
 
 **Node**
