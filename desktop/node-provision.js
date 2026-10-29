@@ -35,16 +35,16 @@ const https = require("https");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
-const CORE_VERSION = "31.1";
+const CORE_VERSION = "31.2";
 const CORE_BASE_URL = `https://bitcoincore.org/bin/bitcoin-core-${CORE_VERSION}`;
 
 // SHA-256 of each official artifact (from the release SHA256SUMS). Verified-or-refuse.
 const CORE_ARTIFACTS = {
-  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "16a097c09fbd7eb78b240ce1dae123663ea2e5e377cfd6a951e71e227e23cf2f", kind: "targz" },
-  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "bc506958d0f387c1ea770bdc7c7192a505fa645ff62cabcc7761fa7eb89e867e", kind: "targz" },
-  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "b80d9c3e04da78fb6f0569685673418cf686fadba9042d926d13fb87ff503f9e", kind: "targz" },
-  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "dcf1873f2208ba4f962f3398d47e154c39c0084be8f4553e05c940d0ace3d004", kind: "targz" },
-  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "c99ef173471c58e6766d9eebd12e6c35349082eeed3939bc99eed58ef57db587", kind: "zip" },
+  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "debfc5375b8aac1bcc30029407de2386e576a57cb88a8163fa77e506dc416b92", kind: "targz" },
+  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "98e7b744f71d174583b04c7b41b1438c7c0b5bdfde7d72bce5e4b70ab7fcb8e7", kind: "targz" },
+  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "2f38996afaa74dfa469a23bf4727887133dfc09784df1f21ddf1c74d0dc82300", kind: "targz" },
+  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "1d7d8916719ed8de0f49937f8702ec5895b0af24d936e9c4d72b58f15afe3731", kind: "targz" },
+  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "dcae854f11791dbb8a69e391b709927e1b210b9c66ec164396a15816a46484d2", kind: "zip" },
 };
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
@@ -169,6 +169,21 @@ function extractCore(archive, destDir, kind = "targz") {
   return path.join(destDir, top);
 }
 
+// After a Core bump, the previous release's folder (core/bitcoin-31.1, ~125 MB) is dead weight and, when the bump
+// was for a security fix, a known-vulnerable binary. Remove every bitcoin-<version> dir but the pinned one.
+// Only called once the pinned bitcoind is in place, so a failed download never leaves a node with no Core.
+// Best-effort: on Windows a still-running old bitcoind.exe locks its folder, and the next start retries.
+function removeOldCores(coreDir) {
+  const removed = [];
+  let names = [];
+  try { names = fs.readdirSync(coreDir, { withFileTypes: true }); } catch (_) { return removed; }
+  for (const d of names) {
+    if (!d.isDirectory() || !/^bitcoin-\d/.test(d.name) || d.name === `bitcoin-${CORE_VERSION}`) continue;
+    try { fs.rmSync(path.join(coreDir, d.name), { recursive: true, force: true }); removed.push(d.name); } catch (_) { /* retried next start */ }
+  }
+  return removed;
+}
+
 // Bitcoin Core rpcauth credential (HMAC-SHA256 scheme). We default to cookie auth
 // for the managed node, but this is here for callers that want a stable credential.
 function genRpcAuth(user = "lottery") {
@@ -227,6 +242,6 @@ function managedPaths(dataRoot, platform = process.platform) {
 
 module.exports = {
   CORE_VERSION, CORE_ARTIFACTS, ASSUMEUTXO, PRUNE_MIB, MANAGED_RPC_PORT, SYNCED_DBCACHE_MIB, SYNCED_MAXMEMPOOL_MIB,
-  coreArtifact, sha256File, verifyFile, downloadFile,
+  coreArtifact, sha256File, verifyFile, downloadFile, removeOldCores,
   downloadAndVerifyCore, extractCore, genRpcAuth, buildBitcoinConf, managedPaths,
 };

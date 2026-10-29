@@ -88,3 +88,12 @@ test("the synced-node memory ceiling stays bounded — dbcache AND the mempool i
   assert.ok(P.SYNCED_MAXMEMPOOL_MIB * 1024 * 1024 / 4338 >= 6000 * 3, "a template needs several blocks' worth of transactions to choose from");
   assert.ok(P.SYNCED_DBCACHE_MIB + P.SYNCED_MAXMEMPOOL_MIB <= 300, "a synced node should stay well under Core's ~1.3 GB sync-time ceiling");
 });
+
+test("after a Core bump, older Core folders go and the pinned one stays", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "nz-core-"));
+  for (const d of ["bitcoin-31.0", "bitcoin-31.1", `bitcoin-${P.CORE_VERSION}`, "bitcoin-notes"]) fs.mkdirSync(path.join(dir, d, "bin"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "bitcoin-31.1.tar.gz"), ""); // a stray archive is a file, not a release folder: left alone
+  assert.deepEqual(P.removeOldCores(dir).sort(), ["bitcoin-31.0", "bitcoin-31.1"].filter((n) => n !== `bitcoin-${P.CORE_VERSION}`));
+  assert.deepEqual(fs.readdirSync(dir).sort(), ["bitcoin-31.1.tar.gz", `bitcoin-${P.CORE_VERSION}`, "bitcoin-notes"].sort());
+  assert.deepEqual(P.removeOldCores(path.join(dir, "missing")), []);
+});

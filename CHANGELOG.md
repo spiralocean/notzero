@@ -4,6 +4,18 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.111
+
+**Node**
+- **Bitcoin Core 31.2.** Fixes the three issues Bitcoin Core disclosed on 2026-10-28. The one that matters
+  here: on Mac and Windows, any peer the node connects to could crash it by running it out of memory (TCP
+  urgent data, medium severity; Linux unaffected). Also fixed: slow memory growth from paused old-protocol
+  peers (medium) and an undo-file overflow (low, impractical to trigger). Existing installs fetch 31.2 from
+  bitcoincore.org on their next start, checked against the pinned hashes (verified against the PGP-signed
+  SHA256SUMS), and run it on the same chain data: no resync. The hosted 935000 snapshot is still valid in 31.2.
+- **Old Core versions are removed after an upgrade.** The previous release's folder (~125 MB, and after this
+  bump a known-vulnerable binary) used to stay behind. It's now deleted once the new one is in place.
+
 ## 0.1.110
 
 **Dashboard**

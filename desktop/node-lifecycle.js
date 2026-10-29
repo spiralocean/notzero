@@ -102,7 +102,7 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
 
   // Download + verify + extract Core if it isn't already present.
   async function ensureCore() {
-    if (fs.existsSync(paths.bitcoind)) return;
+    if (fs.existsSync(paths.bitcoind)) { P.removeOldCores(paths.coreDir); return; }
     fs.mkdirSync(paths.coreDir, { recursive: true });
     emit(STATES.DOWNLOADING, 0);
     const { file, kind } = await P.downloadAndVerifyCore(paths.coreDir, (p) => emit(STATES.DOWNLOADING, p));
@@ -110,6 +110,7 @@ function createManagedNode({ dataRoot, rpcport = P.MANAGED_RPC_PORT, onState = (
     P.extractCore(file, paths.coreDir, kind);
     fs.rm(file, { force: true }, () => {});
     if (!fs.existsSync(paths.bitcoind)) throw new Error("bitcoind missing after extract");
+    P.removeOldCores(paths.coreDir);
   }
 
   function writeConf() {
