@@ -95,6 +95,7 @@ jobs:
           LATEST: ${{ steps.latest.outputs.latest }}
           PINNED: ${{ steps.latest.outputs.pinned }}
           KIND: ${{ steps.latest.outputs.kind }}
+          MAINTENANCE: ${{ steps.latest.outputs.maintenance }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         with:
           script: |
@@ -119,7 +120,7 @@ jobs:
               core.setFailed(`could not open issue: ${title}`);
             };
 
-            const { PINS_OK, NEWER, LATEST, PINNED, KIND, RUN_URL,
+            const { PINS_OK, NEWER, LATEST, PINNED, KIND, MAINTENANCE, RUN_URL,
                     AU_VALID, AU_REASON, AU_HOSTED, AU_BEST, AU_BEST_HASH, AU_HIGHER, AU_CLOSER, AU_CORE } = process.env;
 
             if (PINS_OK === "false") {
@@ -139,7 +140,7 @@ jobs:
               );
             }
 
-            if (NEWER === "true") {
+            const adopt = async (LATEST, KIND) => {
               const soon = KIND === "maintenance"
                 ? `**Maintenance release — ship promptly.** Bug/security fixes only, drop-in, no re-sync for users.`
                 : `**New major — wait for \`${LATEST.split(".")[0]}.1\` before adopting.** Majors can change RPC output that \`scripts/node_bridge.py\` parses and can move the assumeutxo height.`;
@@ -161,7 +162,10 @@ jobs:
                   `[Release notes](https://bitcoincore.org/en/releases/${LATEST}/) · [Workflow run](${RUN_URL})`,
                 ].join("\n"),
               );
-            }
+            };
+            // A fix in the line we pin gets its own issue: a newer major would otherwise be the only thing reported.
+            if (MAINTENANCE && MAINTENANCE !== LATEST) await adopt(MAINTENANCE, "maintenance");
+            if (NEWER === "true") await adopt(LATEST, KIND);
 
             // The urgent one: our hosted snapshot would be REFUSED by the Core we ship. Only new users ever call
             // loadtxoutset, so nothing in normal use would reveal this — it ships silently and breaks setup.

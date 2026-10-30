@@ -10,7 +10,7 @@
 // against the new release's chainparams.cpp, then testing a real sync — a human call, especially for a major.
 //
 // Reads the pinned version from desktop/node-provision.js, scrapes the bitcoincore.org release index, and
-// reports the highest FINAL release (one that publishes a top-level SHA256SUMS — release candidates live in
+// reports the highest FINAL release, and the highest in the pinned major if that's newer (one that publishes a top-level SHA256SUMS — release candidates live in
 // test.rcN/ subdirectories and are correctly ignored).
 //
 // Run: node scripts/check-core-latest.cjs
@@ -47,20 +47,28 @@ function cmpVer(a, b) {
   if (!versions.length) throw new Error(`no bitcoin-core-<version>/ entries found at ${INDEX} (did the index format change?)`);
 
   // walk down from the highest until one has a top-level SHA256SUMS — that's a final release, not an rc staging dir
-  let latest = null;
-  for (const v of versions.slice(0, 4)) {
-    try { await get(`${INDEX}bitcoin-core-${v}/SHA256SUMS`); latest = v; break; } catch (_) { /* not a final release; keep looking */ }
-  }
+  const firstFinal = async (list) => {
+    for (const v of list.slice(0, 4)) {
+      try { await get(`${INDEX}bitcoin-core-${v}/SHA256SUMS`); return v; } catch (_) { /* not a final release; keep looking */ }
+    }
+    return null;
+  };
+  const latest = await firstFinal(versions);
   if (!latest) throw new Error(`none of the newest entries (${versions.slice(0, 4).join(", ")}) publish a SHA256SUMS`);
+  // a fix in the line we pin, reported separately: we can sit on an older major on purpose, and the newest
+  // release overall would otherwise hide the 31.3 that carries a security fix behind a 32.x we're not taking
+  const major = (v) => Number(v.split(".")[0]);
+  const maintenance = await firstFinal(versions.filter((v) => major(v) === major(CORE_VERSION) && cmpVer(v, CORE_VERSION) > 0));
 
   const newer = cmpVer(latest, CORE_VERSION) > 0;
   // a new MAJOR can change RPC shapes that scripts/node_bridge.py parses and can move the assumeutxo height —
   // wait for its .1. a maintenance release is a drop-in fix and should ship promptly.
-  const kind = !newer ? "none" : Number(latest.split(".")[0]) > Number(CORE_VERSION.split(".")[0]) ? "major" : "maintenance";
+  const kind = !newer ? "none" : major(latest) > major(CORE_VERSION) ? "major" : "maintenance";
 
-  console.log(JSON.stringify({ pinned: CORE_VERSION, latest, newer, kind }, null, 2));
+  console.log(JSON.stringify({ pinned: CORE_VERSION, latest, newer, kind, maintenance }, null, 2));
   if (process.env.GITHUB_OUTPUT) {
-    fs.appendFileSync(process.env.GITHUB_OUTPUT, `newer=${newer}\nlatest=${latest}\npinned=${CORE_VERSION}\nkind=${kind}\n`);
+    fs.appendFileSync(process.env.GITHUB_OUTPUT, `newer=${newer}\nlatest=${latest}\npinned=${CORE_VERSION}\nkind=${kind}\nmaintenance=${maintenance || ""}\n`);
   }
+  if (maintenance && maintenance !== latest) console.log(`\n→ Bitcoin Core ${maintenance} is available (maintenance); we pin ${CORE_VERSION}.`);
   console.log(newer ? `\n→ Bitcoin Core ${latest} is available (${kind}); we pin ${CORE_VERSION}.` : `\n✓ Pinned Bitcoin Core ${CORE_VERSION} is the latest release.`);
 })().catch((e) => { console.error(`\n✗ Could not determine the latest Bitcoin Core release: ${e.message}`); process.exit(1); });
