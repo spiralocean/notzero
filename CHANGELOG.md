@@ -4,6 +4,16 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.112
+
+**Node**
+- **Bitcoin Core 32.1.** The new major release, up from 31.2. Nothing here needs it, but it's where fixes land
+  first: a hardened RPC server (libevent replaced), parallel input fetching for faster validation, and fixes
+  beyond the 2026-10-28 three. Existing installs fetch 32.1 on their next start, checked against the pinned
+  hashes, and run it on the same chain data: no resync, and the 31.2 folder is removed. Tested against a copy
+  of a synced 31.2 node (ready to mine in seconds, dashboard data and block assembly byte-for-byte unchanged)
+  and on a fresh install loading the hosted 935000 snapshot.
+
 ## 0.1.111
 
 **Node**

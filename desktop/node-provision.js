@@ -35,22 +35,22 @@ const https = require("https");
 const crypto = require("crypto");
 const { spawnSync } = require("child_process");
 
-const CORE_VERSION = "31.2";
+const CORE_VERSION = "32.1";
 const CORE_BASE_URL = `https://bitcoincore.org/bin/bitcoin-core-${CORE_VERSION}`;
 
 // SHA-256 of each official artifact (from the release SHA256SUMS). Verified-or-refuse.
 const CORE_ARTIFACTS = {
-  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "debfc5375b8aac1bcc30029407de2386e576a57cb88a8163fa77e506dc416b92", kind: "targz" },
-  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "98e7b744f71d174583b04c7b41b1438c7c0b5bdfde7d72bce5e4b70ab7fcb8e7", kind: "targz" },
-  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "2f38996afaa74dfa469a23bf4727887133dfc09784df1f21ddf1c74d0dc82300", kind: "targz" },
-  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "1d7d8916719ed8de0f49937f8702ec5895b0af24d936e9c4d72b58f15afe3731", kind: "targz" },
-  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "dcae854f11791dbb8a69e391b709927e1b210b9c66ec164396a15816a46484d2", kind: "zip" },
+  "darwin-arm64": { file: `bitcoin-${CORE_VERSION}-arm64-apple-darwin.tar.gz`, sha256: "cd3dcdacb4ff861e862b2d7df4786ecef66472e2468dca1673a70dd761e064e7", kind: "targz" },
+  "darwin-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-apple-darwin.tar.gz`, sha256: "53b1e6ffd92843ca82ef4a737d7a53cb0a9fab15816a417a41f12fc954071447", kind: "targz" },
+  "linux-x64": { file: `bitcoin-${CORE_VERSION}-x86_64-linux-gnu.tar.gz`, sha256: "61545c17c3120fb7412f896d248b11993af04ec8817aad3649c55b2afb044963", kind: "targz" },
+  "linux-arm64": { file: `bitcoin-${CORE_VERSION}-aarch64-linux-gnu.tar.gz`, sha256: "7ed37c7373eb6aa3e3f72842596a1afeba1b223717033cade9842b25773e1922", kind: "targz" },
+  "win32-x64": { file: `bitcoin-${CORE_VERSION}-win64.zip`, sha256: "b5b0c2cd007d69e96880907c79f9ae19ae82728f95fc8c923b4a07dab795b45d", kind: "zip" },
 };
 
 // assumeutxo snapshot we self-host. Core verifies the snapshot file against this
 // height/hash baked into the release, so the CDN host need not be trusted.
-// Core 31.x bakes in FOUR mainnet heights: 840000, 880000, 910000 and 935000. We host 935000 — the highest,
-// so a first-time user syncs the fewest blocks from the snapshot to the tip. (We moved up from 880000: at a
+// Core 32.x bakes in 840000, 880000, 910000, 935000 and 965000 (31.x stopped at 935000). We host 935000; moving
+// to 965000 needs that snapshot hosted first, and saves a new user ~30k blocks. (We moved up from 880000: at a
 // ~959k tip that cut the first run from ~134 GB / ~25 h of blocks to ~41 GB / ~8 h.) The file is the one
 // published at bitcoin-snapshots.jaonoctus.dev, verified locally with scripts/verify-snapshot.sh — Core
 // accepted it against its baked-in hash_serialized commitment, which is why the download source need not be
