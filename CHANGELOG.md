@@ -4,7 +4,7 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.112
+## 0.1.112
 
 **Node**
 - **Bitcoin Core 32.1.** The new major release, up from 31.2. Nothing here needs it, but it's where fixes land
