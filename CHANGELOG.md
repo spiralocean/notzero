@@ -4,6 +4,14 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.113
+
+**Dashboard**
+- **The top of the dashboard says why your computer is busy.** For hours after mining starts, your node
+  verifies the older history behind the snapshot, and that's when the fan runs. The only explanation was in the
+  Blockchain Sync panel, collapsed down the page. While it runs, the two lines under the title now say so, with
+  the percent and time left, and that it quiets down to near-idle when it finishes. The quote comes back after.
+
 ## 0.1.112
 
 **Node**

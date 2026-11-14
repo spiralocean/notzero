@@ -4873,7 +4873,21 @@ function render(ts) {
   const SRC_LINE = { y: 107, size: 12, rgb: ACCENT.replace(/\s/g, ""), lag: Q_SRC_LAG };
   const srcText = (i) => { const v = quoteSrc(i); return v ? "— " + v : ""; }; // the dash morphs in with the name
   const qp = Math.min(1, quoteT / Q_DECODE);
-  if (quotePhase === "hold") {
+  // While the node verifies history behind the snapshot, these two lines say why the computer is busy instead of
+  // showing a quote. That stretch runs for hours AFTER mining starts, when the BLOCKCHAIN SYNC panel (and its
+  // "may warm up" note) is collapsed down the page, so nothing near the top explained a fan running flat out.
+  // The quote's own band, so nothing below moves, and it hands the space back the moment verification ends.
+  const bvTop = backgroundVerify();
+  window.__topNotice = "";
+  if (bvTop) {
+    const eta = backgroundVerifyEta(bvTop), mine = !isDesktop || nodeMode === "managed"; // a node you brought may be another machine
+    const l1 = `${mine ? "Your computer is" : "Your node is"} busy with a one-time check of Bitcoin's history · ${(bvTop.progress * 100).toFixed(0)}%${eta ? ` · ${eta}` : ""}`;
+    const l2 = `${mine ? "It quiets down to near-idle" : "It quiets down"} when the check finishes. Mining is already running.`;
+    const fit = (str, size, weight) => { ctx.font = `${weight} ${size}px -apple-system, system-ui, sans-serif`; const w = ctx.measureText(str).width, max = W - PAD * 2; return w > max ? Math.max(9, size * max / w) : size; };
+    text(l1, W / 2, QUOTE_LINE.y, { size: fit(l1, 15, 600), weight: 600, color: `rgba(255,180,80,${0.8 + 0.12 * Math.sin(clock * 1.5)})`, align: "center", baseline: "middle" });
+    text(l2, W / 2, SRC_LINE.y, { size: fit(l2, 12, 500), weight: 500, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
+    window.__topNotice = `${l1}\n${l2}`; // test hook
+  } else if (quotePhase === "hold") {
     drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteIdx), 0, quoteAlpha, quoteIdx, QUOTE_LINE);
     drawQuoteMorph(srcText(quoteIdx), srcText(quoteIdx), 0, 0.72, quoteIdx, SRC_LINE);
   } else {

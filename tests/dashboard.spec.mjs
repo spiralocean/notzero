@@ -512,6 +512,11 @@ test("verifying: the catch-up shows in the SYNC summary while it runs", async ({
   console.log(`   SYNC summary: ${JSON.stringify(summary)}`);
   expect(summary).toContain("verifying history");
   expect(summary).toContain("79%"); // 0.7863 → 79%
+  // ...and the top of the page says why the computer is busy, since the SYNC panel is collapsed down the page
+  const notice = await page.evaluate(() => window.__topNotice);
+  expect(notice).toContain("Your computer is busy");
+  expect(notice).toContain("79%");
+  expect(notice).toContain("quiets down");
 });
 
 // Once the node finishes, the line must disappear completely — a permanent "verifying" strip on a node that
@@ -534,6 +539,7 @@ test("verifying: nothing shown once the catch-up is done", async ({ page }) => {
   console.log(`   SYNC summary: ${JSON.stringify(summary)}`);
   expect(summary).not.toContain("verifying");
   expect(summary).toContain("gather"); // back to the normal explainer line
+  expect(await page.evaluate(() => window.__topNotice)).toBe(""); // the quote has its lines back
 });
 
 // The bridge reports "unknown" when it couldn't read getchainstates (10s timeout, and the node is busiest
