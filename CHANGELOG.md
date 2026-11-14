@@ -4,7 +4,7 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
-## Unreleased — next: 0.1.113
+## 0.1.113
 
 **Dashboard**
 - **The top of the dashboard says why your computer is busy.** For hours after mining starts, your node
