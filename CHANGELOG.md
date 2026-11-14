@@ -4,6 +4,14 @@ Notable changes per release. All platforms ship from a unified `main` and publis
 (mac → Windows → Linux; see `DEPLOY.md`). When cutting a release, move **Unreleased** down under the new
 version number and bump `desktop/package.json`.
 
+## Unreleased — next: 0.1.114
+
+**Dashboard**
+- **The quotes are back while your node checks history.** The check can run a week or two on a slower
+  computer, which is too long to hide the quotes. The progress moved into the status pill at the top
+  ("submitting tickets · checking history 79% · ~9 days left"), and one short line under the title says why the
+  computer is busy and that it quiets down when the check finishes. The usual tagline returns afterwards.
+
 ## 0.1.113
 
 **Dashboard**

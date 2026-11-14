@@ -4669,8 +4669,13 @@ function drawMinerStatus() {
   else if (!haveTs) { dot = GREEN; label = "submitting tickets"; sub = "mining the current block"; } // synced but no ticket timestamp (older build / first moments) — don't claim a stale time we don't have
   else if (!minerStalled(n)) { dot = GREEN; label = "submitting tickets"; sub = `last ticket ${agoStr(ageSec)}`; } // fresh, or just a slow block (no new block yet) — both fine
   else { dot = RED; label = "not submitting"; sub = `last ticket ${agoStr(ageSec)}`; } // genuinely stalled — the tip moved on but the miner didn't log a ticket
+  // Mining fine but the node is still verifying history behind the snapshot (can run a week or more on a slow
+  // machine): the pill carries that progress, so the status lives in the status spot and the header quotes stay.
+  const bvp = dot === GREEN ? backgroundVerify() : null;
+  if (bvp) { const eta = backgroundVerifyEta(bvp); sub = `checking history ${(bvp.progress * 100).toFixed(0)}%${eta ? ` · ${eta}` : ""}`; }
 
   const txt = `${label} · ${sub}`;
+  window.__pillText = txt; // test hook
   ctx.font = "600 11px ui-monospace, monospace";
   const padL = 22, w = ctx.measureText(txt).width + padL + 12, h = 18, x = (W - w) / 2, y = 5;
   ctx.fillStyle = `rgba(${dot},0.10)`; roundRect(x, y, w, h, 6); ctx.fill();
@@ -4859,7 +4864,22 @@ function render(ts) {
   text("₿ITCOIN LOTTERY", W / 2, 44, { size: 28, weight: 800, align: "center", baseline: "middle" }); // y=44 (was 38) so the fixed status pill above it has clearance
   // y=68 (was 62): at 62 the 28px title's descenders nearly touched this line. The quote + attribution + TOP
   // below all moved down by the same 6px, so this only opens up the title gap and leaves the rest as it was.
-  text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 68, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
+  // While the node verifies history behind the snapshot (hours on a fast machine, a week or two on a slow one),
+  // the static tagline makes way for one line saying why the computer is busy — the progress itself is in the
+  // status pill above. The rotating quotes below are untouched, and the tagline returns when verification ends.
+  const bvTop = backgroundVerify();
+  window.__topNotice = "";
+  if (bvTop) {
+    const mine = !isDesktop || nodeMode === "managed"; // a node you brought may be another machine
+    const pct = isDesktop ? "" : ` · ${(bvTop.progress * 100).toFixed(0)}%`; // no pill outside the app, so say it here
+    const line = `${mine ? "Your computer is" : "Your node is"} busy with a one-time check of Bitcoin's history${pct} — it quiets down when the check finishes. Mining is already running.`;
+    ctx.font = "600 12px -apple-system, system-ui, sans-serif";
+    const tw = ctx.measureText(line).width, max = W - PAD * 2, size = tw > max ? Math.max(9, 12 * max / tw) : 12;
+    text(line, W / 2, 68, { size, weight: 600, color: `rgba(255,180,80,${0.78 + 0.12 * Math.sin(clock * 1.5)})`, align: "center", baseline: "middle" });
+    window.__topNotice = line; // test hook
+  } else {
+    text("you almost certainly won't win — but it isn't zero, and zero is what you get if you never play · a real ticket, and a way to learn how Bitcoin works", W / 2, 68, { size: 11, weight: 500, color: "rgba(255,255,255,0.48)", align: "center", baseline: "middle" });
+  }
   const quoteAlpha = 0.45 + 0.12 * Math.sin(clock * 1.5);
   // both states render through the same monospace layout (p≥1 = fully resolved) so the text never shifts
   // quoteIdx is still the OUTGOING quote during "decode" — it only becomes quoteNext once the transition ends.
@@ -4873,21 +4893,7 @@ function render(ts) {
   const SRC_LINE = { y: 107, size: 12, rgb: ACCENT.replace(/\s/g, ""), lag: Q_SRC_LAG };
   const srcText = (i) => { const v = quoteSrc(i); return v ? "— " + v : ""; }; // the dash morphs in with the name
   const qp = Math.min(1, quoteT / Q_DECODE);
-  // While the node verifies history behind the snapshot, these two lines say why the computer is busy instead of
-  // showing a quote. That stretch runs for hours AFTER mining starts, when the BLOCKCHAIN SYNC panel (and its
-  // "may warm up" note) is collapsed down the page, so nothing near the top explained a fan running flat out.
-  // The quote's own band, so nothing below moves, and it hands the space back the moment verification ends.
-  const bvTop = backgroundVerify();
-  window.__topNotice = "";
-  if (bvTop) {
-    const eta = backgroundVerifyEta(bvTop), mine = !isDesktop || nodeMode === "managed"; // a node you brought may be another machine
-    const l1 = `${mine ? "Your computer is" : "Your node is"} busy with a one-time check of Bitcoin's history · ${(bvTop.progress * 100).toFixed(0)}%${eta ? ` · ${eta}` : ""}`;
-    const l2 = `${mine ? "It quiets down to near-idle" : "It quiets down"} when the check finishes. Mining is already running.`;
-    const fit = (str, size, weight) => { ctx.font = `${weight} ${size}px -apple-system, system-ui, sans-serif`; const w = ctx.measureText(str).width, max = W - PAD * 2; return w > max ? Math.max(9, size * max / w) : size; };
-    text(l1, W / 2, QUOTE_LINE.y, { size: fit(l1, 15, 600), weight: 600, color: `rgba(255,180,80,${0.8 + 0.12 * Math.sin(clock * 1.5)})`, align: "center", baseline: "middle" });
-    text(l2, W / 2, SRC_LINE.y, { size: fit(l2, 12, 500), weight: 500, color: "rgba(255,255,255,0.55)", align: "center", baseline: "middle" });
-    window.__topNotice = `${l1}\n${l2}`; // test hook
-  } else if (quotePhase === "hold") {
+  if (quotePhase === "hold") {
     drawQuoteMorph(quoteText(quoteIdx), quoteText(quoteIdx), 0, quoteAlpha, quoteIdx, QUOTE_LINE);
     drawQuoteMorph(srcText(quoteIdx), srcText(quoteIdx), 0, 0.72, quoteIdx, SRC_LINE);
   } else {

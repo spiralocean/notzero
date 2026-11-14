@@ -515,8 +515,11 @@ test("verifying: the catch-up shows in the SYNC summary while it runs", async ({
   // ...and the top of the page says why the computer is busy, since the SYNC panel is collapsed down the page
   const notice = await page.evaluate(() => window.__topNotice);
   expect(notice).toContain("Your computer is busy");
-  expect(notice).toContain("79%");
   expect(notice).toContain("quiets down");
+  // the progress rides in the status pill (desktop) or the line itself (browser), and the quotes stay
+  const pill = await page.evaluate(() => window.__pillText);
+  expect(pill ? pill : notice).toContain("79%");
+  if (pill) expect(pill).toContain("checking history");
 });
 
 // Once the node finishes, the line must disappear completely — a permanent "verifying" strip on a node that
